@@ -662,6 +662,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
     </div>
     <div style="display:flex;gap:6px;padding:8px 12px;border-bottom:.5px solid var(--bd)">
       <button class="mtab active" id="jtab-signals" onclick="setJournalTab('signals')">📡 Signal Log (auto)</button>
+      <button class="mtab" id="jtab-coach" onclick="setJournalTab('coach')">🧑‍🏫 Coach</button>
       <button class="mtab" id="jtab-trades" onclick="setJournalTab('trades')">📓 Manual Trades</button>
     </div>
     <div id="journal-body" style="flex:1;overflow-y:auto;padding:1rem"></div>
@@ -4502,6 +4503,36 @@ function autoLogSignals(){
     if(rr < 1.5) return;                            // ← the fix: no more 0.02 R:R junk
     if(stopPct > maxStopPct + 0.01) return;         // no absurd stops
 
+    // ── ENTRY REASON — factual snapshot of WHY this signal fired ──────────────
+    // Pure facts recorded at log time, so later you know exactly what triggered it.
+    var trendDesc = (d.ema20>d.ema50 && d.ema50>d.ema200) ? 'full uptrend (20>50>200)'
+      : (d.ema20>d.ema50) ? 'short-term up (20>50)' : 'mixed/down';
+    var entryReason = {
+      setup: setupType,
+      trend: trendDesc,
+      rsi: Math.round(d.rsi||0),
+      volR: Math.round((d.volR||0)*100)/100,
+      btcState: btcState,
+      aboveEMA20: d.price > (d.ema20||0),
+      aboveEMA200: d.price > (d.ema200||0),
+      structure: d.struct || '—',
+      rr: Math.round(rr*100)/100,
+      // Plain-language why-list: the specific conditions that were true at entry
+      why: (function(){
+        var w = [];
+        w.push(setupType + ' setup triggered');
+        if(d.ema20>d.ema50 && d.ema50>d.ema200) w.push('trend aligned up (EMA 20>50>200)');
+        else if(d.ema20>d.ema50) w.push('short-term trend up');
+        if(d.rsi>=45 && d.rsi<=68) w.push('RSI '+Math.round(d.rsi)+' — momentum present, not overbought');
+        if(d.rsiRising) w.push('RSI turning up');
+        if(d.volR>=1.3) w.push('volume '+d.volR.toFixed(1)+'× average — real participation');
+        else if(d.volR>=1) w.push('volume around average');
+        w.push('BTC '+btcState+' — '+((btcState==='bullish'||btcState==='stable')?'supportive backdrop':'weak backdrop'));
+        w.push('stop below support at −'+stopPct.toFixed(1)+'%, target +'+targetPct.toFixed(1)+'% (R:R '+rr.toFixed(1)+')');
+        return w;
+      })()
+    };
+
     log.unshift({
       id: d.sym+'_'+setupType.replace(/\W/g,'')+'_'+Date.now(),
       sym: d.sym, pair: d.pair, direction:'long', setupType: setupType,
@@ -4509,6 +4540,8 @@ function autoLogSignals(){
       stopPct: Math.round(stopPct*100)/100, targetPct: Math.round(targetPct*100)/100, rr: Math.round(rr*100)/100,
       score: d.score, opportunity: d.opportunity,
       btcState: btcState,   // record BTC backdrop at log time for later analysis
+      btcStateAtEntry: btcState, // snapshot for exit comparison
+      entryReason: entryReason,  // detailed why-it-fired record
       ts: Date.now(), tf: TF,
       status:'open', outcome:null, closedTs:null, closePrice:null
     });
@@ -4657,11 +4690,15 @@ function checkSignalOutcomes(){
       // price action — counting its high/low would award TP/SL on moves that
       // happened before you'd have entered, biasing wins upward.
       var hitTP=false, hitSL=false, ambiguous=false, closePrice=null, closeTs=null;
+      var maxHigh=-Infinity, minLow=Infinity, barsToClose=0; // track the journey
       for(var i=0;i<kl.length;i++){
         var t = parseInt(kl[i][0]);           // candle OPEN time (ms)
         if(t <= s.ts) continue;               // skip entry candle + anything before
         var high = parseFloat(kl[i][2]);
         var low  = parseFloat(kl[i][3]);
+        if(high>maxHigh) maxHigh=high;
+        if(low<minLow) minLow=low;
+        barsToClose++;
         var tpInBar = high >= s.tp;
         var slInBar = low  <= s.sl;
         if(tpInBar && slInBar){               // both in same candle — can't know order
@@ -4675,11 +4712,43 @@ function checkSignalOutcomes(){
       // Update the signal record
       var rec = log.find(function(x){return x.id===s.id;});
       if(!rec) return;
-      if(hitTP){ rec.status='won'; rec.outcome='TP hit'; rec.closePrice=closePrice; rec.closedTs=closeTs; checked++; }
-      else if(hitSL){ rec.status='lost'; rec.outcome='SL hit'; rec.closePrice=closePrice; rec.closedTs=closeTs; checked++; }
-      else if(ambiguous){ rec.status='ambiguous'; rec.outcome='TP & SL same candle — unclear'; rec.closePrice=closePrice; rec.closedTs=closeTs; checked++; }
+
+      // ── EXIT CONTEXT — factual circumstances + honest observations ──────────
+      // How close did price get to TP before the outcome? (% of the way there)
+      function buildExitContext(outcome){
+        var entry = s.entry;
+        var towardTP = (s.tp>entry) ? Math.max(0, Math.min(100, (maxHigh-entry)/(s.tp-entry)*100)) : 0;
+        var towardSL = (entry>s.sl) ? Math.max(0, Math.min(100, (entry-minLow)/(entry-s.sl)*100)) : 0;
+        var hoursHeld = closeTs ? Math.round((closeTs-s.ts)/3600000) : Math.round((Date.now()-s.ts)/3600000);
+        var btcNow = btcState; // BTC state at the time of THIS outcome check
+        var btcChanged = s.btcStateAtEntry && btcNow !== s.btcStateAtEntry;
+        var ctx = { outcome:outcome, hoursHeld:hoursHeld, towardTP:Math.round(towardTP),
+                    btcAtEntry:s.btcStateAtEntry||'?', btcAtExit:btcNow, btcChanged:btcChanged };
+        // Honest observations — labelled as observations, NOT certain causes
+        var obs = [];
+        if(outcome==='SL hit'){
+          obs.push('Price moved against the entry and hit the stop at −'+(s.stopPct||0)+'%.');
+          if(towardTP >= 70) obs.push('Got '+Math.round(towardTP)+'% of the way to TP first, then reversed — close call, not a clean failure.');
+          else if(towardTP < 25) obs.push('Never made progress toward TP ('+Math.round(towardTP)+'%) — the setup was wrong from the start.');
+          if(btcChanged && (btcNow==='falling'||btcNow==='dumping')) obs.push('Observation: BTC weakened from "'+s.btcStateAtEntry+'" to "'+btcNow+'" during the trade — likely contributed (alts bleed when BTC drops).');
+          if(s.setupType && s.setupType.indexOf('CHoCH')>=0) obs.push('Observation: CHoCH is a counter-trend reversal setup — historically the riskiest, fails often when the prior trend resumes.');
+          if(s.tf==='1h') obs.push('Observation: 1h is a noisy timeframe — more false signals than 4h+.');
+        } else if(outcome==='TP hit'){
+          obs.push('Price reached the target (+'+(s.targetPct||0)+'%) in ~'+hoursHeld+'h.');
+          if(towardSL >= 70) obs.push('Dipped '+Math.round(towardSL)+'% toward the stop first — survived a scare before working.');
+          if(btcNow==='bullish') obs.push('Observation: BTC was bullish — a supportive backdrop likely helped.');
+        } else if(outcome==='TP & SL same candle — unclear'){
+          obs.push('Both TP and SL were touched within one candle — true order is unknowable from candle data, so this is excluded from the win rate (honest call).');
+        }
+        ctx.observations = obs;
+        return ctx;
+      }
+
+      if(hitTP){ rec.status='won'; rec.outcome='TP hit'; rec.closePrice=closePrice; rec.closedTs=closeTs; rec.exitContext=buildExitContext('TP hit'); checked++; }
+      else if(hitSL){ rec.status='lost'; rec.outcome='SL hit'; rec.closePrice=closePrice; rec.closedTs=closeTs; rec.exitContext=buildExitContext('SL hit'); checked++; }
+      else if(ambiguous){ rec.status='ambiguous'; rec.outcome='TP & SL same candle — unclear'; rec.closePrice=closePrice; rec.closedTs=closeTs; rec.exitContext=buildExitContext('TP & SL same candle — unclear'); checked++; }
       // Expire signals older than 14 days that never resolved (avoid open forever)
-      else if((Date.now()-s.ts) > 14*86400000){ rec.status='expired'; rec.outcome='No TP/SL in 14d'; checked++; }
+      else if((Date.now()-s.ts) > 14*86400000){ rec.status='expired'; rec.outcome='No TP/SL in 14d'; rec.exitContext={outcome:'expired', observations:['Price never reached TP or SL within 14 days — the setup fizzled without conviction either way.']}; checked++; }
     }).catch(function(){ /* leave open, try again next load */ });
   })).then(function(){
     saveSignalLog(log);
@@ -4797,6 +4866,110 @@ function runHealthCheck(){
   }
 
   return {checks:checks, perf:st};
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE COACH — evidence-based advice from YOUR REAL LOG (not market predictions).
+// Every suggestion is grounded in your actual results + statistics. It tells you
+// what the data supports changing, flags what's too-small-to-judge, and refuses
+// to give confident calls the sample can't back. This is the automated version of
+// honest professional feedback: it critiques your DATA, never predicts the market.
+// ═══════════════════════════════════════════════════════════════════════════
+function buildCoachAdvice(){
+  var st = signalLogStats();
+  var log = loadSignalLog();
+  var advice = []; // {level:'good'|'warn'|'bad'|'info', title, detail}
+
+  // ── Overall verdict — gated by sample size ──────────────────────────────
+  if(st.resolved === 0){
+    advice.push({level:'info', title:'No resolved trades yet',
+      detail:'Nothing to coach on until signals close (TP or SL hit). Let the log build — come back when you have 30+ resolved. Right now the most useful thing is patience.'});
+    return {advice:advice, st:st};
+  }
+
+  var breakeven = 40; // at 1.5 R:R, need 40% to break even
+  if(st.resolved < 30){
+    advice.push({level:'warn', title:'Too few trades to judge ('+st.resolved+' resolved)',
+      detail:'Your win rate is '+st.winRate+'% but the 95% CI is '+st.ci.low+'–'+st.ci.high+'% — far too wide to conclude anything. Do NOT change strategy or size up based on this. The single most valuable thing right now is more data. Aim for 150+.'});
+  } else {
+    var verdict = st.winRate >= breakeven ? 'good' : 'bad';
+    advice.push({level:verdict, title:'Overall: '+st.winRate+'% win rate ('+st.resolved+' resolved, CI '+st.ci.low+'–'+st.ci.high+'%)',
+      detail: st.winRate >= breakeven
+        ? 'Above the ~40% breakeven for 1.5 R:R — the system is currently profitable on this sample. But the CI still matters: keep collecting before sizing up.'
+        : 'Below the ~40% breakeven needed at 1.5 R:R — on this sample the system is losing money. The per-setup breakdown below shows where the damage is. Do not trade this live with size yet.'});
+  }
+
+  // ── Per-setup advice — the real payoff ──────────────────────────────────
+  var types = Object.keys(st.byType);
+  types.forEach(function(t){
+    var b = st.byType[t];
+    if(b.resolved === 0){
+      if(b.open >= 3) advice.push({level:'info', title:t+': '+b.open+' open, none resolved yet',
+        detail:'Wait for these to close before judging this setup.'});
+      return;
+    }
+    var ci = wilsonCI(b.won, b.resolved);
+    // Strong evidence it's broken: enough trades AND upper CI below breakeven
+    if(b.resolved >= 8 && ci.high < breakeven){
+      // How unlikely is this if the setup were actually breakeven?
+      var pIfBreakeven = Math.pow(1-breakeven/100, b.lost) ; // rough: chance of this many losses
+      advice.push({level:'bad', title:'⚠️ '+t+' looks broken: '+b.won+'W/'+b.lost+'L ('+(b.winRate)+'%)',
+        detail:'Even the optimistic end of the range ('+ci.high+'%) is below the '+breakeven+'% breakeven. With '+b.resolved+' resolved, this is unlikely to be bad luck. The data-driven move: disable this setup, or add stricter confirmation before it fires. This is where your losses are concentrated.'});
+    } else if(b.resolved >= 8 && ci.low >= breakeven){
+      advice.push({level:'good', title:'✓ '+t+' is working: '+b.won+'W/'+b.lost+'L ('+b.winRate+'%)',
+        detail:'Even the pessimistic end ('+ci.low+'%) is at/above breakeven. This setup is earning its place — keep it, and don\'t over-tinker with what works.'});
+    } else if(b.resolved >= 8){
+      advice.push({level:'warn', title:t+': '+b.won+'W/'+b.lost+'L ('+b.winRate+'%) — straddles breakeven',
+        detail:'True rate likely '+ci.low+'–'+ci.high+'%, which spans the '+breakeven+'% line. Could be slightly winning or losing — not enough to tell yet. Keep it, keep watching, don\'t change it on this evidence.'});
+    } else {
+      advice.push({level:'info', title:t+': only '+b.resolved+' resolved — too few to judge',
+        detail:'Need ~8+ resolved before this setup\'s number means anything. No action yet.'});
+    }
+  });
+
+  // ── Timeframe analysis — which TF actually works ────────────────────────
+  var byTF = {};
+  log.forEach(function(s){
+    if(s.status!=='won' && s.status!=='lost') return;
+    var tf = s.tf||'?';
+    if(!byTF[tf]) byTF[tf]={won:0,lost:0};
+    byTF[tf][s.status==='won'?'won':'lost']++;
+  });
+  var tfKeys = Object.keys(byTF).filter(function(tf){return byTF[tf].won+byTF[tf].lost >= 8;});
+  if(tfKeys.length >= 2){
+    var tfRates = tfKeys.map(function(tf){
+      var r=byTF[tf].won+byTF[tf].lost;
+      return {tf:tf, wr:Math.round(byTF[tf].won/r*100), n:r};
+    }).sort(function(a,b){return b.wr-a.wr;});
+    var best=tfRates[0], worst=tfRates[tfRates.length-1];
+    if(best.wr - worst.wr >= 15){
+      advice.push({level:'info', title:'Timeframe gap: '+best.tf+' ('+best.wr+'%) vs '+worst.tf+' ('+worst.wr+'%)',
+        detail:best.tf+' is meaningfully outperforming '+worst.tf+' on '+best.n+' and '+worst.n+' trades. Consider favoring '+best.tf+' setups and being more selective on '+worst.tf+'. (Still watch the sample sizes.)'});
+    }
+  }
+
+  // ── BTC-state analysis — does backdrop matter? ──────────────────────────
+  var byBTC = {};
+  log.forEach(function(s){
+    if(s.status!=='won' && s.status!=='lost') return;
+    var b=s.btcStateAtEntry||s.btcState||'?';
+    if(!byBTC[b]) byBTC[b]={won:0,lost:0};
+    byBTC[b][s.status==='won'?'won':'lost']++;
+  });
+  if(byBTC['bullish'] && byBTC['stable']){
+    var bn=byBTC['bullish'].won+byBTC['bullish'].lost, sn=byBTC['stable'].won+byBTC['stable'].lost;
+    if(bn>=8 && sn>=8){
+      var bwr=Math.round(byBTC['bullish'].won/bn*100), swr=Math.round(byBTC['stable'].won/sn*100);
+      if(bwr-swr>=15) advice.push({level:'info', title:'BTC backdrop matters: bullish '+bwr+'% vs stable '+swr+'%',
+        detail:'Your signals do notably better when BTC is bullish vs merely stable. Consider only taking signals when BTC is bullish — or sizing smaller when it\'s just stable.'});
+    }
+  }
+
+  // ── Closing honest note ─────────────────────────────────────────────────
+  advice.push({level:'info', title:'How to use this',
+    detail:'Every point above is from YOUR real logged trades, with confidence intervals — not market predictions. It tells you what your data supports changing. It will never say "buy this coin now" because that\'s a guess the data can\'t back. For deeper analysis, export your log and have a human (or me, in chat) reason through it.'});
+
+  return {advice:advice, st:st};
 }
 
 function signalLogStats(){
@@ -4932,15 +5105,38 @@ function openJournal(){
 var _journalTab = 'signals';
 function setJournalTab(t){
   _journalTab = t;
-  var s=document.getElementById('jtab-signals'), tr=document.getElementById('jtab-trades');
+  var s=document.getElementById('jtab-signals'), tr=document.getElementById('jtab-trades'), co=document.getElementById('jtab-coach');
   if(s) s.classList.toggle('active', t==='signals');
+  if(co) co.classList.toggle('active', t==='coach');
   if(tr) tr.classList.toggle('active', t==='trades');
   renderJournal();
 }
 
 function renderJournal(){
   if(_journalTab==='signals') return renderSignalLog();
+  if(_journalTab==='coach') return renderCoach();
   return renderManualTrades();
+}
+
+function renderCoach(){
+  var body=document.getElementById('journal-body');
+  if(!body) return;
+  var C = buildCoachAdvice();
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:.3rem">🧑‍🏫 Coach — advice from your real log</div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.5">Evidence-based feedback from YOUR logged trades, with confidence intervals. It critiques your data — it does not predict the market or tell you to buy anything.</div>';
+  h += '</div>';
+
+  h += C.advice.map(function(a){
+    var col = a.level==='good'?'var(--g)':a.level==='bad'?'var(--r)':a.level==='warn'?'var(--am)':'var(--t2)';
+    var bg = a.level==='good'?'rgba(38,166,154,.08)':a.level==='bad'?'rgba(239,83,80,.08)':a.level==='warn'?'rgba(245,158,11,.08)':'var(--card2)';
+    var icon = a.level==='good'?'✅':a.level==='bad'?'🔴':a.level==='warn'?'⚠️':'💡';
+    return '<div style="background:'+bg+';border-left:3px solid '+col+';border-radius:8px;padding:.75rem .875rem;margin-bottom:.6rem">' +
+      '<div style="font-size:12px;font-weight:700;color:'+col+';margin-bottom:3px">'+icon+' '+a.title+'</div>' +
+      '<div style="font-size:11px;color:var(--t2);line-height:1.55">'+a.detail+'</div></div>';
+  }).join('');
+
+  body.innerHTML = h;
 }
 
 function renderSignalLog(){
@@ -5012,7 +5208,7 @@ function renderSignalLog(){
   }
 
   // List of signals, newest first
-  var rows = log.map(function(s){
+  var rows = log.map(function(s, idx){
     var statusBadge = s.status==='won' ? '<span style="color:var(--g);font-weight:700">✅ TP hit</span>'
       : s.status==='lost' ? '<span style="color:var(--r);font-weight:700">❌ SL hit</span>'
       : s.status==='ambiguous' ? '<span style="color:var(--t3)">⚠️ Unclear</span>'
@@ -5022,16 +5218,64 @@ function renderSignalLog(){
     var pnl = '';
     if(s.status==='won') pnl='<span style="color:var(--g);font-size:11px">+'+((s.tp-s.entry)/s.entry*100).toFixed(1)+'%</span>';
     else if(s.status==='lost') pnl='<span style="color:var(--r);font-size:11px">'+((s.sl-s.entry)/s.entry*100).toFixed(1)+'%</span>';
-    return '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:.5px solid var(--bd);font-size:12px">' +
-      '<div style="flex:0 0 75px;font-weight:700">'+s.pair.replace('/USDT','').replace('/JPY','')+'</div>' +
-      '<div style="flex:0 0 115px;font-size:10px;color:var(--t3)">'+(s.setupType||'').replace(' (high-conviction)','')+'</div>' +
-      '<div style="flex:0 0 115px">'+statusBadge+' '+pnl+'</div>' +
-      '<div style="flex:0 0 95px;font-size:10px;color:var(--t3)">'+(s.tf||'?')+' · R:R '+(s.rr!=null?s.rr:((s.tp-s.entry)/(s.entry-s.sl)).toFixed(1))+'</div>' +
+    var hasDetail = s.entryReason || s.exitContext;
+    return '<div onclick="toggleSigDetail(\''+s.id+'\')" style="cursor:pointer">' +
+      '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:.5px solid var(--bd);font-size:12px">' +
+      '<div style="flex:0 0 14px;color:var(--t3);font-size:10px">'+(hasDetail?'▸':'')+'</div>' +
+      '<div style="flex:0 0 68px;font-weight:700">'+s.pair.replace('/USDT','').replace('/JPY','')+'</div>' +
+      '<div style="flex:0 0 110px;font-size:10px;color:var(--t3)">'+(s.setupType||'').replace(' (high-conviction)','')+'</div>' +
+      '<div style="flex:0 0 110px">'+statusBadge+' '+pnl+'</div>' +
+      '<div style="flex:0 0 90px;font-size:10px;color:var(--t3)">'+(s.tf||'?')+' · R:R '+(s.rr!=null?s.rr:((s.tp-s.entry)/(s.entry-s.sl)).toFixed(1))+'</div>' +
       '<div style="flex:1;color:var(--t3);font-size:10px">E '+fE(s.entry)+' · TP '+fE(s.tp)+' · SL '+fE(s.sl)+'</div>' +
       '<div style="flex:0 0 auto;color:var(--t3);font-size:10px">'+when+'</div>' +
+      '</div>' +
+      '<div id="sigdet-'+s.id+'" style="display:none;padding:10px 14px;background:var(--card2);border-bottom:.5px solid var(--bd)">'+buildSigDetail(s)+'</div>' +
     '</div>';
   }).join('');
   body.innerHTML = head + '<div style="background:var(--card);border-radius:var(--rad);overflow:hidden">'+rows+'</div>';
+}
+
+// Build the expandable "why" detail for a signal — entry reason + exit context
+function buildSigDetail(s){
+  var h = '';
+  // ENTRY REASON
+  if(s.entryReason){
+    var er = s.entryReason;
+    h += '<div style="font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;margin-bottom:4px">🎯 Why it entered</div>';
+    if(er.why && er.why.length){
+      h += '<ul style="margin:0 0 8px;padding-left:16px;font-size:11px;color:var(--t2);line-height:1.6">';
+      h += er.why.map(function(w){ return '<li>'+w+'</li>'; }).join('');
+      h += '</ul>';
+    }
+  } else {
+    h += '<div style="font-size:11px;color:var(--t3);margin-bottom:8px">Entry detail not recorded (older signal, before this feature).</div>';
+  }
+  // EXIT CONTEXT
+  if(s.exitContext){
+    var ex = s.exitContext;
+    var col = s.status==='won'?'var(--g)':s.status==='lost'?'var(--r)':'var(--t3)';
+    h += '<div style="font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;margin:6px 0 4px">📉 What happened</div>';
+    h += '<div style="font-size:11px;color:var(--t2);line-height:1.6">';
+    if(ex.hoursHeld!=null) h += 'Held ~'+ex.hoursHeld+'h · ';
+    if(ex.towardTP!=null) h += 'reached '+ex.towardTP+'% of the way to TP · ';
+    if(ex.btcAtEntry) h += 'BTC '+ex.btcAtEntry+(ex.btcChanged?' → '+ex.btcAtExit:'')+'.';
+    h += '</div>';
+    if(ex.observations && ex.observations.length){
+      h += '<ul style="margin:6px 0 0;padding-left:16px;font-size:11px;color:'+col+';line-height:1.6">';
+      h += ex.observations.map(function(o){ return '<li>'+o+'</li>'; }).join('');
+      h += '</ul>';
+    }
+  } else if(s.status==='open'){
+    h += '<div style="font-size:11px;color:var(--am);margin-top:4px">⏳ Still open — outcome context appears once TP or SL is hit.</div>';
+  }
+  // Honest footer
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:8px;line-height:1.5;font-style:italic">Observations are factual context, not certain causes — markets don\'t explain themselves. Use these to spot patterns across many trades, not to over-explain any single one.</div>';
+  return h;
+}
+
+function toggleSigDetail(id){
+  var el = document.getElementById('sigdet-'+id);
+  if(el) el.style.display = el.style.display==='none' ? 'block' : 'none';
 }
 
 function renderManualTrades(){
