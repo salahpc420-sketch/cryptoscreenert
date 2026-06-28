@@ -824,8 +824,8 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
         <span style="font-size:10px;color:var(--t3);font-weight:600">TF:</span>
         <button class="modal-tf-btn" id="sc-tf-15m" onclick="setScanTF('15m')">15m</button>
-        <button class="modal-tf-btn active" id="sc-tf-1h"  onclick="setScanTF('1h')">1h</button>
-        <button class="modal-tf-btn" id="sc-tf-4h"  onclick="setScanTF('4h')">4h</button>
+        <button class="modal-tf-btn" id="sc-tf-1h"  onclick="setScanTF('1h')">1h</button>
+        <button class="modal-tf-btn active" id="sc-tf-4h"  onclick="setScanTF('4h')">4h</button>
         <button class="modal-tf-btn" id="sc-tf-1d"  onclick="setScanTF('1d')">1d</button>
         <button class="modal-tf-btn" id="sc-tf-1w"  onclick="setScanTF('1w')">1w</button>
         <button class="mclose" onclick="closeOv('scan-ov')">✕</button>
@@ -2562,7 +2562,7 @@ var BTC_FILTER_THRESHOLD = CONFIG.BTC_FILTER_THRESHOLD; // from CONFIG
 // ═══════════════════════════════════════════════════════════
 // STATE — core global variables
 // ═══════════════════════════════════════════════════════════
-var Q='USDT', TF='1h', allData=[], sortS={col:'opportunity',dir:-1}, autoTmr=null, searchQ='', curSym=null, scanTab='aplus';
+var Q='USDT', TF='4h', allData=[], sortS={col:'opportunity',dir:-1}, autoTmr=null, searchQ='', curSym=null, scanTab='aplus';
 
 // ═══════════════════════════════════════════════════════════
 // LOAD ALL
@@ -2744,7 +2744,10 @@ function loadAll() {
     render();
     checkAlerts(allData);
     checkPriceAlerts(allData);
-    autoLogSignals(); // record any new A+ signals for outcome tracking
+    autoLogSignals(); // record any new signals on the ACTIVE timeframe
+    // Background: also log signals on the OTHER timeframes (1h/4h/1d/1w) so the
+    // record is complete across all TFs. Delayed so it doesn't slow the main view.
+    setTimeout(function(){ backgroundLogAllTFs(); }, 4000);
     // Start WebSocket live price stream for top coins
     if (!_ws || _ws.readyState !== 1) {
       var wsSyms = allData.filter(function(d){return d.sym.endsWith('USDT');}).map(function(d){return d.sym;}).slice(0,30);
@@ -3589,25 +3592,16 @@ var scanTF = TF; // scanner can use its own TF independently
 
 function setScanTF(tf) {
   scanTF = tf;
+  TF = tf; // make this the ACTIVE timeframe so the main scan + logging follow it
   document.querySelectorAll('[id^="sc-tf-"]').forEach(function(b) {
     b.classList.toggle('active', b.id === 'sc-tf-' + tf);
   });
-  // Re-run scan on new TF — need to re-fetch data
+  // Re-run the FULL scan on the new TF so signals are detected AND logged for it.
+  // (Previously this only updated the scanner panel and reset TF back, so trades
+  // on a non-default timeframe were never logged.)
   var body = document.getElementById('scan-body');
   if (body) body.innerHTML = '<div class="msg" style="padding:2rem">🔄 Fetching ' + tf + ' data…</div>';
-  var syms = SYM[Q];
-  bybitTickers(syms).catch(function() {
-    return bnFetch('/api/v3/ticker/24hr?symbols=' + encodeURIComponent(JSON.stringify(syms)));
-  }).then(function(tickers) {
-    var oldTF = TF; TF = tf;
-    return Promise.all(tickers.map(processSymbol)).then(function(results) {
-      TF = oldTF;
-      scanData = results.filter(Boolean);
-      runScanner();
-    });
-  }).catch(function() {
-    if (body) body.innerHTML = '<div class="msg">⚠ Failed to load ' + tf + ' data.</div>';
-  });
+  loadAll(); // full scan on the new TF — this calls autoLogSignals() internally
 }
 
 var scanData = null; // cache for current scanner results (may differ from allData if TF differs)
@@ -4466,13 +4460,14 @@ function autoLogSignals(){
   });
   if(log.length !== beforeLen){ saveSignalLog(log); }
 
-  // Track open signals per coin+setupType so we don't double-log the same active setup
+  // Track open signals per coin+setupType+TIMEFRAME so the same coin can have a
+  // separate logged signal on each timeframe (1h, 4h, 1d, 1w) without colliding.
   var openKey = {};
-  log.forEach(function(s){ if(s.status==='open') openKey[s.sym+'|'+s.setupType]=true; });
+  log.forEach(function(s){ if(s.status==='open') openKey[s.sym+'|'+s.setupType+'|'+(s.tf||'?')]=true; });
   var added = 0;
 
   function logIt(d, setupType){
-    if(openKey[d.sym+'|'+setupType]) return;       // already tracking this setup for this coin
+    if(openKey[d.sym+'|'+setupType+'|'+TF]) return;  // already tracking this setup on this TF
     if(!d.price) return;
     // ── BTC-STATE GATE — only log ALT buy signals when BTC is stable or bullish ──
     // Alts bleed harder when BTC drops, so logging alt buys during a BTC downturn
@@ -4517,7 +4512,7 @@ function autoLogSignals(){
       ts: Date.now(), tf: TF,
       status:'open', outcome:null, closedTs:null, closePrice:null
     });
-    openKey[d.sym+'|'+setupType] = true;
+    openKey[d.sym+'|'+setupType+'|'+TF] = true;
     added++;
   }
 
@@ -4527,13 +4522,114 @@ function autoLogSignals(){
     if(d.highConviction) logIt(d, 'A+ (high-conviction)');
     // Tier 2 — standard buy signal (more frequent)
     else if(d.buySignal || d.signal==='buy') logIt(d, 'Buy signal');
-    // Setup-specific (can coexist) — each builds its own track record
-    if(d.emaRetest && d.emaRetest.state==='retest_completed') logIt(d, 'EMA20 retest');
-    if(d.breakout && d.breakout.state==='confirmed') logIt(d, 'Breakout confirmed');
-    if(d.smc && d.smc.choch==='bull') logIt(d, 'Bullish CHoCH');
+
+    // ── Setup-specific logging — NOW with bullish-context filters ──────────────
+    // A pattern alone isn't a bullish signal. A CHoCH or EMA-retest only works if
+    // it happens in a bullish CONTEXT. Data (0/12 CHoCH, 1h noise) showed the raw
+    // patterns fail. These filters require trend + momentum confirmation.
+
+    // Shared bullish-context gate: uptrend structure + rising momentum + not weak
+    var trendUp = d.ema20 > d.ema50;                 // short-term trend up
+    var rsiOK   = d.rsi >= 45 && d.rsi <= 68;        // momentum present, not overbought/weak
+    var momentumUp = d.rsiRising;                     // RSI actually turning up
+    var volOK   = d.volR >= 1.0;                      // at least average participation
+    // STRONG bullish context: full EMA stack up AND price above it. This is the
+    // "is this ACTUALLY bullish?" gate — neither CHoCH nor a retest is bullish
+    // without it. (A retest in a downtrend is just a bounce; a CHoCH that hasn't
+    // reclaimed the stack is just a fakeout.)
+    var fullStackUp = d.ema20 > d.ema50 && d.ema50 > d.ema200;   // 20>50>200
+    var priceAboveStack = d.price > d.ema20 && d.price > d.ema50; // price leads
+    var trulyBullish = fullStackUp && priceAboveStack;
+
+    // EMA20 RETEST — bullish ONLY as a dip-buy in a confirmed uptrend.
+    // Require the FULL stack up (not just 20>50) so a downtrend bounce can't qualify.
+    if(d.emaRetest && d.emaRetest.state==='retest_completed'
+       && trulyBullish                              // full 20>50>200 stack, price above
+       && rsiOK && momentumUp) {
+      logIt(d, 'EMA20 retest');
+    }
+
+    // BREAKOUT confirmed — require it holds above with volume + real uptrend
+    if(d.breakout && d.breakout.state==='confirmed'
+       && trulyBullish && volOK && rsiOK) {
+      logIt(d, 'Breakout confirmed');
+    }
+
+    // BULLISH CHoCH — the 0/12 killer. A CHoCH is by definition an EARLY counter-
+    // trend break, so "is it bullish yet?" is the whole question. The data says
+    // firing on the break alone loses ~100% of the time. So now we require the
+    // reversal to be PROVEN, not just starting:
+    //   • full EMA stack has flipped up (20>50>200) — the trend actually turned
+    //   • price holding above the stack — not just a wick through a level
+    //   • momentum + volume confirm — real buyers, not a fakeout
+    //   • BTC bullish — counter-trend longs need a strong market tailwind
+    // This converts CHoCH from "reversal MIGHT be starting" to "reversal has been
+    // confirmed" — which is really a continuation entry, and far higher-probability.
+    if(d.smc && d.smc.choch==='bull'
+       && trulyBullish                              // reversal actually completed (stack up)
+       && momentumUp && rsiOK                       // momentum confirms the turn
+       && d.volR >= 1.3                             // strong participation behind it
+       && btcState === 'bullish') {                 // strong market tailwind required
+      logIt(d, 'Bullish CHoCH (confirmed)');
+    }
   });
   if(added>0) saveSignalLog(log.slice(0, 800)); // cap to bound storage
   return added;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BACKGROUND MULTI-TIMEFRAME LOGGER — logs signals on ALL timeframes (1h,4h,1d,1w)
+// automatically, even while you're only viewing the 4h default. This builds a
+// complete cross-timeframe record so you can later see WHICH timeframe actually
+// works best — without manually clicking through each one.
+//
+// Runs quietly in the background, one TF at a time with delays, so it doesn't
+// hammer the CORS proxies or disturb the main 4h view. The currently-active TF is
+// already logged by autoLogSignals(), so this only does the OTHER timeframes.
+// ═══════════════════════════════════════════════════════════════════════════
+var _bgLogTFs = ['1h','4h','1d','1w'];
+var _bgLogBusy = false;
+function backgroundLogAllTFs(){
+  if(_bgLogBusy) return;            // don't overlap runs
+  if(!allData || !allData.length) return; // need a baseline first
+  _bgLogBusy = true;
+
+  // Only the timeframes OTHER than the one currently active (that one's already logged)
+  var activeTF = TF;
+  var todo = _bgLogTFs.filter(function(tf){ return tf !== activeTF; });
+  var syms = SYM[Q];
+
+  // Process one timeframe at a time, with a pause between, to stay gentle on proxies.
+  function doNextTF(i){
+    if(i >= todo.length){
+      TF = activeTF;        // restore the active timeframe
+      _bgLogBusy = false;
+      return;
+    }
+    var tf = todo[i];
+    bybitTickers(syms).catch(function(){
+      return bnFetch('/api/v3/ticker/24hr?symbols='+encodeURIComponent(JSON.stringify(syms)));
+    }).then(function(tickers){
+      TF = tf;  // temporarily switch so processSymbol fetches THIS tf's klines
+      return Promise.all(tickers.map(function(t){
+        return processSymbol(t).catch(function(){ return null; });
+      }));
+    }).then(function(results){
+      var tfData = results.filter(Boolean);
+      // Temporarily point allData at this TF's data so autoLogSignals logs for it,
+      // then restore. (autoLogSignals reads allData + global TF; both are set here.)
+      var savedData = allData;
+      allData = tfData;
+      try { autoLogSignals(); } catch(e){}
+      allData = savedData;
+      // Pause before the next timeframe to avoid rate-limiting
+      setTimeout(function(){ doNextTF(i+1); }, 2500);
+    }).catch(function(){
+      // On failure, skip this TF and continue
+      setTimeout(function(){ doNextTF(i+1); }, 2500);
+    });
+  }
+  doNextTF(0);
 }
 
 // Check outcomes for all OPEN signals: fetch klines since each fired, walk candles,
@@ -4546,10 +4642,15 @@ function checkSignalOutcomes(){
   var checked = 0;
   // Process sequentially-ish but in small parallel batches to be gentle on proxies
   return Promise.all(open.map(function(s){
-    // Fetch enough recent klines to cover since the signal fired. Use 15m for precision.
+    // Fetch enough recent klines to cover since the signal fired. Use 15m for
+    // precision on short TFs; for older/long-TF signals that exceed the 15m window,
+    // fall back to 1h klines so we still cover the full period without missing bars.
     var hoursSince = (Date.now() - s.ts) / 3600000;
-    var bars = Math.min(900, Math.ceil(hoursSince * 4) + 5); // 15m bars
-    return bybitKlines(s.sym, '15m', bars).then(function(kl){
+    var use15m = hoursSince <= 200;                       // 15m covers ~8 days well
+    var ckInt = use15m ? '15m' : '1h';
+    var perHr = use15m ? 4 : 1;
+    var bars = Math.min(900, Math.ceil(hoursSince * perHr) + 5);
+    return bybitKlines(s.sym, ckInt, bars).then(function(kl){
       if(!kl || !kl.length) return;
       // FIX #4: Only evaluate candles that OPENED STRICTLY AFTER the signal fired.
       // The candle forming at signal time (open time ≤ s.ts) contains pre-signal
