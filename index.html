@@ -6254,7 +6254,51 @@ function buildTradePlan(d){
   h += '<div style="font-size:10px;color:var(--t3);margin-top:.75rem;line-height:1.5;background:rgba(245,158,11,.06);padding:7px;border-radius:6px">⚠️ <strong>This is a structured read of current data, not a prediction.</strong> The "Strong/Moderate/Weak" reads count how many real conditions are met — they are <strong>not probabilities</strong> (a tool that shows "73% breakout" is inventing precision). Holding time is a rough ATR-based estimate; timing is the least predictable part. Invalidation: if price closes below '+fE(sl)+', the setup is wrong — exit.</div>';
   h += '</div>';
 
+  // ── PRE-TRADE CHECKLIST — the human confirmation the indicators can't do ──
+  // These are deliberately things the tool CANNOT check — only you can. The
+  // checklist forces a pause before acting. It's real confirmation (independent
+  // of the signal), not the tool re-confirming its own math.
+  h += '<div style="background:var(--card2);border-radius:var(--rad-lg);padding:1rem;margin-bottom:1rem;border:.5px solid var(--am)">';
+  h += '<div style="font-size:13px;font-weight:800;color:var(--am);margin-bottom:.3rem">✋ Before you enter — confirm these yourself</div>';
+  h += '<div style="font-size:10px;color:var(--t3);margin-bottom:.75rem;line-height:1.5">The screener found the setup. These are the things it <strong>cannot</strong> see — only you can. Tick them honestly before acting. This is your real confirmation, not the tool re-confirming its own numbers.</div>';
+  var checks = [
+    'I looked at the actual chart (TradingView) and it agrees with this read',
+    'No major news or event is distorting this coin right now',
+    'The entry level looks clean on the chart — not a messy wick or fakeout',
+    'I\'m genuinely OK losing '+(d.atrPct?Math.min(8,Math.max(2.5,d.atrPct*2)).toFixed(1):'~3')+'% if the stop hits',
+    'My position size is planned (not oversized / not revenge-trading)',
+    'This fits my plan — I\'m not chasing FOMO or forcing a trade'
+  ];
+  h += '<div id="precheck-list">';
+  h += checks.map(function(c,i){
+    return '<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;font-size:11px;color:var(--t2);line-height:1.5;cursor:pointer">' +
+      '<input type="checkbox" class="precheck-box" onchange="updatePrecheck()" style="margin-top:1px;flex:0 0 auto;width:15px;height:15px;cursor:pointer">' +
+      '<span>'+c+'</span></label>';
+  }).join('');
+  h += '</div>';
+  h += '<div id="precheck-verdict" style="margin-top:.6rem;padding:8px;border-radius:7px;background:var(--card);font-size:11px;color:var(--t3);text-align:center;font-weight:700">Tick all 6 to confirm you\'re ready</div>';
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:8px;line-height:1.5;font-style:italic">This checklist isn\'t saved or tracked — it\'s a discipline pause, just for you, right now. Honesty here is the whole point; there\'s no one to impress by ticking boxes you haven\'t actually checked.</div>';
+  h += '</div>';
+
   return h;
+}
+
+// Update the checklist verdict as boxes are ticked
+function updatePrecheck(){
+  var boxes = document.querySelectorAll('.precheck-box');
+  var checked = 0;
+  boxes.forEach(function(b){ if(b.checked) checked++; });
+  var v = document.getElementById('precheck-verdict');
+  if(!v) return;
+  if(checked === boxes.length){
+    v.style.background = 'rgba(38,166,154,.15)';
+    v.style.color = 'var(--g)';
+    v.textContent = '✅ All confirmed — you\'ve done your due diligence. The decision is yours.';
+  } else {
+    v.style.background = 'var(--card)';
+    v.style.color = 'var(--t3)';
+    v.textContent = checked+'/'+boxes.length+' confirmed — '+(boxes.length-checked)+' left. Don\'t skip them.';
+  }
 }
 
 function runProAnalysis(d) {
