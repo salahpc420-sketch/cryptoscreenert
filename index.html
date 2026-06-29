@@ -6254,8 +6254,57 @@ function buildTradePlan(d){
   h += '<div style="font-size:10px;color:var(--t3);margin-top:.75rem;line-height:1.5;background:rgba(245,158,11,.06);padding:7px;border-radius:6px">⚠️ <strong>This is a structured read of current data, not a prediction.</strong> The "Strong/Moderate/Weak" reads count how many real conditions are met — they are <strong>not probabilities</strong> (a tool that shows "73% breakout" is inventing precision). Holding time is a rough ATR-based estimate; timing is the least predictable part. Invalidation: if price closes below '+fE(sl)+', the setup is wrong — exit.</div>';
   h += '</div>';
 
-  // ── PRE-TRADE CHECKLIST — the human confirmation the indicators can't do ──
-  // These are deliberately things the tool CANNOT check — only you can. The
+  // ── WHERE PRICE IS NOW — factual position descriptor (NOT a timing prediction) ──
+  // Describes the CURRENT state: how deep the pullback is, where price sits in its
+  // recent range, distance to support/resistance. It deliberately does NOT say
+  // "pump next" or "retrace done" — that's unknowable. It tells you where you ARE,
+  // and YOU judge what's next.
+  var p2 = d.price;
+  var hi = d.res && d.res > p2 ? d.res : p2;        // nearest resistance / recent high
+  var lo = d.sup && d.sup < p2 ? d.sup : p2*0.9;    // nearest support
+  var ddFromHi = d.ddHigh != null ? d.ddHigh : (d.fromHigh != null ? Math.round(d.fromHigh) : null);
+  // Position within the support→resistance range (0% = at support, 100% = at resistance)
+  var rangePos = (hi > lo) ? Math.round((p2 - lo)/(hi - lo)*100) : 50;
+  rangePos = Math.max(0, Math.min(100, rangePos));
+  var distSup = lo < p2 ? ((p2 - lo)/p2*100) : 0;
+  var distRes = hi > p2 ? ((hi - p2)/p2*100) : 0;
+  var e20dist = d.ema20 ? (p2 - d.ema20)/d.ema20*100 : 0;
+
+  // Factual location phrases (describing, never predicting)
+  var locPhrase, locColor;
+  if(rangePos <= 20){ locPhrase='near the LOW of its recent range (close to support)'; locColor='var(--g)'; }
+  else if(rangePos >= 80){ locPhrase='near the HIGH of its recent range (close to resistance)'; locColor='var(--am)'; }
+  else if(rangePos >= 40 && rangePos <= 60){ locPhrase='in the MIDDLE of its recent range'; locColor='var(--t2)'; }
+  else if(rangePos < 40){ locPhrase='in the LOWER part of its recent range'; locColor='var(--g)'; }
+  else { locPhrase='in the UPPER part of its recent range'; locColor='var(--am)'; }
+
+  h += '<div style="background:var(--card2);border-radius:var(--rad-lg);padding:1rem;margin-bottom:1rem;border:.5px solid var(--bd)">';
+  h += '<div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:.5rem">📍 Where price is right now</div>';
+
+  // Visual range bar
+  h += '<div style="margin:.5rem 0 .75rem">';
+  h += '<div style="display:flex;justify-content:space-between;font-size:9px;color:var(--t3);margin-bottom:2px"><span>Support '+fE(lo)+'</span><span>Resistance '+fE(hi)+'</span></div>';
+  h += '<div style="position:relative;height:8px;background:linear-gradient(90deg,rgba(38,166,154,.3),rgba(245,158,11,.3));border-radius:4px">';
+  h += '<div style="position:absolute;left:'+rangePos+'%;top:-3px;width:3px;height:14px;background:var(--text);border-radius:2px;transform:translateX(-50%)"></div>';
+  h += '</div>';
+  h += '<div style="text-align:center;font-size:10px;color:'+locColor+';margin-top:4px;font-weight:700">'+rangePos+'% up the range — '+locPhrase+'</div>';
+  h += '</div>';
+
+  // Factual rows
+  function pr(label,val,col){ return '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:.5px solid var(--bd);font-size:11px"><span style="color:var(--t3)">'+label+'</span><span style="font-weight:700;color:'+(col||'var(--text)')+'">'+val+'</span></div>'; }
+  if(ddFromHi != null) h += pr('Pulled back from recent high', ddFromHi+'%', ddFromHi<=-20?'var(--g)':'var(--t2)');
+  h += pr('Distance to support', '−'+distSup.toFixed(1)+'%', 'var(--g)');
+  h += pr('Distance to resistance', '+'+distRes.toFixed(1)+'%', 'var(--am)');
+  h += pr('vs EMA20', (e20dist>=0?'+':'')+e20dist.toFixed(1)+'%', Math.abs(e20dist)<2?'var(--g)':'var(--t2)');
+  h += pr('RSI', Math.round(d.rsi||0)+(d.rsi<=35?' (oversold)':d.rsi>=70?' (overbought)':' (neutral)'), d.rsi<=35?'var(--g)':d.rsi>=70?'var(--am)':'var(--t2)');
+  if(d.struct) h += pr('Structure', d.struct, 'var(--t2)');
+
+  // The honest line — this is the whole point
+  h += '<div style="font-size:10px;color:var(--t3);margin-top:.75rem;line-height:1.6;background:rgba(124,77,255,.06);padding:8px;border-radius:7px">';
+  h += '📍 <strong>This describes where price IS — not what it will do next.</strong> It does <strong>not</strong> say "the pump is done" or "the retracement is complete" — those are only knowable <em>after</em> the move happens. A coin near support <em>might</em> bounce or <em>might</em> break down; near resistance it <em>might</em> reject or <em>might</em> break out. The position is a fact; the next move is a judgment only you can make. Anyone (or any tool) claiming to call the turn in real time is guessing with confidence.';
+  h += '</div></div>';
+
+
   // checklist forces a pause before acting. It's real confirmation (independent
   // of the signal), not the tool re-confirming its own math.
   h += '<div style="background:var(--card2);border-radius:var(--rad-lg);padding:1rem;margin-bottom:1rem;border:.5px solid var(--am)">';
