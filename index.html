@@ -5723,11 +5723,57 @@ function analyzeCoinDNA(klines, btcKlines) {
     }
   }
 
+  // ── COILED / PRIMED-FOR-VOLATILITY DETECTOR ────────────────────────────────
+  // Detects when a coin's range has COMPRESSED — building energy for a sharp move.
+  // Honest scope: a coiled spring releases hard, but direction is UNKNOWN. This
+  // flags "primed to move" — it does NOT predict up vs down. It's a watchlist tool.
+  var coil = { isCoiled:false, score:0 };
+  if (n >= 30) {
+    // Recent 7-day range width vs the prior ~30-day average range width
+    function rangeWidth(arr_h, arr_l, from, to){
+      var hi = Math.max.apply(null, arr_h.slice(from, to));
+      var lo = Math.min.apply(null, arr_l.slice(from, to));
+      var mid = (hi+lo)/2;
+      return mid>0 ? (hi-lo)/mid*100 : 0;
+    }
+    var recentRange = rangeWidth(h, l, n-7, n);          // last 7 days
+    var priorRange  = rangeWidth(h, l, n-30, n-7);        // prior ~23 days
+    var compression = priorRange>0 ? recentRange/priorRange : 1; // <1 = compressing
+    // ATR now vs ATR ~20d ago (is volatility shrinking?)
+    function atrPctAt(end){
+      var s=0,cnt=0;
+      for(var i=Math.max(1,end-14);i<end;i++){ s+=Math.max(h[i]-l[i], Math.abs(h[i]-c[i-1]), Math.abs(l[i]-c[i-1])); cnt++; }
+      var a=cnt?s/cnt:0; return c[end-1]>0? a/c[end-1]*100 : 0;
+    }
+    var atrNow = atrPctAt(n), atrPrior = atrPctAt(n-15);
+    var atrShrinking = atrPrior>0 && atrNow < atrPrior*0.85;
+    // Volume drying up recently (often precedes expansion)
+    var recentVol = v.slice(-5).reduce(function(a,b){return a+b;},0)/5;
+    var priorVol  = v.slice(-25,-5).reduce(function(a,b){return a+b;},0)/20;
+    var volDrying = priorVol>0 && recentVol < priorVol*0.85;
+
+    // Build a 0-100 "coil" score from the compression conditions
+    var cs = 0;
+    if (compression < 0.6) cs += 40; else if (compression < 0.8) cs += 25; else if (compression < 1.0) cs += 10;
+    if (atrShrinking) cs += 30;
+    if (volDrying) cs += 20;
+    if (recentRange < 8) cs += 10; // absolute tightness
+    coil = {
+      isCoiled: cs >= 50,
+      score: Math.min(100, cs),
+      compression: Math.round(compression*100),   // % of prior range (lower=tighter)
+      recentRange: Math.round(recentRange*10)/10,
+      atrShrinking: atrShrinking,
+      volDrying: volDrying
+    };
+  }
+
   return {
     days: n, volClass: volClass, avgRange: avgRange, medRange: medRange,
     avgRet: avgRet, upDays: upDays, stdRet: stdRet, maxUp: maxUp, maxDown: maxDown,
     trendiness: trendiness, behavior: behavior, behaviorDesc: behaviorDesc,
     avgPumpRetrace: avgPumpRetrace, pumpCount: pumpCount,
+    coil: coil,
     avgDipBounce: avgDipBounce, dipCount: dipCount,
     beta: beta, corr: corr,
     reliability: reliability, relLabel: relLabel,
@@ -5930,6 +5976,35 @@ function renderDNA(d, dna, dnaKlines) {
   h += '</div>';
   h += '<div style="font-size:13px;color:var(--t2);line-height:1.6">'+dna.behaviorDesc+'</div>';
   h += '</div>';
+
+  // ── COILED / PRIMED-FOR-VOLATILITY ──────────────────────────────────────────
+  // Honest: flags compression (energy building) but NOT direction. A watch flag.
+  if (dna.coil && dna.coil.score > 0) {
+    var cl = dna.coil;
+    var coilCol = cl.score>=70?'var(--am)':cl.score>=50?'#7c4dff':'var(--t3)';
+    var coilLabel = cl.score>=70?'TIGHTLY COILED':cl.score>=50?'Coiling':'Not compressed';
+    h += '<div style="background:var(--card2);border:.5px solid '+(cl.isCoiled?coilCol:'var(--bd)')+';border-radius:var(--rad-lg);padding:1rem;margin-bottom:1rem">';
+    h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">';
+    h += '<span style="font-size:18px">🌀</span>';
+    h += '<div><div style="font-size:10px;color:var(--t3);font-weight:700;text-transform:uppercase">Volatility coil — primed for a move?</div>';
+    h += '<div style="font-size:16px;font-weight:800;color:'+coilCol+'">'+coilLabel+' · '+cl.score+'/100</div></div></div>';
+    // What's compressed
+    var bits = [];
+    if(cl.compression < 100) bits.push('range compressed to '+cl.compression+'% of its prior width');
+    if(cl.atrShrinking) bits.push('volatility (ATR) shrinking');
+    if(cl.volDrying) bits.push('volume drying up');
+    if(bits.length) h += '<div style="font-size:11px;color:var(--t2);line-height:1.6;margin-bottom:6px">Conditions: '+bits.join(' · ')+'.</div>';
+    // The honest read
+    if(cl.isCoiled){
+      h += '<div style="font-size:12px;color:var(--t2);line-height:1.6">'+coinName+' is <strong>coiled</strong> — its range has tightened and energy is building. Compressed coins often resolve into a <strong>sharp move</strong>… but <strong>direction is unknown</strong>. A coil can break up OR down with equal violence.</div>';
+    } else {
+      h += '<div style="font-size:12px;color:var(--t2);line-height:1.6">'+coinName+' is not notably compressed right now — no coil building. It\'s moving within its normal range.</div>';
+    }
+    // The honest boundary — this is critical
+    h += '<div style="font-size:10px;color:var(--t3);margin-top:.75rem;line-height:1.6;background:rgba(124,77,255,.06);padding:8px;border-radius:7px">';
+    h += '🌀 <strong>This detects energy building — NOT which way it releases.</strong> It is <em>not</em> an "early pump" call: a coiled spring fires up or down, and no tool can tell which in advance. Use this to <strong>build a watchlist</strong> of primed coins, then wait for the actual move to START (with a confirmed signal) before acting. Chasing the breakout direction blindly is how coils trap people.';
+    h += '</div></div>';
+  }
 
   // ── LIVE ENTRY-TIMING READ — the actionable part you asked for ──────────────
   // If the coin recently pumped and is now retracing, compare where it sits NOW
