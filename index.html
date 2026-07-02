@@ -4476,6 +4476,26 @@ function autoLogSignals(){
     var isBTC = (d.sym === 'BTCUSDT' || d.sym === 'BTCJPY');
     var btcStateOK = (btcState === 'bullish' || btcState === 'stable');
     if(!isBTC && !btcStateOK) return;
+
+    // ── ANALYST GATE — only log trades the analyst grades A or B ──────────────
+    // The Jul-02 log showed most losses were "wrong from the start" (never made
+    // 25% progress toward TP) → entry QUALITY is the problem. So every candidate
+    // now passes the same evaluation the Trade Plan analyst uses. This is not
+    // prediction — it's requiring more real conditions before a trade counts.
+    var fullStack = d.ema20 > d.ema50 && d.ema50 > d.ema200;
+    var priceLeads = d.price > d.ema20;
+    if(!fullStack || !priceLeads) return;           // REQUIRED: confirmed uptrend, price leading
+    var nearRes = d.res && d.res > d.price && (d.res - d.price)/d.price*100 < 1.5;
+    if(nearRes) return;                              // buying right under resistance = no room
+    var conds = 2;                                    // stack+leader counted
+    if(d.rsiRising) conds++;
+    if(d.volR >= 1.2) conds++;
+    if(d.rsi >= 45 && d.rsi <= 65) conds++;
+    if(btcState === 'bullish') conds++;
+    if(d.struct === 'HH/HL' || d.struct === 'breakout' || d.struct === 'consolidation') conds++;
+    var analystGrade = conds >= 6 ? 'A' : conds >= 5 ? 'B' : null;
+    if(!analystGrade) return;                        // C-grade and below never enter the log
+
     var entry = d.price;
 
     // ── PROPER LEVELS with a minimum R:R gate (was broken: tiny TP, huge SL) ──
@@ -4541,6 +4561,7 @@ function autoLogSignals(){
       score: d.score, opportunity: d.opportunity,
       btcState: btcState,   // record BTC backdrop at log time for later analysis
       btcStateAtEntry: btcState, // snapshot for exit comparison
+      analystGrade: analystGrade, // A/B — the analyst-gate grade this entry passed
       entryReason: entryReason,  // detailed why-it-fired record
       ts: Date.now(), tf: TF,
       status:'open', outcome:null, closedTs:null, closePrice:null
@@ -4573,6 +4594,19 @@ function autoLogSignals(){
     var fullStackUp = d.ema20 > d.ema50 && d.ema50 > d.ema200;   // 20>50>200
     var priceAboveStack = d.price > d.ema20 && d.price > d.ema50; // price leads
     var trulyBullish = fullStackUp && priceAboveStack;
+
+    // DIP BUY — the spot-accumulation entry: a QUALITY uptrend that has pulled
+    // back to a value zone (near support or at EMA20) and is turning up. This is
+    // buying the dip in a healthy trend — NOT catching a knife in a downtrend
+    // (trulyBullish requirement makes that impossible).
+    var nearSupport = d.sup && d.sup < d.price && (d.price - d.sup)/d.price*100 <= 3;
+    var atEMA20zone = d.ema20 && Math.abs((d.price - d.ema20)/d.ema20*100) <= 2;
+    if(trulyBullish && (nearSupport || atEMA20zone)
+       && d.rsi >= 35 && d.rsi <= 55            // dipped, not broken
+       && momentumUp                              // turning back up
+       && d.volR >= 0.8) {                        // participation hasn't died
+      logIt(d, 'Dip buy');
+    }
 
     // EMA20 RETEST — bullish ONLY as a dip-buy in a confirmed uptrend.
     // Require the FULL stack up (not just 20>50) so a downtrend bounce can't qualify.
@@ -5238,6 +5272,7 @@ function renderSignalLog(){
 // Build the expandable "why" detail for a signal — entry reason + exit context
 function buildSigDetail(s){
   var h = '';
+  if(s.analystGrade) h += '<div style="font-size:11px;font-weight:800;color:'+(s.analystGrade==='A'?'var(--g)':'var(--am)')+';margin-bottom:4px">Analyst grade at entry: '+s.analystGrade+'</div>';
   // ENTRY REASON
   if(s.entryReason){
     var er = s.entryReason;
