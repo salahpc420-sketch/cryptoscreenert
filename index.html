@@ -6267,7 +6267,7 @@ function buildAskClaudeSection(d){
   h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.4rem"><span style="font-size:16px">🧠</span><span style="font-size:13px;font-weight:800;color:var(--text)">Ask Claude — live AI analyst</span><span style="margin-left:auto;font-size:9px;color:var(--t3)">real model reasoning, not rules</span></div>';
   if(!hasKey){
     h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">Get a genuine AI analysis of this exact setup — the model reasons over the live indicators, your plan levels, and your log\'s real track record. <strong>FREE option:</strong> a Google Gemini key from <strong>aistudio.google.com</strong> (free, no credit card, generous daily limit). Or an Anthropic Claude key from console.anthropic.com (paid, ~1¢/analysis, strongest reasoning). Paste either — the tool auto-detects which. The key is stored <strong>only in this browser</strong> — never in the code, never on GitHub.</div>';
-    h += '<div style="display:flex;gap:6px"><input id="claude-key-input" type="password" placeholder="AIza… (Gemini, free) or sk-ant-… (Claude)" style="flex:1;padding:8px 10px;border-radius:8px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:12px;font-family:inherit">';
+    h += '<div style="display:flex;gap:6px"><input id="claude-key-input" type="password" placeholder="Gemini key (free) or sk-ant-… (Claude)" style="flex:1;padding:8px 10px;border-radius:8px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:12px;font-family:inherit">';
     h += '<button onclick="saveClaudeKey()" style="padding:8px 14px;border-radius:8px;border:none;background:#7c4dff;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">Save key</button></div>';
     h += '<div style="font-size:9px;color:var(--t3);margin-top:6px">⚠️ Don\'t enter your key on a shared/public computer.</div>';
   } else {
@@ -6311,9 +6311,11 @@ function askClaude(sym){
   var sys = 'You are Claude, acting as a brutally honest professional spot-trading analyst inside the user\'s own crypto screener. You receive one coin\'s live computed data as JSON. Rules you must never break: (1) NEVER give probabilities, price predictions, or "this will pump/dump" claims — direction and timing are unknowable; (2) assess the setup\'s quality from the evidence given, using conviction language (strong/moderate/weak) tied to specific data points; (3) always state what would invalidate the setup; (4) be blunt when a setup is bad — the user values truth over comfort; (5) factor in their real track record (provided) — if the system is below breakeven, remind them to keep size small; (6) spot trading and dip-buying context, no leverage; (7) 150-250 words, plain text, no markdown headers. Structure: one-line verdict, the evidence read, the risk/invalidation, one practical note.';
 
   var key = (localStorage.getItem('ai_api_key') || localStorage.getItem('anthropic_api_key') || '').trim();
-  var isGemini = key.indexOf('AIza') === 0;   // Google keys start AIza; Anthropic sk-ant-
-  if (!isGemini && key.indexOf('sk-ant') !== 0) {
-    out.innerHTML = '<div style="font-size:11px;color:var(--r)">Key not recognized. Gemini keys start with <strong>AIza</strong> (free — aistudio.google.com), Claude keys with <strong>sk-ant-</strong>. Click "change key" and paste the full key with no spaces.</div>';
+  // Anthropic keys reliably start with sk-ant. ANYTHING ELSE routes to Gemini —
+  // Google uses multiple key formats (AIza…, AQ.…), so no fragile whitelist.
+  var isGemini = key.indexOf('sk-ant') !== 0;
+  if (key.length < 20) {
+    out.innerHTML = '<div style="font-size:11px;color:var(--r)">Key looks too short — click "change key" and paste the full key with no spaces.</div>';
     return;
   }
   var req;
