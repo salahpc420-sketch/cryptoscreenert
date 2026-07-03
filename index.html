@@ -334,33 +334,59 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 
   /* Tighter page padding on mobile */
   body{padding:0 !important}
-  .wrap, .container, main{padding-left:8px !important;padding-right:8px !important}
+  .wrap, .container, main{padding-left:10px !important;padding-right:10px !important}
+  .card{padding:12px !important;margin-bottom:10px !important;border-radius:14px !important}
 
-  /* Stack header controls */
-  header{flex-wrap:wrap !important;gap:6px !important}
+  /* ── HEADER: clean, stacked, no cramming ── */
+  .hdr{flex-direction:column !important;align-items:flex-start !important;gap:6px !important}
+  h1{font-size:18px !important;line-height:1.2 !important}
+  .sub{font-size:10px !important;line-height:1.4 !important}
 
-  /* Macro panel cards stack vertically */
-  .macro-grid{grid-template-columns:1fr 1fr !important;gap:6px !important}
+  /* Header control rows: horizontal scroll instead of wrap-cramming */
+  .toolbar, .controls, .hdr-controls, .top-controls{
+    display:flex !important;flex-wrap:nowrap !important;overflow-x:auto !important;
+    gap:6px !important;-webkit-overflow-scrolling:touch !important;
+    padding-bottom:4px !important;scrollbar-width:none !important;
+  }
+  .toolbar::-webkit-scrollbar, .controls::-webkit-scrollbar{display:none !important}
 
-  /* Bigger touch targets for buttons */
-  .btn, .hbtn, .tab, .itab{min-height:38px !important;padding:0 12px !important;font-size:13px !important}
+  /* Bigger, thumb-friendly buttons */
+  .btn, .hbtn, .tab, .itab{min-height:40px !important;padding:0 14px !important;font-size:13px !important;white-space:nowrap !important;flex:0 0 auto !important}
 
-  /* FAB buttons bigger and easier to tap */
-  .scan-fab{width:52px !important;height:52px !important;font-size:22px !important}
+  /* ── FILTER ROW: collapsed behind a toggle by default ── */
+  #mobile-filter-toggle{display:flex !important}
+  .filters, .filter-row, #filter-row{
+    display:none !important;  /* hidden until user taps "Filters" */
+    flex-wrap:wrap !important;gap:8px !important;margin-top:8px !important;
+  }
+  body.show-filters .filters, body.show-filters .filter-row, body.show-filters #filter-row{display:flex !important}
+  .filters > div, .filter-row > div{flex:1 1 45% !important;min-width:0 !important}
+  .filters label, .filter-row label{font-size:9px !important}
+  .filters select, .filter-row select{width:100% !important;min-height:40px !important;font-size:13px !important}
 
-  /* Filters stack */
-  .filters, .filter-row{flex-wrap:wrap !important;gap:6px !important}
-  .filters select, .filter-row select{flex:1 1 45% !important;min-width:0 !important;min-height:38px !important}
+  /* ── MARKET INTEL: single column, readable ── */
+  .macro-grid{grid-template-columns:1fr !important;gap:8px !important}
+  .intel-tabs, .intel-bar{display:flex !important;overflow-x:auto !important;-webkit-overflow-scrolling:touch !important;scrollbar-width:none !important;gap:4px !important}
+  .intel-tabs::-webkit-scrollbar{display:none !important}
+  .intel-tab{padding:9px 12px !important;font-size:12px !important;flex:0 0 auto !important;white-space:nowrap !important}
 
-  /* Modals full-screen on mobile */
+  /* FAB buttons — bigger, spaced */
+  .scan-fab{width:54px !important;height:54px !important;font-size:22px !important}
+
+  /* Modals full-screen */
   .modal{max-width:100vw !important;width:100vw !important;height:100vh !important;max-height:100vh !important;border-radius:0 !important}
   .ov{padding:0 !important}
+  .modal-tf-btn{min-height:36px !important;min-width:40px !important;font-size:12px !important}
 
-  /* Sector rotation chips full width */
+  /* Modal top metric strip: horizontal scroll, not crammed */
+  .mrow, .metric-strip{overflow-x:auto !important;-webkit-overflow-scrolling:touch !important;flex-wrap:nowrap !important}
+
+  /* Sector chips + search full width */
   #sector-rot-body > div{flex:1 1 45% !important;min-width:0 !important}
+  input[type="search"], input[type="text"].search{width:100% !important;min-height:42px !important;font-size:14px !important}
 
-  /* Search bar full width */
-  input[type="search"], input[type="text"].search{width:100% !important}
+  /* Kill tiny text everywhere on mobile — minimum legible size */
+  *{-webkit-text-size-adjust:100% !important}
 }
 
 /* Mobile coin cards */
@@ -422,6 +448,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
     <input id="si" type="text" placeholder="Search coin — BTC, SOL, ETH…" oninput="onSearch(this.value)" autocomplete="off">
     <button class="clr" id="si-clr" onclick="clearSearch()">✕</button>
   </div>
+  <button id="mobile-filter-toggle" onclick="document.body.classList.toggle('show-filters');this.textContent=document.body.classList.contains('show-filters')?'▲ Hide filters':'▼ Filters';" style="display:none;width:100%;margin-top:8px;padding:11px;border-radius:10px;border:.5px solid var(--bd);background:var(--card2);color:var(--t2);font-weight:700;font-size:13px;font-family:inherit;cursor:pointer">▼ Filters</button>
   <div class="filters">
     <div class="fg"><label>Signal</label>
       <select id="f-sig" onchange="render()"><option value="all">All signals</option><option value="buy">Buy</option><option value="sell">Sell</option><option value="neutral">Neutral</option></select></div>
@@ -6309,12 +6336,12 @@ function askClaude(sym){
     mode: _investMode ? 'INVESTING (long-term accumulation)' : 'TRADING (short-term spot)',
     myLogTrackRecord: st.resolved ? (st.winRate+'% win rate over '+st.resolved+' resolved signals (95% CI '+(st.ci?st.ci.low+'-'+st.ci.high:'?')+'%), breakeven is 40% at 1.5 R:R') : 'no resolved trades yet'
   };
-  var commonRules = 'Rules you must never break: (1) NEVER give probabilities, price predictions, or "this will pump/dump" claims — direction and timing are unknowable; (2) tie every judgment to specific data points given, using conviction language (strong/moderate/weak); (3) always state what would invalidate the position; (4) be blunt when it is bad — the user values truth over comfort; (5) factor in their real track record (provided) — if below breakeven, remind them to keep size small; (6) SPOT only, no leverage; (7) write a DEEP, detailed analysis of 350-550 words in plain text (no markdown symbols like ** or #); organize it with short UPPERCASE section labels each on their own line: VERDICT (one blunt line), CONTEXT (BTC backdrop + what it means for this trade), TREND AND PRICE ACTION (EMAs + what the recent candles actually show, cite specific bars), MOMENTUM AND VOLUME, LEVELS AND PLAN (entry zone, stop, targets — with the reasoning for each level), HISTORY CHECK (what the personality of this coin implies here), INSTRUCTIONS (a numbered step-by-step action plan with if-then conditions the user can follow, e.g. 1. Wait for X. 2. If Y closes above Z, then… 3. If instead…), INVALIDATION AND SIZING (the exact level where this idea is wrong + size guidance given their track record); (8) if historicalDNA is provided, tailor the advice to how THIS coin historically behaves — e.g. a Pumper that gives back most gains → take profits faster and never chase; low trendiness → expect chop, favor range levels; huge historical single-day moves → wider stops or smaller size. History is tendency, not destiny — say so if you lean on it; (9) if recentCandles are provided (last ~30 CLOSED bars on the active timeframe, oldest first, UTC), read the price action like a chart: wick rejections at levels, whether closes are strengthening or fading, the character of the latest pullback/bounce, and where the highs/lows cluster — cite specific candles when you do; (10) after the first full analysis, the user may ask follow-up questions in chat — answer those directly and concisely (no section format), grounded in the same data and the same honesty rules.';
+  var commonRules = 'Rules you must never break: (1) NEVER give probabilities, price predictions, or "this will pump/dump" claims — direction and timing are unknowable; (2) tie every judgment to specific data points given, using conviction language (strong/moderate/weak); (3) always state what would invalidate the position; (4) be blunt when it is bad — the user values truth over comfort; (5) factor in their real track record (provided) — if below breakeven, remind them to keep size small; (6) SPOT only, no leverage; (7) write a DEEP analysis of 400-600 words in plain text (no markdown symbols like ** or #); organize it with these UPPERCASE section labels, each on its own line: READ (what the chart shows — structure, EMA stack, momentum, volume, citing specific recent candles and levels), ACT OR WAIT (the honest case for and against entering RIGHT NOW — extension above EMA20, overbought, position vs the 200 EMA, where in the range price sits), PLAN A - PULLBACK ENTRY (preferred when price is extended: exact entry ZONE at real levels with the confluence reason, SL below structure with %, TP1/TP2/TP3 with % gain, R:R, and scale-out portions), PLAN B - BREAKOUT CONTINUATION (only on confirmation: the exact candle-CLOSE level required plus a held retest condition, its SL and targets), DEEPER ADD ZONE (if a better R:R level exists below — the level, why, and the no-trade line under it), INVALIDATION (the exact closes that kill each plan — closes, not wicks), SIZING AND CAVEATS (their track record, volume quality of the move, liquidity), BOTTOM LINE (one blunt memorable line, e.g. right structure wrong moment — let it come to X or prove itself with a close above Y); (8) if historicalDNA is provided, tailor the advice to how THIS coin historically behaves — e.g. a Pumper that gives back most gains → take profits faster and never chase; low trendiness → expect chop, favor range levels; huge historical single-day moves → wider stops or smaller size. History is tendency, not destiny — say so if you lean on it; (9) if recentCandles are provided (last ~30 CLOSED bars on the active timeframe, oldest first, UTC), read the price action like a chart: wick rejections at levels, whether closes are strengthening or fading, the character of the latest pullback/bounce, and where the highs/lows cluster — cite specific candles when you do; (10) after the first full analysis, the user may ask follow-up questions in chat — answer those directly and concisely (no section format), grounded in the same data and the same honesty rules.';
   var sys;
   if (_investMode) {
     sys = 'You are a brutally honest long-term crypto INVESTING advisor inside the user\'s screener. Context: spot accumulation — buying quality coins at a discount to hold for months. ' + commonRules + ' Give PROPER INVESTING GUIDELINES for this specific coin: (a) is this a quality asset worth accumulating at all (market-cap rank, trend health) or likely dead money; (b) is NOW a reasonable accumulation zone (discount from high, vs 200EMA, RSI) or still overpriced/falling-knife; (c) entry approach — lump vs DCA ladder and why; (d) realistic exit thinking by horizon; (e) the structural invalidation where the thesis is wrong. Follow the section format from the rules exactly, adapting LEVELS AND PLAN to DCA levels and horizon exits.';
   } else {
-    sys = 'You are a brutally honest professional SPOT-TRADING analyst inside the user\'s screener. Context: short-term spot trades, dip-buys in uptrends, strict R:R discipline. ' + commonRules + ' Give PROPER TRADING GUIDELINES for this specific setup: (a) setup quality from the evidence; (b) whether current price is a sensible entry or to wait for a level; (c) stop and target discipline (respect the R:R math); (d) the invalidation; (e) position-sizing caution given their track record. Follow the section format from the rules exactly.';
+    sys = 'You are a brutally honest professional SPOT trading analyst. Spot only — no leverage, no shorts, long entries and exits only. You receive one coin\'s live data: price, EMA 20/50/200, RSI, volume ratio, structure, support/resistance, ATR%, BTC market state, the last ~30 CLOSED candles (OHLC, oldest first), the coin\'s historical DNA profile (personality, typical ranges, pump-giveback behavior), and the user\'s real logged track record. ABSOLUTE RULES — never break these: 1. NEVER give probabilities, price predictions, or "this will pump/dump" claims. Direction and timing are unknowable. Anyone claiming otherwise is guessing with confidence. 2. Tie every judgment to specific data points provided. Cite specific candles and levels. If the data doesn\'t support a claim, don\'t make it. 3. Every trigger must be a candle CLOSE on the active timeframe — never a wick, never an intrabar touch. 4. NEVER recommend chasing: if price is at/near the highs or extended more than ~3% above EMA20, say plainly "do not market-buy here" and anchor the plan at the pullback level instead. 5. If price is breaking a FALLING 200 EMA for the first time, flag it: first breaks of a falling 200 EMA fail more often — treat as lower-probability. 6. Use the historical DNA to shape exits: a Pumper that gives back gains means faster TPs and a trailed remainder — never let a winner round-trip. Low trendiness means favor range levels over trend-following. History is tendency, not destiny — say so when you lean on it. 7. Factor in the user\'s real track record. If their system is below the 40% breakeven (at 1.5 R:R), remind them to keep position size small. 8. Be blunt when a setup is weak. The user values truth over comfort. A weak setup called weak saves money; false encouragement loses it. 9. Every plan is conditional if-then tied to exact levels — "if X closes above Y, then…" — never a forecast of what price will do. FORMAT — plain text, no markdown symbols, ~400-600 words, these UPPERCASE section labels each on their own line: READ — what the chart shows: structure, EMA stack, momentum, volume, citing specific recent candles and levels. ACT OR WAIT — the honest case for AND against entering right now: extension above EMA20, overbought/oversold, position vs the 200 EMA, where price sits in its range. PLAN A - PULLBACK ENTRY — the preferred entry when price is extended: exact entry ZONE at real levels with the confluence reason, SL below structure (with %), TP1/TP2/TP3 (with % gain, R:R, and scale-out portions like 30/40/30). PLAN B - BREAKOUT CONTINUATION — only on confirmation: the exact candle-CLOSE level required plus a held-retest condition, its SL and targets. DEEPER ADD ZONE — if a better R:R level exists below: the level, why, and the no-trade line beneath it. INVALIDATION — the exact closes that kill each plan. Closes, not wicks. SIZING AND CAVEATS — their track record, the volume quality of the move, liquidity concerns. BOTTOM LINE — one blunt, memorable line, e.g. "right structure, wrong moment — let it come to X or prove itself with a close above Y." Follow-up questions after the first analysis: answer directly and concisely, no section format, same rules.';
   }
 
   var key = (localStorage.getItem('ai_api_key') || localStorage.getItem('anthropic_api_key') || '').trim();
@@ -6392,7 +6419,7 @@ function _aiCallModel(sys, history){
       body: JSON.stringify({
         system_instruction: { parts: [{ text: sys }] },
         contents: history.map(function(m){ return { role: m.role==='assistant' ? 'model' : 'user', parts: [{ text: m.content }] }; }),
-        generationConfig: { maxOutputTokens: 4000, thinkingConfig: { thinkingBudget: 0 } }
+        generationConfig: { maxOutputTokens: 6000, thinkingConfig: { thinkingBudget: 1500 } }
       })
     }).then(function(r){ return r.json(); }).then(function(data){
       if (data.error) throw new Error(data.error.message || 'Gemini API error');
