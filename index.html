@@ -817,6 +817,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
         <button class="modal-tf-btn" id="mtf-4h"  onclick="setModalTF('4h')">4h</button>
         <button class="modal-tf-btn" id="mtf-1d"  onclick="setModalTF('1d')">1d</button>
         <button class="modal-tf-btn" id="mtf-1w"  onclick="setModalTF('1w')">1w</button>
+        <span id="candle-countdown" style="font-size:10px;color:var(--am);font-weight:700;white-space:nowrap;align-self:center;margin-left:4px"></span>
         <button class="mmax-btn" id="modal-max-btn" onclick="toggleModalMax()" title="Maximize">⛶</button>
         <button class="mclose" onclick="closeOv('coin-ov')">✕</button>
       </div>
@@ -6303,6 +6304,7 @@ function buildAskClaudeSection(d){
     h += '<span style="font-size:10px;color:var(--t3)">free (Gemini) or ~1¢ (Claude) · <a href="#" onclick="localStorage.removeItem(\'ai_api_key\');localStorage.removeItem(\'anthropic_api_key\');buildClaudeTab(allData.find(function(x){return x.sym===\''+d.sym+'\'}));return false" style="color:var(--t3)">change key</a></span>';
     h += '</div>';
   }
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:6px">👁 Tip: open the 📊 Chart tab once first — the AI will then also SEE the rendered chart image, not just the numbers.</div>';
   h += '<div id="claude-answer" style="margin-top:.6rem"></div>';
   h += '</div>';
   return h;
@@ -6331,17 +6333,18 @@ function askClaude(sym){
     volumeRatio: Math.round((d.volR||0)*100)/100, structure: d.struct,
     support: d.sup, resistance: d.res, atrPct: Math.round((d.atrPct||0)*10)/10,
     btcState: btcState, buySignal: !!d.buySignal, buyTier: d.buyTier||null,
+    currentCandleClosesInMin: (function(){ var r = candleCloseMs(TF); return r != null ? Math.round(r/60000) : null; })(),
     exhausted: !!d.exhausted, valueScore: d.invScore||null,
     drawdownFromHigh: d.ddHigh!=null?d.ddHigh+'%':null,
     mode: _investMode ? 'INVESTING (long-term accumulation)' : 'TRADING (short-term spot)',
     myLogTrackRecord: st.resolved ? (st.winRate+'% win rate over '+st.resolved+' resolved signals (95% CI '+(st.ci?st.ci.low+'-'+st.ci.high:'?')+'%), breakeven is 40% at 1.5 R:R') : 'no resolved trades yet'
   };
-  var commonRules = 'Rules you must never break: (1) NEVER give probabilities, price predictions, or "this will pump/dump" claims — direction and timing are unknowable; (2) tie every judgment to specific data points given, using conviction language (strong/moderate/weak); (3) always state what would invalidate the position; (4) be blunt when it is bad — the user values truth over comfort; (5) factor in their real track record (provided) — if below breakeven, remind them to keep size small; (6) SPOT only, no leverage; (7) write a DEEP analysis of 400-600 words in plain text (no markdown symbols like ** or #); organize it with these UPPERCASE section labels, each on its own line: READ (what the chart shows — structure, EMA stack, momentum, volume, citing specific recent candles and levels), ACT OR WAIT (the honest case for and against entering RIGHT NOW — extension above EMA20, overbought, position vs the 200 EMA, where in the range price sits), PLAN A - PULLBACK ENTRY (preferred when price is extended: exact entry ZONE at real levels with the confluence reason, SL below structure with %, TP1/TP2/TP3 with % gain, R:R, and scale-out portions), PLAN B - BREAKOUT CONTINUATION (only on confirmation: the exact candle-CLOSE level required plus a held retest condition, its SL and targets), DEEPER ADD ZONE (if a better R:R level exists below — the level, why, and the no-trade line under it), INVALIDATION (the exact closes that kill each plan — closes, not wicks), SIZING AND CAVEATS (their track record, volume quality of the move, liquidity), BOTTOM LINE (one blunt memorable line, e.g. right structure wrong moment — let it come to X or prove itself with a close above Y); (8) if historicalDNA is provided, tailor the advice to how THIS coin historically behaves — e.g. a Pumper that gives back most gains → take profits faster and never chase; low trendiness → expect chop, favor range levels; huge historical single-day moves → wider stops or smaller size. History is tendency, not destiny — say so if you lean on it; (9) if recentCandles are provided (last ~30 CLOSED bars on the active timeframe, oldest first, UTC), read the price action like a chart: wick rejections at levels, whether closes are strengthening or fading, the character of the latest pullback/bounce, and where the highs/lows cluster — cite specific candles when you do; (10) after the first full analysis, the user may ask follow-up questions in chat — answer those directly and concisely (no section format), grounded in the same data and the same honesty rules.';
+  var commonRules = 'Rules you must never break: (1) NEVER give probabilities, price predictions, or "this will pump/dump" claims — direction and timing are unknowable; (2) tie every judgment to specific data points given, using conviction language (strong/moderate/weak); (3) always state what would invalidate the position; (4) be blunt when it is bad — the user values truth over comfort; (5) factor in their real track record (provided) — if below breakeven, remind them to keep size small; (6) SPOT only, no leverage; (7) write a DEEP analysis of 400-600 words in plain text (no markdown symbols like ** or #); organize it with these UPPERCASE section labels, each on its own line: READ (what the chart shows — structure, EMA stack, momentum, volume, citing specific recent candles and levels), ACT OR WAIT (the honest case for and against entering RIGHT NOW — extension above EMA20, overbought, position vs the 200 EMA, where in the range price sits), PLAN A - PULLBACK ENTRY (preferred when price is extended: exact entry ZONE at real levels with the confluence reason, SL below structure with %, TP1/TP2/TP3 with % gain, R:R, and scale-out portions), PLAN B - BREAKOUT CONTINUATION (only on confirmation: the exact candle-CLOSE level required plus a held retest condition, its SL and targets), DEEPER ADD ZONE (if a better R:R level exists below — the level, why, and the no-trade line under it), INVALIDATION (the exact closes that kill each plan — closes, not wicks), SIZING AND CAVEATS (their track record, volume quality of the move, liquidity), BOTTOM LINE (one blunt memorable line, e.g. right structure wrong moment — let it come to X or prove itself with a close above Y); (8) if historicalDNA is provided, tailor the advice to how THIS coin historically behaves — e.g. a Pumper that gives back most gains → take profits faster and never chase; low trendiness → expect chop, favor range levels; huge historical single-day moves → wider stops or smaller size. History is tendency, not destiny — say so if you lean on it; (9) if recentCandles are provided (last ~60 CLOSED bars on the active timeframe, oldest first, UTC), read the price action like a chart: wick rejections at levels, whether closes are strengthening or fading, the character of the latest pullback/bounce, and where the highs/lows cluster — cite specific candles when you do; (10) after the first full analysis, the user may ask follow-up questions in chat — answer those directly and concisely (no section format), grounded in the same data and the same honesty rules; (11) FINAL LINE of the first full analysis only: output one line starting with LEVELS_JSON then compact JSON of numeric levels {"planA":[zoneLow,zoneHigh],"sl":n,"tp1":n,"tp2":n,"tp3":n} — in investing mode planA is the accumulation zone and sl the structural invalidation. Omit unknown keys. Nothing after it; (12) if a chart image is attached, it is the tool\'s rendered chart of this coin and timeframe — read it visually and reconcile it with the numbers; (13) tactical guidance may be deviated from ONLY with an explicit line starting RULE DEVIATION: naming the guideline, the exact evidence justifying the exception, and what would prove it wrong — honesty rules (no predictions, cite data, blunt truth) are never deviable.';
   var sys;
   if (_investMode) {
     sys = 'You are a brutally honest long-term crypto INVESTING advisor inside the user\'s screener. Context: spot accumulation — buying quality coins at a discount to hold for months. ' + commonRules + ' Give PROPER INVESTING GUIDELINES for this specific coin: (a) is this a quality asset worth accumulating at all (market-cap rank, trend health) or likely dead money; (b) is NOW a reasonable accumulation zone (discount from high, vs 200EMA, RSI) or still overpriced/falling-knife; (c) entry approach — lump vs DCA ladder and why; (d) realistic exit thinking by horizon; (e) the structural invalidation where the thesis is wrong. Follow the section format from the rules exactly, adapting LEVELS AND PLAN to DCA levels and horizon exits.';
   } else {
-    sys = 'You are a brutally honest professional SPOT trading analyst. Spot only — no leverage, no shorts, long entries and exits only. You receive one coin\'s live data: price, EMA 20/50/200, RSI, volume ratio, structure, support/resistance, ATR%, BTC market state, the last ~30 CLOSED candles (OHLC, oldest first), the coin\'s historical DNA profile (personality, typical ranges, pump-giveback behavior), and the user\'s real logged track record. ABSOLUTE RULES — never break these: 1. NEVER give probabilities, price predictions, or "this will pump/dump" claims. Direction and timing are unknowable. Anyone claiming otherwise is guessing with confidence. 2. Tie every judgment to specific data points provided. Cite specific candles and levels. If the data doesn\'t support a claim, don\'t make it. 3. Every trigger must be a candle CLOSE on the active timeframe — never a wick, never an intrabar touch. 4. NEVER recommend chasing: if price is at/near the highs or extended more than ~3% above EMA20, say plainly "do not market-buy here" and anchor the plan at the pullback level instead. 5. If price is breaking a FALLING 200 EMA for the first time, flag it: first breaks of a falling 200 EMA fail more often — treat as lower-probability. 6. Use the historical DNA to shape exits: a Pumper that gives back gains means faster TPs and a trailed remainder — never let a winner round-trip. Low trendiness means favor range levels over trend-following. History is tendency, not destiny — say so when you lean on it. 7. Factor in the user\'s real track record. If their system is below the 40% breakeven (at 1.5 R:R), remind them to keep position size small. 8. Be blunt when a setup is weak. The user values truth over comfort. A weak setup called weak saves money; false encouragement loses it. 9. Every plan is conditional if-then tied to exact levels — "if X closes above Y, then…" — never a forecast of what price will do. FORMAT — plain text, no markdown symbols, ~400-600 words, these UPPERCASE section labels each on their own line: READ — what the chart shows: structure, EMA stack, momentum, volume, citing specific recent candles and levels. ACT OR WAIT — the honest case for AND against entering right now: extension above EMA20, overbought/oversold, position vs the 200 EMA, where price sits in its range. PLAN A - PULLBACK ENTRY — the preferred entry when price is extended: exact entry ZONE at real levels with the confluence reason, SL below structure (with %), TP1/TP2/TP3 (with % gain, R:R, and scale-out portions like 30/40/30). PLAN B - BREAKOUT CONTINUATION — only on confirmation: the exact candle-CLOSE level required plus a held-retest condition, its SL and targets. DEEPER ADD ZONE — if a better R:R level exists below: the level, why, and the no-trade line beneath it. INVALIDATION — the exact closes that kill each plan. Closes, not wicks. SIZING AND CAVEATS — their track record, the volume quality of the move, liquidity concerns. BOTTOM LINE — one blunt, memorable line, e.g. "right structure, wrong moment — let it come to X or prove itself with a close above Y." Follow-up questions after the first analysis: answer directly and concisely, no section format, same rules.';
+    sys = 'You are a brutally honest professional SPOT trading analyst. Spot only — no leverage, no shorts, long entries and exits only. You receive one coin\'s live data: price, EMA 20/50/200, RSI, volume ratio, structure, support/resistance, ATR%, BTC market state, the last ~30 CLOSED candles (OHLC, oldest first), the coin\'s historical DNA profile (personality, typical ranges, pump-giveback behavior), and the user\'s real logged track record. INVIOLABLE RULES — never break these under any circumstances: 1. NEVER give probabilities, price predictions, or "this will pump/dump" claims. Direction and timing are unknowable. 2. Tie every judgment to specific data points provided — cite specific candles and levels; if the data doesn\'t support a claim, don\'t make it. 3. Factor in the user\'s real track record; if their system is below the 40% breakeven (at 1.5 R:R), remind them to keep position size small. 4. Be blunt when a setup is weak — a weak setup called weak saves money; false encouragement loses it. 5. Every plan is conditional if-then tied to exact levels, never a forecast. DISCIPLINE DEFAULTS — strong priors built from the user\'s own logged failures; follow them by default: A. Every trigger is a candle CLOSE on the active timeframe, not a wick. B. Never recommend chasing — if price is extended more than ~3% above EMA20 or at the highs, anchor Plan A at the pullback level and say not to market-buy here. C. A first break of a FALLING 200 EMA is lower-probability — flag it. D. Use the historical DNA to shape exits — a Pumper that gives back gains means faster TPs and a trailed remainder; low trendiness means favor range levels; history is tendency, not destiny. DEVIATION PROTOCOL: you MAY advise deviating from a DISCIPLINE DEFAULT when the specific evidence in THIS data genuinely warrants it — but only by writing an explicit line starting with RULE DEVIATION: naming which default, the exact data points that justify the exception, and what would prove the deviation wrong. Never deviate silently. Never deviate from the INVIOLABLE rules. If in doubt, follow the default. If a chart image is attached, it is this tool\'s own rendered chart of the same coin and timeframe (candles, EMAs, support/resistance lines, volume) — read it like a trader reads a chart, reconcile it with the numeric data, and cite visual features (wick rejections, zones, the shape of the base) when they matter. FINAL LINE (mandatory in the first full analysis only): after everything, output exactly one line starting with LEVELS_JSON followed by a compact JSON object of NUMERIC price levels from your plan: {"planA":[zoneLow,zoneHigh],"sl":n,"tp1":n,"tp2":n,"tp3":n,"breakout":n}. Omit any key you did not specify. Nothing after that line.';
   }
 
   var key = (localStorage.getItem('ai_api_key') || localStorage.getItem('anthropic_api_key') || '').trim();
@@ -6377,9 +6380,9 @@ function askClaude(sym){
   // ── RECENT PRICE ACTION — last ~30 CLOSED candles on the active TF, so the
   // AI can read the chart's structure (wick rejections, close strength, pullback
   // character) from raw OHLC instead of only summary indicators.
-  var candlesPromise = bybitKlines(sym, TF, 32).then(function(kl){
+  var candlesPromise = bybitKlines(sym, TF, 62).then(function(kl){
     if(!kl || kl.length < 6) return null;
-    var closed = kl.slice(0, -1).slice(-30);   // drop forming bar, keep last 30 closed
+    var closed = kl.slice(0, -1).slice(-60);   // drop forming bar, keep last 60 closed
     return closed.map(function(k){
       var t = new Date(parseInt(k[0]));
       var pad = function(n){ return (n<10?'0':'')+n; };
@@ -6394,10 +6397,25 @@ function askClaude(sym){
   });
 
   function runAI(){
+    // Capture the tool's own rendered chart (if the Chart tab has been opened for
+    // this coin) and attach it as an IMAGE — the AI then literally SEES the chart:
+    // candles, EMAs, S/R lines, volume. Same as analyzing a screenshot.
+    var chartImg = null;
+    try {
+      var cv = document.getElementById('chart-canvas');
+      if (cv && cv.width > 80) {
+        var maxW = 900, scale = Math.min(1, maxW / cv.width);
+        var oc = document.createElement('canvas');
+        oc.width = Math.round(cv.width * scale); oc.height = Math.round(cv.height * scale);
+        oc.getContext('2d').drawImage(cv, 0, 0, oc.width, oc.height);
+        chartImg = oc.toDataURL('image/png').split(',')[1];
+      }
+    } catch(e) { chartImg = null; }
     window._aiChat = window._aiChat || {};
-    window._aiChat[sym] = { sys: sys, provider: (isGemini?'Gemini':'Claude'),
+    window._aiChat[sym] = { sys: sys, provider: (isGemini?'Gemini':'Claude'), image: chartImg,
       history: [{ role:'user', content:'Analyze this setup:\n' + JSON.stringify(ctx, null, 1) }] };
-    _aiCallModel(sys, window._aiChat[sym].history).then(function(text){
+    _aiCallModel(sys, window._aiChat[sym].history, chartImg).then(function(text){
+      text = _extractAILevels(sym, text);
       window._aiChat[sym].history.push({ role:'assistant', content:text });
       renderAIThread(sym);
     }).catch(function(e){
@@ -6409,7 +6427,7 @@ function askClaude(sym){
 // ── Shared model call (Gemini free / Anthropic paid) with full conversation ──
 // Models are stateless: the whole history is sent each turn so follow-ups keep
 // the setup data, candles, and DNA in context.
-function _aiCallModel(sys, history){
+function _aiCallModel(sys, history, image){
   var key = (localStorage.getItem('ai_api_key') || localStorage.getItem('anthropic_api_key') || '').trim();
   var isGemini = key.indexOf('sk-ant') !== 0;
   if (isGemini) {
@@ -6418,7 +6436,7 @@ function _aiCallModel(sys, history){
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         system_instruction: { parts: [{ text: sys }] },
-        contents: history.map(function(m){ return { role: m.role==='assistant' ? 'model' : 'user', parts: [{ text: m.content }] }; }),
+        contents: history.map(function(m, i){ var parts = [{ text: m.content }]; if (image && i === 0) parts.unshift({ inline_data: { mime_type: 'image/png', data: image } }); return { role: m.role==='assistant' ? 'model' : 'user', parts: parts }; }),
         generationConfig: { maxOutputTokens: 6000, thinkingConfig: { thinkingBudget: 1500 } }
       })
     }).then(function(r){ return r.json(); }).then(function(data){
@@ -6433,7 +6451,7 @@ function _aiCallModel(sys, history){
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
     body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 2500, system: sys,
-      messages: history.map(function(m){ return { role: m.role, content: m.content }; }) })
+      messages: history.map(function(m, i){ var content = (image && i === 0) ? [{ type:'image', source:{ type:'base64', media_type:'image/png', data:image } }, { type:'text', text:m.content }] : m.content; return { role: m.role, content: content }; }) })
   }).then(function(r){ return r.json(); }).then(function(data){
     if (data.error) throw new Error(data.error.message || 'API error');
     var t = (data.content||[]).map(function(b){ return b.text||''; }).join('\n').trim();
@@ -6442,6 +6460,20 @@ function _aiCallModel(sys, history){
   });
 }
 
+
+// Extract the AI's LEVELS_JSON line: store levels for the chart overlay, strip from display
+function _extractAILevels(sym, text){
+  var m = text.match(/LEVELS_JSON\s*(\{[^}]*\})/);
+  if(m){
+    try{
+      var o = JSON.parse(m[1]);
+      window._aiLevels = window._aiLevels || {};
+      window._aiLevels[sym] = o;
+    }catch(e){}
+    return text.replace(/LEVELS_JSON\s*\{[^}]*\}/,'').trim();
+  }
+  return text;
+}
 function _aiFormat(text){
   var safe = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
   safe = safe.replace(/(^|<br>)([A-Z][A-Z &;\-]{3,45}:?)(?=<br>)/g, function(m,p1,p2){ return p1+'<strong style="color:#7c4dff;letter-spacing:.3px">'+p2+'</strong>'; });
@@ -6466,7 +6498,7 @@ function renderAIThread(sym){
   h += '<div style="display:flex;gap:6px;margin-top:.6rem">';
   h += '<input id="ai-chat-input" placeholder="Ask a follow-up about this setup…" onkeydown="if(event.key===\'Enter\')sendAIChat(\''+sym+'\')" style="flex:1;padding:8px 10px;border-radius:8px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:12px;font-family:inherit">';
   h += '<button onclick="sendAIChat(\''+sym+'\')" style="padding:8px 14px;border-radius:8px;border:none;background:#7c4dff;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">Send</button></div>';
-  h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;font-style:italic">Real AI ('+state.provider+') reasoning over this coin\'s data — opinions, not predictions. The decision is yours.</div>';
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;font-style:italic">Real AI ('+state.provider+') reasoning over this coin\'s data — opinions, not predictions. The decision is yours.'+((window._aiLevels&&window._aiLevels[sym])?' · 📊 <strong>AI levels drawn on the Chart tab</strong>':'')+'</div>';
   out.innerHTML = h;
   var inp = document.getElementById('ai-chat-input'); if(inp) inp.focus();
 }
@@ -6483,7 +6515,8 @@ function sendAIChat(sym){
   think.style.cssText = 'font-size:11px;color:var(--t3);margin-top:6px';
   think.textContent = '🧠 thinking…';
   out.appendChild(think);
-  _aiCallModel(state.sys, state.history).then(function(text){
+  _aiCallModel(state.sys, state.history, state.image).then(function(text){
+    text = _extractAILevels(sym, text);
     state.history.push({ role:'assistant', content:text });
     renderAIThread(sym);
   }).catch(function(e){
@@ -8101,6 +8134,32 @@ function newsArticleCard(n, score) {
 //           Crosshair, Zoom/Pan, Analyst overlays, Dark/Light mode
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ── CANDLE-CLOSE COUNTDOWN — the rules trigger on CLOSES, so show when the
+// current candle actually closes. Boundaries are UTC (matches exchange candles);
+// weekly candles anchor Monday 00:00 UTC.
+function candleCloseMs(tf){
+  var mins = {'15m':15,'1h':60,'4h':240,'1d':1440,'1w':10080}[tf];
+  if(!mins) return null;
+  var ms = mins*60000, now = Date.now();
+  if(tf === '1w'){ var anchor = 4*86400000; return ms - ((now - anchor) % ms); }
+  return ms - (now % ms);
+}
+function _fmtCountdown(ms){
+  if(ms == null) return '';
+  var m = Math.floor(ms/60000), d = Math.floor(m/1440), h = Math.floor((m%1440)/60), mm = m%60;
+  if(d > 0) return d+'d '+h+'h';
+  if(h > 0) return h+'h '+mm+'m';
+  if(m >= 2) return mm+'m';
+  return Math.max(0, Math.floor(ms/1000))+'s';
+}
+setInterval(function(){
+  var el = document.getElementById('candle-countdown');
+  if(!el) return;
+  var tf = (chartState && chartState.tf) || TF;
+  var rem = candleCloseMs(tf);
+  el.textContent = rem != null ? ('⏱ '+tf+' closes in '+_fmtCountdown(rem)) : '';
+}, 1000);
+
 var chartState = {
   klines: null,
   sym: null,
@@ -8785,6 +8844,7 @@ function drawChart() {
 
   // 4. S/R horizontal levels
   if (ind.sr && d) {
+    var _srLbls = [];
     function drawSRLine(price, col, lbl) {
       if (!price || price < pMin || price > pMax) return;
       var y2 = Math.round(pY(price)) + 0.5;
@@ -8794,14 +8854,34 @@ function drawChart() {
       ctx.globalAlpha = 0.6;
       ctx.beginPath(); ctx.moveTo(0, y2); ctx.lineTo(chartW, y2); ctx.stroke();
       ctx.setLineDash([]); ctx.globalAlpha = 1;
-      ctx.fillStyle = col;
-      ctx.font = 'bold 10px -apple-system,sans-serif';
-      ctx.textAlign = 'left';
-      ctx.fillText(lbl, chartW + 6, y2 - 2);
+      _srLbls.push({ y: y2, col: col, lbl: lbl });
       ctx.restore();
     }
     drawSRLine(d.sup, C.sup, 'SUP ' + fmtPrice(d.sup));
     drawSRLine(d.res, C.res, 'RES ' + fmtPrice(d.res));
+
+    // ── AI ANALYST LEVELS — drawn after an analysis has been run on this coin ──
+    var aiL = (window._aiLevels || {})[curSym];
+    if (aiL) {
+      if (aiL.planA && aiL.planA.length === 2) {
+        var zLo = Math.max(pMin, Math.min(aiL.planA[0], aiL.planA[1]));
+        var zHi = Math.min(pMax, Math.max(aiL.planA[0], aiL.planA[1]));
+        if (zHi > zLo) {
+          ctx.save();
+          ctx.fillStyle = 'rgba(124,77,255,.13)';
+          var yTop = pY(zHi), yBot = pY(zLo);
+          ctx.fillRect(0, yTop, chartW, yBot - yTop);
+          ctx.fillStyle = '#7c4dff'; ctx.font = 'bold 9px -apple-system,sans-serif'; ctx.textAlign = 'left';
+          ctx.fillText('AI ENTRY ZONE', 6, yTop + 11);
+          ctx.restore();
+        }
+      }
+      if (aiL.sl)  drawSRLine(aiL.sl,  '#ef5350', 'AI SL '  + fmtPrice(aiL.sl));
+      if (aiL.tp1) drawSRLine(aiL.tp1, '#26a69a', 'AI TP1 ' + fmtPrice(aiL.tp1));
+      if (aiL.tp2) drawSRLine(aiL.tp2, '#26a69a', 'AI TP2 ' + fmtPrice(aiL.tp2));
+      if (aiL.tp3) drawSRLine(aiL.tp3, '#26a69a', 'AI TP3 ' + fmtPrice(aiL.tp3));
+      if (aiL.breakout) drawSRLine(aiL.breakout, '#7c4dff', 'AI BO ' + fmtPrice(aiL.breakout));
+    }
 
     // PDH / PDL — previous day high/low
     var barsPerDay = {h1:24,h4:6,m15:96,d1:1}[chartState.tf.replace('1h','h1').replace('4h','h4').replace('15m','m15').replace('1d','d1')] || 0;
@@ -8816,14 +8896,14 @@ function drawChart() {
         ctx.save(); ctx.strokeStyle='rgba(245,166,35,.7)'; ctx.lineWidth=1; ctx.setLineDash([4,5]);
         ctx.beginPath(); ctx.moveTo(0,pdhY); ctx.lineTo(chartW,pdhY); ctx.stroke();
         ctx.setLineDash([]); ctx.fillStyle='#F5A623'; ctx.font='bold 9px -apple-system,sans-serif'; ctx.textAlign='left';
-        ctx.fillText('PDH '+fmtPrice(pdh), chartW+6, pdhY-2); ctx.restore();
+        _srLbls.push({ y: pdhY, col: '#f0b90b', lbl: 'PDH '+fmtPrice(pdh) }); ctx.restore();
       }
       if (pdl >= pMin && pdl <= pMax) {
         var pdlY = pY(pdl);
         ctx.save(); ctx.strokeStyle='rgba(155,108,216,.7)'; ctx.lineWidth=1; ctx.setLineDash([4,5]);
         ctx.beginPath(); ctx.moveTo(0,pdlY); ctx.lineTo(chartW,pdlY); ctx.stroke();
         ctx.setLineDash([]); ctx.fillStyle='#9B6CD8'; ctx.font='bold 9px -apple-system,sans-serif'; ctx.textAlign='left';
-        ctx.fillText('PDL '+fmtPrice(pdl), chartW+6, pdlY+10); ctx.restore();
+        _srLbls.push({ y: pdlY, col: '#f0b90b', lbl: 'PDL '+fmtPrice(pdl) }); ctx.restore();
       }
     }
   }
@@ -8914,9 +8994,38 @@ function drawChart() {
     }
   }
 
+  // 6.9 LEVEL LABELS — TradingView-style price tags on the right axis with
+  // collision avoidance, so AI TP/SL/SUP/RES/PDH labels never overwrite each other.
+  (function flushSRLabels(){
+    if (!_srLbls.length) return;
+    _srLbls.sort(function(a,b){ return a.y - b.y; });
+    var minGap = 13;
+    for (var i = 1; i < _srLbls.length; i++) {
+      if (_srLbls[i].y - _srLbls[i-1].y < minGap) _srLbls[i].y = _srLbls[i-1].y + minGap;
+    }
+    var maxY = TOP_PAD + CANDLE_H - 2;
+    for (var j = _srLbls.length - 1; j >= 0; j--) {
+      if (_srLbls[j].y > maxY) _srLbls[j].y = maxY;
+      maxY = _srLbls[j].y - minGap;
+    }
+    ctx.save();
+    ctx.font = 'bold 9px -apple-system,sans-serif'; ctx.textAlign = 'left';
+    _srLbls.forEach(function(L){
+      var w = ctx.measureText(L.lbl).width + 8;
+      var x = chartW + 1, y = L.y;
+      ctx.fillStyle = L.col;
+      if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y - 9, w, 13, 3); ctx.fill(); }
+      else ctx.fillRect(x, y - 9, w, 13);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(L.lbl, x + 4, y + 1);
+    });
+    ctx.restore();
+    _srLbls = [];
+  })();
+
   // 7. EMA legend (top-left, exactly like TV)
   if (ind.ema) {
-    var lx = 8, ly = TOP_PAD + 14;
+    var lx = 8, ly = TOP_PAD + 30;   // row 2 — OHLC info owns row 1, no overlap
     var emaLabels = [
       {name:'EMA 20', col:C.ema20,  val: ema20s[offset+visible.length-1]},
       {name:'EMA 50', col:C.ema50,  val: ema50s[offset+visible.length-1]},
