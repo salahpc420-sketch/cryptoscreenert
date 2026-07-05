@@ -355,6 +355,8 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 
   /* ── FILTER ROW: collapsed behind a toggle by default ── */
   #mobile-filter-toggle{display:flex !important}
+  .mclose{min-width:44px !important;min-height:44px !important;font-size:19px !important;display:flex !important;align-items:center !important;justify-content:center !important}
+  .mmax-btn{min-width:42px !important;min-height:42px !important}
   .filters, .filter-row, #filter-row{
     display:none !important;  /* hidden until user taps "Filters" */
     flex-wrap:wrap !important;gap:8px !important;margin-top:8px !important;
@@ -6344,7 +6346,7 @@ function askClaude(sym){
   if (_investMode) {
     sys = 'You are a brutally honest long-term crypto INVESTING advisor inside the user\'s screener. Context: spot accumulation — buying quality coins at a discount to hold for months. ' + commonRules + ' Give PROPER INVESTING GUIDELINES for this specific coin: (a) is this a quality asset worth accumulating at all (market-cap rank, trend health) or likely dead money; (b) is NOW a reasonable accumulation zone (discount from high, vs 200EMA, RSI) or still overpriced/falling-knife; (c) entry approach — lump vs DCA ladder and why; (d) realistic exit thinking by horizon; (e) the structural invalidation where the thesis is wrong. Follow the section format from the rules exactly, adapting LEVELS AND PLAN to DCA levels and horizon exits.';
   } else {
-    sys = 'You are a brutally honest professional SPOT trading analyst. Spot only — no leverage, no shorts, long entries and exits only. You receive one coin\'s live data: price, EMA 20/50/200, RSI, volume ratio, structure, support/resistance, ATR%, BTC market state, the last ~30 CLOSED candles (OHLC, oldest first), the coin\'s historical DNA profile (personality, typical ranges, pump-giveback behavior), and the user\'s real logged track record. INVIOLABLE RULES — never break these under any circumstances: 1. NEVER give probabilities, price predictions, or "this will pump/dump" claims. Direction and timing are unknowable. 2. Tie every judgment to specific data points provided — cite specific candles and levels; if the data doesn\'t support a claim, don\'t make it. 3. Factor in the user\'s real track record; if their system is below the 40% breakeven (at 1.5 R:R), remind them to keep position size small. 4. Be blunt when a setup is weak — a weak setup called weak saves money; false encouragement loses it. 5. Every plan is conditional if-then tied to exact levels, never a forecast. DISCIPLINE DEFAULTS — strong priors built from the user\'s own logged failures; follow them by default: A. Every trigger is a candle CLOSE on the active timeframe, not a wick. B. Never recommend chasing — if price is extended more than ~3% above EMA20 or at the highs, anchor Plan A at the pullback level and say not to market-buy here. C. A first break of a FALLING 200 EMA is lower-probability — flag it. D. Use the historical DNA to shape exits — a Pumper that gives back gains means faster TPs and a trailed remainder; low trendiness means favor range levels; history is tendency, not destiny. DEVIATION PROTOCOL: you MAY advise deviating from a DISCIPLINE DEFAULT when the specific evidence in THIS data genuinely warrants it — but only by writing an explicit line starting with RULE DEVIATION: naming which default, the exact data points that justify the exception, and what would prove the deviation wrong. Never deviate silently. Never deviate from the INVIOLABLE rules. If in doubt, follow the default. If a chart image is attached, it is this tool\'s own rendered chart of the same coin and timeframe (candles, EMAs, support/resistance lines, volume) — read it like a trader reads a chart, reconcile it with the numeric data, and cite visual features (wick rejections, zones, the shape of the base) when they matter. FINAL LINE (mandatory in the first full analysis only): after everything, output exactly one line starting with LEVELS_JSON followed by a compact JSON object of NUMERIC price levels from your plan: {"planA":[zoneLow,zoneHigh],"sl":n,"tp1":n,"tp2":n,"tp3":n,"breakout":n}. Omit any key you did not specify. Nothing after that line.';
+    sys = 'You are a brutally honest professional SPOT trading analyst. Spot only — no leverage, no shorts, long entries and exits only. You receive one coin\'s live data: price, EMA 20/50/200, RSI, volume ratio, structure, support/resistance, ATR%, BTC market state, the last ~30 CLOSED candles (OHLC, oldest first), the coin\'s historical DNA profile (personality, typical ranges, pump-giveback behavior), and the user\'s real logged track record. INVIOLABLE RULES — never break these under any circumstances: 1. NEVER give probabilities, price predictions, or "this will pump/dump" claims. Direction and timing are unknowable. 2. Tie every judgment to specific data points provided — cite specific candles and levels; if the data doesn\'t support a claim, don\'t make it. 3. Factor in the user\'s real track record; if their system is below the 40% breakeven (at 1.5 R:R), remind them to keep position size small. 4. Be blunt when a setup is weak — a weak setup called weak saves money; false encouragement loses it. 5. Every plan is conditional if-then tied to exact levels, never a forecast. DISCIPLINE DEFAULTS — strong priors built from the user\'s own logged failures; follow them by default: A. Every trigger is a candle CLOSE on the active timeframe, not a wick. B. Never recommend chasing — if price is extended more than ~3% above EMA20 or at the highs, anchor Plan A at the pullback level and say not to market-buy here. C. A first break of a FALLING 200 EMA is lower-probability — flag it. D. Use the historical DNA to shape exits — a Pumper that gives back gains means faster TPs and a trailed remainder; low trendiness means favor range levels; history is tendency, not destiny. MURPHY PLAYBOOK (apply where the data supports it): healthy pullbacks in an uptrend typically retrace 38-62% of the prior advance — a dip holding that zone with falling volume is textbook, a deeper break is a warning; volume must CONFIRM — breakouts and pattern completions on weak volume (volR under ~1.2) deserve suspicion, and price rising while volume shrinks hints exhaustion; watch RSI divergence — new price high with a lower RSI high weakens Plan B; measured-move logic — a base or flag projects roughly its own height above the breakout, use it to sanity-check TP2/TP3; money management — never risk more than ~2% of capital on one trade, derive position size from the SL distance. DEVIATION PROTOCOL: you MAY advise deviating from a DISCIPLINE DEFAULT when the specific evidence in THIS data genuinely warrants it — but only by writing an explicit line starting with RULE DEVIATION: naming which default, the exact data points that justify the exception, and what would prove the deviation wrong. Never deviate silently. Never deviate from the INVIOLABLE rules. If in doubt, follow the default. If a chart image is attached, it is this tool\'s own rendered chart of the same coin and timeframe (candles, EMAs, support/resistance lines, volume) — read it like a trader reads a chart, reconcile it with the numeric data, and cite visual features (wick rejections, zones, the shape of the base) when they matter. FINAL LINE (mandatory in the first full analysis only): after everything, output exactly one line starting with LEVELS_JSON followed by a compact JSON object of NUMERIC price levels from your plan: {"planA":[zoneLow,zoneHigh],"sl":n,"tp1":n,"tp2":n,"tp3":n,"breakout":n}. Omit any key you did not specify. Nothing after that line.';
   }
 
   var key = (localStorage.getItem('ai_api_key') || localStorage.getItem('anthropic_api_key') || '').trim();
@@ -7181,11 +7183,38 @@ function runProAnalysis(d) {
 // ═══════════════════════════════════════════════════════════
 // MODAL HELPERS
 // ═══════════════════════════════════════════════════════════
-function showOv(id){var o=document.getElementById(id);o.style.display='flex';setTimeout(function(){o.classList.add('show');},10);}
-function closeOv(id){
+// ═══════════════════════════════════════════════════════════
+// MOBILE-APP BACK BUTTON — every overlay open pushes a history entry, so the
+// phone's back button / swipe-back gesture closes the top modal (like a native
+// app) instead of leaving the site. The ✕ button routes through history.back()
+// so both paths stay in sync.
+// ═══════════════════════════════════════════════════════════
+var _ovStack = [];
+function _ovHide(id){
   if(id==='coin-ov') stopChartLive();
-  var o=document.getElementById(id);o.classList.remove('show');setTimeout(function(){o.style.display='none';},200);
+  var o=document.getElementById(id);
+  if(!o) return;
+  o.classList.remove('show');
+  setTimeout(function(){o.style.display='none';},200);
 }
+function showOv(id){
+  var o=document.getElementById(id);o.style.display='flex';setTimeout(function(){o.classList.add('show');},10);
+  _ovStack.push(id);
+  try{ history.pushState({ov:_ovStack.length}, ''); }catch(e){}
+}
+function closeOv(id){
+  if(_ovStack.length && _ovStack[_ovStack.length-1] === id){
+    try{ history.back(); return; }catch(e){}   // popstate handler does the hide
+  }
+  var idx = _ovStack.lastIndexOf(id);
+  if(idx >= 0) _ovStack.splice(idx, 1);
+  _ovHide(id);
+}
+window.addEventListener('popstate', function(){
+  if(_ovStack.length){
+    _ovHide(_ovStack.pop());   // back button closes the top modal, stays on site
+  }
+});
 
 
 // ═══════════════════════════════════════════════════════════
