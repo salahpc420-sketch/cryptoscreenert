@@ -355,8 +355,23 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 
   /* ── FILTER ROW: collapsed behind a toggle by default ── */
   #mobile-filter-toggle{display:flex !important}
-  .mclose{min-width:44px !important;min-height:44px !important;font-size:19px !important;display:flex !important;align-items:center !important;justify-content:center !important}
+  .mclose{position:fixed !important;top:calc(env(safe-area-inset-top) + 6px) !important;right:6px !important;z-index:60 !important;background:var(--card2) !important;border:.5px solid var(--bd) !important;border-radius:10px !important}
+  .modal .mtitle{padding-right:52px !important}
+  #candle-countdown{font-size:9px !important}
+  .mclose{position:fixed !important;top:calc(env(safe-area-inset-top) + 6px) !important;right:8px !important;z-index:60 !important;min-width:44px !important;min-height:44px !important;font-size:19px !important;display:flex !important;align-items:center !important;justify-content:center !important;background:var(--card2) !important;border:.5px solid var(--bd) !important;border-radius:12px !important}
+  .mclose{position:fixed !important;top:calc(env(safe-area-inset-top) + 6px) !important;right:6px !important;z-index:60 !important;background:var(--card2) !important;border-radius:10px !important;min-width:44px !important;min-height:44px !important;font-size:19px !important;display:flex !important;align-items:center !important;justify-content:center !important;box-shadow:0 2px 8px rgba(0,0,0,.35)}
+  #candle-countdown{max-width:34vw;overflow:hidden;text-overflow:ellipsis}
   .mmax-btn{min-width:42px !important;min-height:42px !important}
+  /* SAFE-AREA FIX: on iPhone the modal header (✕/back) and bottom bar were
+     rendering under the notch / home-indicator — off-screen. Respect insets. */
+  .modal{padding-top:max(6px, env(safe-area-inset-top)) !important;padding-bottom:max(6px, env(safe-area-inset-bottom)) !important;box-sizing:border-box !important}
+  #chart-fs-bar{padding-top:max(6px, env(safe-area-inset-top)) !important;height:auto !important;min-height:44px !important}
+  #chart-fullscreen-ov{padding-bottom:env(safe-area-inset-bottom)}
+  /* Mobile: big-screen chart option — thumb-sized expand button, true fullscreen */
+  #chart-expand-btn{width:44px !important;height:38px !important;font-size:18px !important;border-color:#7c4dff !important;color:#7c4dff !important}
+  #chart-fullscreen-ov{padding-top:env(safe-area-inset-top)}
+  #chart-fs-bar{height:44px !important}
+  #chart-fs-bar button{min-height:36px !important;min-width:40px !important}
   .filters, .filter-row, #filter-row{
     display:none !important;  /* hidden until user taps "Filters" */
     flex-wrap:wrap !important;gap:8px !important;margin-top:8px !important;
@@ -3807,6 +3822,7 @@ var modalTF = TF; // track TF selected in modal
 function setModalTF(tf){
   modalTF=tf;
   document.querySelectorAll('.modal-tf-btn').forEach(function(b){b.classList.toggle('active',b.id==='mtf-'+tf);});
+  if(document.getElementById('chart-canvas') && chartState && chartState.sym) loadChart(tf);
   // Re-fetch with new TF
   if(!curSym) return;
   var oldTF=TF; TF=tf;
@@ -4514,7 +4530,11 @@ function autoLogSignals(){
     // prediction — it's requiring more real conditions before a trade counts.
     var fullStack = d.ema20 > d.ema50 && d.ema50 > d.ema200;
     var priceLeads = d.price > d.ema20;
-    if(!fullStack || !priceLeads) return;           // REQUIRED: confirmed uptrend, price leading
+    // EMA50 retest is by definition a DEEPER pullback: price sits below EMA20
+    // at the 50 — so for that one setup the "price leading" check is replaced
+    // by "holding the EMA50" (not lost it). Everything else gates identically.
+    var deepDipOK = setupType === 'EMA50 retest' && d.price > (d.ema50||0) * 0.995;
+    if(!fullStack || (!priceLeads && !deepDipOK)) return; // confirmed uptrend + leading (or holding the 50)
     var nearRes = d.res && d.res > d.price && (d.res - d.price)/d.price*100 < 1.5;
     if(nearRes) return;                              // buying right under resistance = no room
     var conds = 2;                                    // stack+leader counted
@@ -4636,6 +4656,21 @@ function autoLogSignals(){
        && momentumUp                              // turning back up
        && d.volR >= 0.8) {                        // participation hasn't died
       logIt(d, 'Dip buy');
+    }
+
+    // EMA50 RETEST — user-observed hypothesis: on 4h and 1d the EMA50 acts as
+    // reliable dynamic support in an uptrend. Logged as its OWN setup so the
+    // Coach can prove or disprove it with real W/L data (needs ~8+ resolved
+    // before its number means anything). A hypothesis until the log says so.
+    var nearE50 = d.ema50 && Math.abs((d.price - d.ema50)/d.ema50*100) <= 1.5;
+    if((TF === '4h' || TF === '1d')
+       && fullStackUp                              // uptrend intact (20>50>200)
+       && nearE50                                  // price AT the EMA50 (±1.5%)
+       && d.price >= d.ema50 * 0.995               // holding it, not lost it
+       && d.rsi >= 35 && d.rsi <= 55               // dipped, not broken
+       && momentumUp                               // turning back up
+       && d.volR >= 0.8) {                         // participation alive
+      logIt(d, 'EMA50 retest');
     }
 
     // EMA20 RETEST — bullish ONLY as a dip-buy in a confirmed uptrend.
@@ -8640,6 +8675,10 @@ function chartReset() {
 }
 
 function loadChart(tf) {
+  // SYNC FIX: the chart's own TF buttons and the modal-header TF used to drift
+  // apart (header 1d, chart 4h → "different EMAs"). One timeframe, everywhere.
+  modalTF = tf;
+  document.querySelectorAll('[id^="mtf-"]').forEach(function(b){ b.classList.toggle('active', b.id === 'mtf-' + tf); });
   chartState.tf = tf;
   syncChartTFBtns(tf);
   chartState.canvasId = chartState.fullscreen ? 'chart-canvas-fs' : 'chart-canvas';
@@ -8934,6 +8973,60 @@ function drawChart() {
         ctx.setLineDash([]); ctx.fillStyle='#9B6CD8'; ctx.font='bold 9px -apple-system,sans-serif'; ctx.textAlign='left';
         _srLbls.push({ y: pdlY, col: '#f0b90b', lbl: 'PDL '+fmtPrice(pdl) }); ctx.restore();
       }
+    }
+
+    // PWH/PWL + PMH/PML — previous COMPLETED week (Mon 00:00 UTC) and calendar
+    // month high/low. Computed from real UTC boundaries, not bar counts, and
+    // only drawn when the loaded candles actually cover the full prior period —
+    // no fake levels from partial data. Institutions watch these; now you do too.
+    (function(){
+      function rangeHL(t0, t1){
+        if(!klines.length || parseInt(klines[0][0]) > t0) return null;  // data doesn't cover period
+        var hi=-Infinity, lo=Infinity, seen=false;
+        for(var i=0;i<klines.length;i++){
+          var t=parseInt(klines[i][0]);
+          if(t < t0) continue;
+          if(t >= t1) break;
+          seen=true;
+          var h=parseFloat(klines[i][2]), l=parseFloat(klines[i][3]);
+          if(h>hi)hi=h; if(l<lo)lo=l;
+        }
+        return seen ? {hi:hi, lo:lo} : null;
+      }
+      function levelTag(price, lbl){
+        if(price < pMin || price > pMax) return;
+        var y = pY(price);
+        ctx.save(); ctx.strokeStyle='rgba(240,185,11,.5)'; ctx.lineWidth=1; ctx.setLineDash([2,6]);
+        ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(chartW,y); ctx.stroke(); ctx.restore();
+        _srLbls.push({ y:y, col:'#f0b90b', lbl: lbl+' '+fmtPrice(price) });
+      }
+      var nowMs = Date.now();
+      var wkMs = 7*86400000, monAnchor = 4*86400000;           // Jan 5 1970 = Monday
+      var thisWkStart = nowMs - ((nowMs - monAnchor) % wkMs);
+      var w = rangeHL(thisWkStart - wkMs, thisWkStart);
+      if(w){ levelTag(w.hi,'PWH'); levelTag(w.lo,'PWL'); }
+      var dnow = new Date(nowMs);
+      var mStart  = Date.UTC(dnow.getUTCFullYear(), dnow.getUTCMonth(), 1);
+      var pmStart = Date.UTC(dnow.getUTCFullYear(), dnow.getUTCMonth()-1, 1);
+      var m = rangeHL(pmStart, mStart);
+      if(m){ levelTag(m.hi,'PMH'); levelTag(m.lo,'PML'); }
+    })();
+  }
+
+  // LAST-PRICE LINE — the anchor of chart readability: a dotted line + colored
+  // tag at the current close, so you always see where price sits vs every level.
+  if (klines.length) {
+    var lastK = klines[klines.length - 1];
+    var lastC = parseFloat(lastK[4]), lastO = parseFloat(lastK[1]);
+    if (lastC >= pMin && lastC <= pMax) {
+      var lpCol = lastC >= lastO ? '#26a69a' : '#ef5350';
+      var lpY = pY(lastC);
+      ctx.save();
+      ctx.strokeStyle = lpCol; ctx.lineWidth = 1; ctx.globalAlpha = .85;
+      ctx.setLineDash([1, 3]);
+      ctx.beginPath(); ctx.moveTo(0, lpY); ctx.lineTo(chartW, lpY); ctx.stroke();
+      ctx.restore();
+      _srLbls.push({ y: lpY, col: lpCol, lbl: fmtPrice(lastC) });
     }
   }
 
