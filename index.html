@@ -4611,6 +4611,7 @@ function autoLogSignals(){
       score: d.score, opportunity: d.opportunity,
       btcState: btcState,   // record BTC backdrop at log time for later analysis
       btcStateAtEntry: btcState, // snapshot for exit comparison
+      htfAligned: (TF==='1d'||TF==='1w') ? null : ((window._dailyTrend && window._dailyTrend[d.sym] != null) ? window._dailyTrend[d.sym] : null), // was the DAILY trend up at entry? (Murphy M6, recorded for the Coach to grade)
       analystGrade: analystGrade, // A/B — the analyst-gate grade this entry passed
       entryReason: entryReason,  // detailed why-it-fired record
       ts: Date.now(), tf: TF,
@@ -4748,6 +4749,15 @@ function backgroundLogAllTFs(){
       }));
     }).then(function(results){
       var tfData = results.filter(Boolean);
+      // Cache each coin's DAILY trend (Murphy M6: higher TF dominates) so signals
+      // on lower TFs can record whether the 1d agreed at entry — measured, not
+      // blocking, until the log proves it deserves to block.
+      if (tf === '1d') {
+        window._dailyTrend = window._dailyTrend || {};
+        tfData.forEach(function(x){
+          window._dailyTrend[x.sym] = (x.ema20 > x.ema50 && x.ema50 > x.ema200 && x.price > x.ema20);
+        });
+      }
       // Temporarily point allData at this TF's data so autoLogSignals logs for it,
       // then restore. (autoLogSignals reads allData + global TF; both are set here.)
       var savedData = allData;
@@ -8755,20 +8765,47 @@ function initChartEvents() {
     if (chartState.klines) drawChart();
   }, {passive: false});
   // Touch
+  // TOUCH — TradingView behavior: quick drag = pan, pinch = zoom,
+  // LONG-PRESS (~300ms without moving) = crosshair mode: your finger drives the
+  // crosshair and the price/date tags follow it, exactly like TV mobile.
   var touchStart = null, touchOffset = 0, pinchStart = 0, pinchZoom = 0;
+  var lpTimer = null, chMode = false, tStartY = 0;
+  function setCross(t){
+    var rect = canvas.getBoundingClientRect();
+    chartState.crosshair = { x: t.clientX - rect.left, y: t.clientY - rect.top, cssW: rect.width, cssH: rect.height };
+  }
   canvas.addEventListener('touchstart', function(e) {
     if (e.touches.length === 1) {
       touchStart = e.touches[0].clientX;
+      tStartY = e.touches[0].clientY;
       touchOffset = chartState.offset;
+      chMode = false;
+      var t0 = e.touches[0];
+      clearTimeout(lpTimer);
+      lpTimer = setTimeout(function(){
+        chMode = true;                       // long-press → crosshair mode
+        setCross(t0);
+        if (chartState.klines) drawChart();
+        if (navigator.vibrate) navigator.vibrate(10);
+      }, 300);
     } else if (e.touches.length === 2) {
+      clearTimeout(lpTimer); chMode = false;
       pinchStart = Math.abs(e.touches[0].clientX - e.touches[1].clientX);
       pinchZoom = chartState.zoom;
     }
-  });
+  }, {passive: true});
   canvas.addEventListener('touchmove', function(e) {
     e.preventDefault();
     if (e.touches.length === 1 && touchStart !== null) {
-      var dx = e.touches[0].clientX - touchStart;
+      var t = e.touches[0];
+      if (chMode) {
+        setCross(t);                          // finger drives the crosshair
+        if (chartState.klines) drawChart();
+        return;
+      }
+      // moved before long-press fired → it's a pan, cancel crosshair intent
+      if (Math.abs(t.clientX - touchStart) > 8 || Math.abs(t.clientY - tStartY) > 8) clearTimeout(lpTimer);
+      var dx = t.clientX - touchStart;
       var candleW = getCandleWidth();
       chartState.offset = Math.max(0, Math.min(
         chartState.klines.length - chartState.zoom,
@@ -8782,7 +8819,15 @@ function initChartEvents() {
       if (chartState.klines) drawChart();
     }
   }, {passive: false});
-  canvas.addEventListener('touchend', function() { touchStart = null; });
+  canvas.addEventListener('touchend', function() {
+    clearTimeout(lpTimer);
+    touchStart = null;
+    if (chMode) {
+      chMode = false;
+      chartState.crosshair = null;            // lift finger → crosshair clears
+      if (chartState.klines) drawChart();
+    }
+  });
 }
 
 function getCandleWidth() {
@@ -9191,6 +9236,24 @@ function drawChart() {
       var vx   = cX(i);
       ctx.fillStyle = bull ? C.volBull : C.volBear;
       ctx.fillRect(vx - Math.floor(bodyW/2), volY0 + VOL_H - bh, Math.max(1, bodyW), bh);
+    }
+
+    // Volume MA(10) line — Binance-style: is participation rising or drying up?
+    if (visible.length > 10) {
+      ctx.save();
+      ctx.strokeStyle = '#f0b90b'; ctx.lineWidth = 1; ctx.globalAlpha = .9;
+      ctx.beginPath();
+      var started = false;
+      for (var vm = 9; vm < visible.length; vm++) {
+        var vsum = 0;
+        for (var vj = vm - 9; vj <= vm; vj++) vsum += parseFloat(visible[vj][5]);
+        var vAvg = vsum / 10;
+        var vmy = volY0 + VOL_H - Math.max(1, (vAvg / maxVol) * (VOL_H - 14));
+        if (!started) { ctx.moveTo(cX(vm), vmy); started = true; }
+        else ctx.lineTo(cX(vm), vmy);
+      }
+      ctx.stroke();
+      ctx.restore();
     }
 
     // Max vol label
@@ -9671,6 +9734,33 @@ function drawChart() {
   }
 
   // ── CROSSHAIR — Full TradingView accuracy ─────────────────────────────────────
+  // VISIBLE-RANGE HIGH/LOW CALLOUTS — Binance-style: label the highest high and
+  // lowest low currently on screen with a small pointer line, so the range reads
+  // in one second without hunting the wicks.
+  if (visible.length > 3) {
+    var hiV = -Infinity, loV = Infinity, hiI = 0, loI = 0;
+    for (var vi2 = 0; vi2 < visible.length; vi2++) {
+      var vh2 = parseFloat(visible[vi2][2]), vl2 = parseFloat(visible[vi2][3]);
+      if (vh2 > hiV) { hiV = vh2; hiI = vi2; }
+      if (vl2 < loV) { loV = vl2; loI = vi2; }
+    }
+    ctx.save();
+    ctx.font = 'bold 10px -apple-system,sans-serif';
+    ctx.strokeStyle = 'rgba(209,212,220,.75)'; ctx.fillStyle = '#d1d4dc'; ctx.lineWidth = 1;
+    function rangeCallout(idx, price) {
+      var x = cX(idx), y = pY(price);
+      if (y < TOP_PAD - 2 || y > TOP_PAD + CANDLE_H + 2) return;
+      var dir = (x > chartW * 0.55) ? -1 : 1;   // point label away from the nearest edge
+      var x2 = x + dir * 24;
+      ctx.beginPath(); ctx.moveTo(x + dir * 3, y); ctx.lineTo(x2, y); ctx.stroke();
+      ctx.textAlign = dir === 1 ? 'left' : 'right';
+      ctx.fillText(fmtPrice(price), x2 + dir * 4, y + 3);
+    }
+    rangeCallout(hiI, hiV);
+    rangeCallout(loI, loV);
+    ctx.restore();
+  }
+
   if (chartState.crosshair) {
     var _cr  = chartState.crosshair;
     var cxp  = _cr.x * (W / (_cr.cssW || W));
