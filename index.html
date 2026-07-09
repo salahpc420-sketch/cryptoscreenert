@@ -231,7 +231,7 @@ td{padding:7px 8px;white-space:nowrap}
 .news-item:hover{background:var(--card2)}
 .news-img{width:58px;height:40px;border-radius:6px;object-fit:cover;flex:0 0 58px;background:var(--card2)}
 .news-body{flex:1;min-width:0}
-.news-ttl{font-size:12.5px;font-weight:600;color:var(--text);line-height:1.4;margin-bottom:3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.news-ttl{font-size:12.5px;font-weight:600;color:var(--text);line-height:1.4;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .news-meta{font-size:10px;color:var(--t3);display:flex;gap:6px;align-items:center}
 .news-meta-cat{font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px;background:rgba(226,75,74,.12);color:var(--r)}
 .news-loading{padding:1rem;text-align:center;font-size:12px;color:var(--t3)}
@@ -2600,6 +2600,7 @@ function calcOpportunity(d) {
 
 var btcTrendScore = 0;  // live BTC score — updated every scan, used as macro filter
 var btcState = 'stable'; // 'bullish' | 'stable' | 'falling' | 'dumping' — gates alt buys
+var _ethVsBtc = 0, _ethWeak = false, _breadth = 50, _breadthWeak = false, _btcDominanceRising = false; // market-context gates
 var _btcCloses = null;  // BTC close prices for relative-strength calc
 var PRECISION_MODE = false; // true = tighter filter (~72% WR in backtest, fewer signals)
 var BTC_FILTER_ENABLED = true;  // toggle: true = only buy when BTC bullish
@@ -2755,6 +2756,27 @@ function loadAll() {
       }
     }
 
+    // ── MARKET CONTEXT — the alt-weather read (fixes rule context-blindness) ──
+    // Derived from data already in hand (no new API calls). Answers the exact
+    // conditions you named: is ETH weakening? is money leaving alts broadly?
+    // These become GATES on alt logging — measured, so the Coach can grade them.
+    (function(){
+      var eth = allData.find(function(x){ return x.sym==='ETHUSDT'; });
+      var btc = allData.find(function(x){ return x.sym==='BTCUSDT'; });
+      // ETH/BTC proxy: ETH's 24h change minus BTC's. Negative = ETH weakening vs
+      // BTC = risk-off for alts (alts historically follow ETH's lead vs BTC).
+      _ethVsBtc = (eth && btc) ? (eth.chg - btc.chg) : 0;
+      _ethWeak = _ethVsBtc < -1.5;   // ETH underperforming BTC by >1.5% today
+      // Breadth: fraction of coins above their EMA200 (money broadly in or out)
+      var withE200 = allData.filter(function(x){ return x.ema200>0; });
+      var above = withE200.filter(function(x){ return x.price > x.ema200; }).length;
+      _breadth = withE200.length ? Math.round(above/withE200.length*100) : 50;
+      _breadthWeak = _breadth < 35;  // fewer than 35% of coins in uptrends
+      // BTC dominance proxy: BTC strongly up while breadth weak = money fleeing
+      // alts into BTC (rising dominance) — the classic alt-unfriendly regime.
+      _btcDominanceRising = btc && btc.chg > 1.5 && _breadth < 45;
+    })();
+
     // PHASE 7: Rank Relative Strength 1-99 across all coins (percentile)
     var withRS = allData.filter(function(d){return d.relStr != null;});
     withRS.sort(function(a,b){return a.relStr - b.relStr;}); // weakest first
@@ -2763,6 +2785,18 @@ function loadAll() {
     });
     // Coins without RS data get neutral rank
     allData.forEach(function(d){ if(d.rsRank == null) d.rsRank = 50; });
+
+    // CROSS-SECTIONAL MOMENTUM (evidence audit: most reproducible crypto alpha).
+    // Rank all coins by 24h momentum; tag top/bottom quintile. RECORDED on signals,
+    // not yet a gate — the Coach will grade whether top-momentum entries win more.
+    var withMom = allData.filter(function(d){ return d.chg != null; });
+    withMom.sort(function(a,b){ return b.chg - a.chg; }); // strongest first
+    var qn = Math.max(1, Math.floor(withMom.length/5));
+    withMom.forEach(function(d, i){
+      d.momRank = Math.round((1 - i/Math.max(1,withMom.length-1)) * 100); // 100=strongest
+      d.momQuintile = i < qn ? 'top' : (i >= withMom.length - qn ? 'bottom' : 'mid');
+    });
+    allData.forEach(function(d){ if(d.momRank == null){ d.momRank = 50; d.momQuintile = 'mid'; } });
 
     // PHASE 9: Opportunity Score — master rank (needs rsRank + accum + bp)
     allData.forEach(function(d){ d.opportunity = calcOpportunity(d); });
@@ -3738,7 +3772,7 @@ function runScanner(){
     var diff=rr(b)-rr(a);
     return diff!==0?diff:b.score-a.score;
   });
-  var labels={aplus:"A+ Setups — high-conviction only (strong BTC + room to run)",opportunity:"Top Opportunity (score ≥55)",strong:"Strong Buy",buy:"Buy Signal",confirmed_bo:"Confirmed Breakout",ema_retest:"EMA Retest",sweep_buy:"Sweep Buy",sweep_sell:"Sweep Sell",breakout:"Breakout",accum:"Accumulation",oversold:"Oversold RSI <30",tierA:"Tier A — premium (pullback/strong, R:R 2+, all gates pass)",tierB:"Tier B — solid (all quality gates pass, tradeable now)",tierC:"Tier C — watch (good setup, fails one gate — see why on each coin)",rsiDiv:"RSI Divergence",choch:"Bullish CHoCH — early reversal (first break up after downtrend)",bos:"Bullish BOS — trend continuation (broke above swing high)",sector:"Sector: "+(sectorFilter==='all'?'All':sectorFilter)};
+  var labels={aplus:"A+ Setups — high-conviction only (strong BTC + room to run)",opportunity:"Top Opportunity (score ≥55)",strong:"Strong Buy",buy:"Buy Signal",confirmed_bo:"Confirmed Breakout",ema_retest:"EMA Retest",sweep_buy:"Sweep Buy",sweep_sell:"Sweep Sell",breakout:"Breakout",accum:"Accumulation",oversold:"Oversold RSI <30",tierA:"Tier A — premium (pullback/strong, R:R 2+, all gates pass)",tierB:"Tier B — solid (all quality gates pass, tradeable now)",tierC:"Tier C — watch (good setup, fails one gate — see why on each coin)",rsiDiv:"RSI Divergence (context flag — not an entry signal per evidence audit)",choch:"Bullish CHoCH — early reversal (first break up after downtrend)",bos:"Bullish BOS — trend continuation (broke above swing high)",sector:"Sector: "+(sectorFilter==='all'?'All':sectorFilter)};
   var tfLabel=scanTF!==TF?" · "+scanTF.toUpperCase()+" TF":"";
   var subEl=document.getElementById("scan-sub");if(subEl)subEl.textContent=results.length+" coins — "+labels[scanTab]+tfLabel;
   var updEl=document.getElementById("scan-upd");if(updEl)updEl.textContent="Scanned "+data.length+" coins · "+new Date().toLocaleTimeString();
@@ -4372,6 +4406,76 @@ function buildPosTab(d){
   } else {
     document.getElementById('msec').innerHTML=buildPosTracker(d,pos);
   }
+  // Append the derivatives-context panel (funding + open interest) below either view
+  var msec = document.getElementById('msec');
+  if(msec){
+    var box = document.createElement('div');
+    box.id = 'funding-oi-box';
+    box.innerHTML = buildFundingOISkeleton(d);
+    msec.appendChild(box);
+    loadFundingOI(d.sym);
+  }
+}
+
+// ── FUNDING RATE + OPEN INTEREST — market-timing CONTEXT, not a signal ────────
+// Free from Bybit's public derivatives API. Perpetual-futures data, shown to
+// inform spot timing (extreme funding often precedes reversals). NOT logged,
+// NOT a buy/sell trigger — context you read, like the DNA or Market Read panels.
+function buildFundingOISkeleton(d){
+  return '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-top:1rem">'+
+    '<div style="font-size:13px;font-weight:700;margin-bottom:2px">📊 Derivatives context</div>'+
+    '<div style="font-size:10px;color:var(--t3);margin-bottom:.75rem">Funding &amp; open interest from perpetual futures — reads market positioning. Context for timing, not a signal.</div>'+
+    '<div id="foi-body" style="font-size:12px;color:var(--t3)">Loading funding &amp; OI…</div></div>';
+}
+
+function loadFundingOI(sym){
+  var body = function(){ return document.getElementById('foi-body'); };
+  // Bybit perps use the USDT symbol (e.g. NEARUSDT); JPY spot pairs → map to USDT perp
+  var perp = sym.replace(/JPY$/, 'USDT');
+  Promise.all([
+    fetchJ(BYBIT + '/v5/market/tickers?category=linear&symbol=' + perp, 6000)
+      .catch(function(){ return fetchJ(BYBIT2 + '/v5/market/tickers?category=linear&symbol=' + perp, 6000); }),
+    fetchJ(BYBIT + '/v5/market/open-interest?category=linear&symbol=' + perp + '&intervalTime=1h&limit=24', 6000)
+      .catch(function(){ return null; })
+  ]).then(function(res){
+    var el = body(); if(!el) return;
+    var t = res[0] && res[0].result && res[0].result.list && res[0].result.list[0];
+    if(!t){ el.innerHTML = 'No perpetual-futures data for this coin (spot-only listing).'; return; }
+    var fr = parseFloat(t.fundingRate);            // e.g. 0.0001 = 0.01% per 8h
+    var frPct = (fr*100);
+    var oiNow = parseFloat(t.openInterest);
+    // OI trend from the 1h history (is positioning building or unwinding?)
+    var oiTrend = '', oiCol = 'var(--t2)';
+    var hist = res[1] && res[1].result && res[1].result.list;
+    if(hist && hist.length > 6){
+      var recent = parseFloat(hist[0].openInterest);        // list is newest-first
+      var older  = parseFloat(hist[hist.length-1].openInterest);
+      if(older>0){
+        var ch = (recent-older)/older*100;
+        oiTrend = (ch>=0?'+':'')+ch.toFixed(1)+'% (24h)';
+        oiCol = ch > 5 ? 'var(--g)' : ch < -5 ? 'var(--r)' : 'var(--t2)';
+      }
+    }
+    // Honest reads — context, never a call
+    var frRead, frCol;
+    if(frPct > 0.05){ frRead='Very positive — longs crowded, paying to hold. Overheated positioning; reversals often follow extremes.'; frCol='var(--am)'; }
+    else if(frPct > 0.01){ frRead='Positive — longs mildly dominant. Normal in an uptrend.'; frCol='var(--t2)'; }
+    else if(frPct < -0.05){ frRead='Very negative — shorts crowded, paying to hold. Extreme; short squeezes often follow.'; frCol='var(--g)'; }
+    else if(frPct < -0.01){ frRead='Negative — shorts mildly dominant. Bearish positioning.'; frCol='var(--t2)'; }
+    else { frRead='Neutral — balanced positioning, no crowding.'; frCol='var(--t2)'; }
+
+    function row(label,val,col){ return '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:.5px solid var(--bd)"><span style="color:var(--t3)">'+label+'</span><span style="font-weight:700;color:'+(col||'var(--text)')+'">'+val+'</span></div>'; }
+    var h = '';
+    h += row('Funding rate (8h)', (frPct>=0?'+':'')+frPct.toFixed(4)+'%', frCol);
+    h += row('Open interest', oiNow ? (oiNow>=1e6?(oiNow/1e6).toFixed(1)+'M':oiNow.toLocaleString()) : '—', 'var(--text)');
+    if(oiTrend) h += row('OI change', oiTrend, oiCol);
+    h += '<div style="font-size:11px;color:'+frCol+';line-height:1.5;margin-top:8px">'+frRead+'</div>';
+    // OI + funding combined honest note
+    h += '<div style="font-size:10px;color:var(--t3);line-height:1.55;margin-top:8px;font-style:italic">Rising OI + rising price = new money confirming the move. Rising OI + falling price = shorts building. Falling OI = positions closing (trend losing fuel). This is positioning context — it does not predict direction, and it is not logged.</div>';
+    el.innerHTML = h;
+  }).catch(function(){
+    var el = body(); if(el) el.innerHTML = 'Could not load derivatives data (network or no perp listing).';
+  });
 }
 function showPosForm(){
   var d=window._d,p=d.price;
@@ -4522,6 +4626,16 @@ function autoLogSignals(){
     var isBTC = (d.sym === 'BTCUSDT' || d.sym === 'BTCJPY');
     var btcStateOK = (btcState === 'bullish' || btcState === 'stable');
     if(!isBTC && !btcStateOK) return;
+    // ── MARKET-CONTEXT GATES — the fix for rule context-blindness ──
+    // Suppress alt entries in alt-unfriendly weather, exactly the conditions you
+    // flagged: ETH weakening, money fleeing to BTC (rising dominance), weak breadth.
+    // BTC and ETH themselves are exempt (they ARE the majors).
+    var isMajor = isBTC || d.sym==='ETHUSDT';
+    if(!isMajor){
+      if(_ethWeak) return;              // ETH underperforming BTC → alts bleed
+      if(_btcDominanceRising) return;   // money rotating into BTC → alt-unfriendly
+      if(_breadthWeak) return;          // <35% of coins in uptrends → broad risk-off
+    }
 
     // ── ANALYST GATE — only log trades the analyst grades A or B ──────────────
     // The Jul-02 log showed most losses were "wrong from the start" (never made
@@ -4612,6 +4726,8 @@ function autoLogSignals(){
       btcState: btcState,   // record BTC backdrop at log time for later analysis
       btcStateAtEntry: btcState, // snapshot for exit comparison
       htfAligned: (TF==='1d'||TF==='1w') ? null : ((window._dailyTrend && window._dailyTrend[d.sym] != null) ? window._dailyTrend[d.sym] : null), // was the DAILY trend up at entry? (Murphy M6, recorded for the Coach to grade)
+      mktContext: { ethVsBtc: Math.round(_ethVsBtc*10)/10, breadth: _breadth, domRising: _btcDominanceRising }, // alt-weather at entry, for grading
+      momQuintile: d.momQuintile || null, momRank: d.momRank || null, // cross-sectional momentum at entry (audit item 2, for grading)
       analystGrade: analystGrade, // A/B — the analyst-gate grade this entry passed
       entryReason: entryReason,  // detailed why-it-fired record
       ts: Date.now(), tf: TF,
@@ -4652,7 +4768,11 @@ function autoLogSignals(){
     // (trulyBullish requirement makes that impossible).
     var nearSupport = d.sup && d.sup < d.price && (d.price - d.sup)/d.price*100 <= 3;
     var atEMA20zone = d.ema20 && Math.abs((d.price - d.ema20)/d.ema20*100) <= 2;
-    if(trulyBullish && (nearSupport || atEMA20zone)
+    // HARD TREND GATE (evidence audit): dip-buys only have positive expectancy in
+    // a confirmed uptrend. Require the DAILY trend up too — no counter-trend dips.
+    var dailyUp = (TF==='1d'||TF==='1w') ? true
+                : ((window._dailyTrend && window._dailyTrend[d.sym]===true));
+    if(trulyBullish && dailyUp && (nearSupport || atEMA20zone)
        && d.rsi >= 35 && d.rsi <= 55            // dipped, not broken
        && momentumUp                              // turning back up
        && d.volR >= 0.8) {                        // participation hasn't died
@@ -4688,23 +4808,13 @@ function autoLogSignals(){
       logIt(d, 'Breakout confirmed');
     }
 
-    // BULLISH CHoCH — the 0/12 killer. A CHoCH is by definition an EARLY counter-
-    // trend break, so "is it bullish yet?" is the whole question. The data says
-    // firing on the break alone loses ~100% of the time. So now we require the
-    // reversal to be PROVEN, not just starting:
-    //   • full EMA stack has flipped up (20>50>200) — the trend actually turned
-    //   • price holding above the stack — not just a wick through a level
-    //   • momentum + volume confirm — real buyers, not a fakeout
-    //   • BTC bullish — counter-trend longs need a strong market tailwind
-    // This converts CHoCH from "reversal MIGHT be starting" to "reversal has been
-    // confirmed" — which is really a continuation entry, and far higher-probability.
-    if(d.smc && d.smc.choch==='bull'
-       && trulyBullish                              // reversal actually completed (stack up)
-       && momentumUp && rsiOK                       // momentum confirms the turn
-       && d.volR >= 1.3                             // strong participation behind it
-       && btcState === 'bullish') {                 // strong market tailwind required
-      logIt(d, 'Bullish CHoCH (confirmed)');
-    }
+    // BULLISH CHoCH — DEMOTED per evidence audit. Rigorous review found SMC/CHoCH
+    // has no demonstrated edge beyond its trend-continuation core, which is already
+    // captured by the Breakout/BOS setup above. CHoCH is no longer logged as its
+    // own setup (it went ~1W/28L historically). The CHoCH badge still shows on the
+    // chart/cards as context, but it does NOT create a tracked trade.
+    // (If price genuinely reclaimed the full stack with volume, the Breakout or
+    // EMA-retest setups already catch that same entry — measured on their own record.)
   });
   if(added>0) saveSignalLog(log.slice(0, 800)); // cap to bound storage
   return added;
@@ -5175,7 +5285,19 @@ function _signalLogStatsImpl(){
     byType[t].resolved = r;
     byType[t].winRate = r>0 ? Math.round(byType[t].won/r*100) : null;
   });
-  return {total:log.length, won:won, lost:lost, open:open, ambiguous:ambig, expired:expired, resolved:resolved, winRate:winRate, ci:ci, byType:byType};
+  // R-EXPECTANCY net of fees (evidence audit): the number that decides profitability.
+  // Each win = +targetR (from its R:R), each loss = −1R, minus a round-trip fee/slippage
+  // drag (~0.2% entry + 0.2% exit on a ~3% stop ≈ 0.13R). Positive = edge; negative = none.
+  var feeR = 0.13;  // conservative round-trip cost in R units
+  var sumR = 0, nR = 0;
+  log.forEach(function(s){
+    if(s.status!=='won' && s.status!=='lost') return;
+    var rr = (s.rr!=null) ? s.rr : ((s.tp && s.entry && s.sl && s.entry!==s.sl) ? Math.abs((s.tp-s.entry)/(s.entry-s.sl)) : 1.5);
+    sumR += (s.status==='won' ? rr : -1) - feeR;
+    nR++;
+  });
+  var expectancyR = nR>0 ? Math.round(sumR/nR*100)/100 : null;
+  return {total:log.length, won:won, lost:lost, open:open, ambiguous:ambig, expired:expired, resolved:resolved, winRate:winRate, ci:ci, byType:byType, expectancyR:expectancyR};
 }
 
 // Export / import for backup + cross-device transfer
@@ -5273,6 +5395,11 @@ function renderSignalLog(){
   head += '<div style="text-align:center"><div style="font-size:22px;font-weight:800;color:var(--g)">'+st.won+'</div><div style="font-size:10px;color:var(--t3)">Won (TP)</div></div>';
   head += '<div style="text-align:center"><div style="font-size:22px;font-weight:800;color:var(--r)">'+st.lost+'</div><div style="font-size:10px;color:var(--t3)">Lost (SL)</div></div>';
   head += '<div style="text-align:center"><div style="font-size:22px;font-weight:800;color:var(--am)">'+st.open+'</div><div style="font-size:10px;color:var(--t3)">Open</div></div>';
+  // R-EXPECTANCY net of fees — the number that decides profitability (audit item 1)
+  if(st.expectancyR !== null){
+    var expCol = st.resolved<30 ? 'var(--t3)' : st.expectancyR>0 ? 'var(--g)' : 'var(--r)';
+    head += '<div style="text-align:center"><div style="font-size:22px;font-weight:800;color:'+expCol+'">'+(st.expectancyR>0?'+':'')+st.expectancyR+'R</div><div style="font-size:9px;color:var(--t3)">net of ~fees</div><div style="font-size:10px;color:var(--t3)">Expectancy</div></div>';
+  }
   head += '</div>';
 
   // Honesty guard on sample size — thresholds set by ACTUAL statistical power.
@@ -6674,6 +6801,24 @@ function buildTradePlan(d){
   h += row('Setup', entryType, d.buySignal?'var(--g)':'var(--t2)');
   h += row('Current price', fE(p), 'var(--t2)', planEntry!==p ? (p>planEntry?'above':'below')+' the planned entry by '+Math.abs((p-planEntry)/planEntry*100).toFixed(1)+'%' : '');
   h += row('Planned entry', fE(planEntry), 'var(--text)', entryMode);
+  // POSITION SIZING (evidence audit's #1 lever) — fixed-fractional ~1% risk,
+  // sized off the actual stop distance. Educational display; you set your account.
+  (function(){
+    var acct = parseFloat(localStorage.getItem('acct_size')) || 1000;
+    var riskPct = 1; // 1% of equity per trade
+    var stopDistPct = Math.abs((planEntry - sl) / planEntry * 100);
+    if(stopDistPct > 0){
+      var riskAmt = acct * riskPct/100;
+      var posSize = riskAmt / (stopDistPct/100);   // notional so that a stop = riskAmt
+      posSize = Math.min(posSize, acct);           // spot: can't exceed capital
+      var pctOfAcct = posSize/acct*100;
+      h += '<div style="margin-top:10px;padding:9px;border-radius:8px;background:rgba(124,77,255,.06)">';
+      h += '<div style="font-size:11px;font-weight:800;color:#7c4dff;margin-bottom:4px">📐 Position size (1% risk)</div>';
+      h += '<div style="font-size:11px;color:var(--t2);line-height:1.6">On a <span style="cursor:pointer;text-decoration:underline" onclick="var v=prompt(\'Account size (USDT)\',\''+acct+'\');if(v){localStorage.setItem(\'acct_size\',parseFloat(v)||1000);switchMTab(\'ai\');}">'+acct.toLocaleString()+' account</span>, risking 1% ('+riskAmt.toFixed(0)+'): buy ≈ <strong>'+posSize.toFixed(0)+' USDT</strong> ('+pctOfAcct.toFixed(0)+'% of capital). Stop at '+fE(sl)+' = −'+stopDistPct.toFixed(1)+'% loses '+riskAmt.toFixed(0)+'.</div>';
+      h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;font-style:italic">Fixed-fractional sizing is the biggest evidence-based lever (asset allocation drives ~90% of return variation). Tap the account number to change it. Educational — not advice.</div>';
+      h += '</div>';
+    }
+  })();
   h += row('Stop (SL)', fE(sl), 'var(--r)', '−'+stopPct.toFixed(1)+'% from entry · below support');
   h += row('TP1', fE(tp1), 'var(--g)', '+'+((tp1-planEntry)/planEntry*100).toFixed(1)+'% · sell 40% · R:R '+rr1.toFixed(1));
   h += row('TP2', fE(tp2), 'var(--g)', '+'+((tp2-planEntry)/planEntry*100).toFixed(1)+'% · sell 35%');
@@ -7271,31 +7416,55 @@ var newsCache = []; // ← global cache used by News tab
 var newsLoading = false;
 
 function loadNews(){
-  var rssUrl='https://cointelegraph.com/rss';
   newsLoading = true;
-  function tryNewsSource(i){
-    var sources=[
-      function(){return fetchJ('https://api.rss2json.com/v1/api.json?rss_url='+encodeURIComponent(rssUrl),9000).then(function(d){if(d&&d.items&&d.items.length)return processNewsItems(d.items);throw new Error('empty');});},
-      function(){return fetchJ('https://corsproxy.io/?'+encodeURIComponent('https://api.rss2json.com/v1/api.json?rss_url='+encodeURIComponent(rssUrl)),9000).then(function(d){if(d&&d.items&&d.items.length)return processNewsItems(d.items);throw new Error('empty');});},
-      function(){
-        // corsproxy raw XML fallback
-        return fetch('https://corsproxy.io/?'+encodeURIComponent(rssUrl),{cache:'no-cache'})
-          .then(function(r){return r.text();})
-          .then(function(xml){var items=processNewsFromXML(xml);if(!items.length)throw new Error('empty xml');return items;});
-      }
-    ];
-    if(i>=sources.length) return Promise.reject(new Error('all sources failed'));
-    return sources[i]().catch(function(){return tryNewsSource(i+1);});
+  // Multiple feeds — merged, deduped, sorted by date. Each source is a working
+  // public RSS. Yahoo Finance has no clean public feed, so we use its markets RSS
+  // via a query proxy; if it fails it's simply skipped (the others still load).
+  var FEEDS = [
+    { name:'CoinTelegraph', url:'https://cointelegraph.com/rss' },
+    { name:'CoinDesk',      url:'https://www.coindesk.com/arc/outboundfeeds/rss/' },
+    { name:'Yahoo Finance', url:'https://finance.yahoo.com/news/rssindex' }
+  ];
+  function fetchFeed(feed){
+    var rssUrl = feed.url;
+    function tryNewsSource(i){
+      var sources=[
+        function(){return fetchJ('https://api.rss2json.com/v1/api.json?rss_url='+encodeURIComponent(rssUrl),9000).then(function(d){if(d&&d.items&&d.items.length)return processNewsItems(d.items);throw new Error('empty');});},
+        function(){return fetchJ('https://corsproxy.io/?'+encodeURIComponent('https://api.rss2json.com/v1/api.json?rss_url='+encodeURIComponent(rssUrl)),9000).then(function(d){if(d&&d.items&&d.items.length)return processNewsItems(d.items);throw new Error('empty');});},
+        function(){
+          return fetch('https://corsproxy.io/?'+encodeURIComponent(rssUrl),{cache:'no-cache'})
+            .then(function(r){return r.text();})
+            .then(function(xml){var items=processNewsFromXML(xml);if(!items.length)throw new Error('empty xml');return items;});
+        }
+      ];
+      if(i>=sources.length) return Promise.reject(new Error('all sources failed'));
+      return sources[i]().catch(function(){return tryNewsSource(i+1);});
+    }
+    // Tag each item with its source, and never reject the whole batch on one failure
+    return tryNewsSource(0)
+      .then(function(items){ items.forEach(function(it){ it.source = feed.name; }); return items; })
+      .catch(function(){ return []; });   // failed feed → empty, others continue
   }
-  tryNewsSource(0)
-  .then(function(items){
-    newsCache = items; // ← STORE in global cache
+
+  Promise.all(FEEDS.map(fetchFeed))
+  .then(function(lists){
+    // Merge + dedupe by title + sort newest first
+    var seen = {}, merged = [];
+    lists.forEach(function(list){
+      list.forEach(function(it){
+        var key = (it.title||'').slice(0,60).toLowerCase();
+        if(key && !seen[key]){ seen[key] = 1; merged.push(it); }
+      });
+    });
+    merged.sort(function(a,b){ return (new Date(b.date||0)) - (new Date(a.date||0)); });
+    if(!merged.length) throw new Error('all feeds failed');
+
+    newsCache = merged;
     newsLoading = false;
     var cntEl = document.getElementById('news-cnt');
-    if(cntEl) cntEl.textContent = items.length+' articles';
-    renderTicker(items);
-    renderNewsList(items);
-    // Re-render news tab if it's currently open
+    if(cntEl) cntEl.textContent = merged.length+' articles';
+    renderTicker(merged);
+    renderNewsList(merged);
     if(window._d){
       var newsTab = document.getElementById('mt-news');
       if(newsTab && newsTab.classList.contains('active')){
@@ -7308,7 +7477,7 @@ function loadNews(){
   .catch(function(){
     newsLoading = false;
     var track=document.getElementById('ticker-track');
-    if(track) track.innerHTML='<span style="padding:0 20px;line-height:32px;font-size:12px;color:var(--t3)">⚠ CoinTelegraph feed unavailable</span>';
+    if(track) track.innerHTML='<span style="padding:0 20px;line-height:32px;font-size:12px;color:var(--t3)">⚠ News feeds unavailable</span>';
   });
 }
 
@@ -8083,7 +8252,7 @@ function renderNewsTabContent(d) {
   // Score each article
   var scored = matched.map(function(n) {
     var s = scoreSentiment(n.title);
-    return { title: n.title, link: n.link, date: n.date, cat: n.cat, img: n.img, score: s };
+    return { title: n.title, link: n.link, date: n.date, cat: n.cat, img: n.img, source: n.source, score: s };
   }).sort(function(a, b) { return Math.abs(b.score.net) - Math.abs(a.score.net); });
 
   var bullNews = scored.filter(function(n) { return n.score.net > 0; });
@@ -8189,8 +8358,9 @@ function newsArticleCard(n, score) {
   return '<a href="' + (n.link || '#') + '" target="_blank" rel="noopener" style="display:flex;gap:10px;padding:.75rem;margin-bottom:.5rem;background:var(--card2);border-radius:var(--rad);border-left:3px solid ' + leftBdr + ';border:.5px solid ' + border + ';border-left-width:3px;text-decoration:none;transition:background .1s" onmouseover="this.style.background=\'var(--card3)\'" onmouseout="this.style.background=\'var(--card2)\'">' +
     '<span style="font-size:16px;flex:0 0 auto;margin-top:1px">' + ico + '</span>' +
     '<div style="flex:1;min-width:0">' +
-      '<div style="font-size:12.5px;font-weight:600;color:var(--text);line-height:1.4;margin-bottom:3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">' + (n.title || '') + '</div>' +
+      '<div style="font-size:12.5px;font-weight:600;color:var(--text);line-height:1.4;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (n.title || '') + '</div>' +
       '<div style="display:flex;gap:6px;align-items:center;font-size:10px;color:var(--t3)">' +
+        (n.source ? '<span style="background:rgba(124,77,255,.14);color:#7c4dff;font-weight:700;padding:1px 5px;border-radius:3px">' + n.source + '</span>' : '') +
         (n.cat ? '<span style="background:rgba(226,75,74,.12);color:var(--r);font-weight:700;padding:1px 5px;border-radius:3px">' + String(n.cat).substring(0,14) + '</span>' : '') +
         (age ? '<span>' + age + '</span>' : '') +
         (score.bull ? '<span style="color:var(--g)">+' + score.bull + ' bull</span>' : '') +
@@ -11023,6 +11193,17 @@ function renderMarketRead(){
 
   var btcIcon = {bullish:'🟢',stable:'🟢',falling:'🟡',dumping:'🔴'}[m.btcState]||'⚪';
   var h='';
+  // ── ALT-WEATHER BANNER — shows WHY alt entries may be suppressed right now ──
+  var altSuppress = _ethWeak || _btcDominanceRising || _breadthWeak;
+  var reasons = [];
+  if(_ethWeak) reasons.push('ETH weakening vs BTC ('+(_ethVsBtc>=0?'+':'')+_ethVsBtc.toFixed(1)+'%)');
+  if(_btcDominanceRising) reasons.push('BTC dominance rising (money leaving alts)');
+  if(_breadthWeak) reasons.push('weak breadth ('+_breadth+'% of coins above 200EMA)');
+  h += '<div style="background:'+(altSuppress?'rgba(239,83,80,.10)':'rgba(38,166,154,.08)')+';border-left:3px solid '+(altSuppress?'var(--r)':'var(--g)')+';border-radius:8px;padding:.75rem .875rem;margin-bottom:1rem">';
+  h += '<div style="font-size:12px;font-weight:800;color:'+(altSuppress?'var(--r)':'var(--g)')+';margin-bottom:2px">'+(altSuppress?'\u26d4 Alt entries suppressed':'\u2705 Alt weather OK')+'</div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.5">'+(altSuppress
+    ? 'Alt buy signals are being held back \u2014 '+reasons.join(' \u00b7 ')+'. Majors (BTC/ETH) still log. This is the market-context filter working: it stops entries in alt-unfriendly conditions.'
+    : 'ETH/BTC ratio '+(_ethVsBtc>=0?'+':'')+_ethVsBtc.toFixed(1)+'%, breadth '+_breadth+'% \u2014 no alt-unfriendly conditions detected. Alt signals log normally.')+'</div></div>';
   // One-line headline
   h += '<div style="background:var(--card2);border-radius:var(--rad-lg);padding:1rem;margin-bottom:1rem">';
   h += '<div style="font-size:11px;color:var(--t3);text-transform:uppercase;font-weight:700;margin-bottom:.5rem">Market Read — right now</div>';
