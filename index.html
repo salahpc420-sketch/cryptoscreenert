@@ -367,6 +367,11 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
   .modal{padding-top:max(6px, env(safe-area-inset-top)) !important;padding-bottom:max(6px, env(safe-area-inset-bottom)) !important;box-sizing:border-box !important}
   #chart-fs-bar{padding-top:max(6px, env(safe-area-inset-top)) !important;height:auto !important;min-height:44px !important}
   #chart-fullscreen-ov{padding-bottom:env(safe-area-inset-bottom)}
+  /* Mobile fullscreen chart: maximize usable area + a rotate hint in portrait */
+  #chart-fs-table{display:none !important}   /* hide side trade-table on phones — chart gets full width */
+  #chart-fs-bar{flex-wrap:wrap !important;height:auto !important;min-height:44px !important;padding:6px 10px !important}
+  #chart-rotate-hint{display:block}
+  @media (orientation:landscape){ #chart-rotate-hint{display:none !important} }
   /* Mobile: big-screen chart option — thumb-sized expand button, true fullscreen */
   #chart-expand-btn{width:44px !important;height:38px !important;font-size:18px !important;border-color:#7c4dff !important;color:#7c4dff !important}
   #chart-fullscreen-ov{padding-top:env(safe-area-inset-top)}
@@ -945,12 +950,17 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 // CONFIG — TOP 50 USDT + JPY
 // ═══════════════════════════════════════════════════════════
 var SYM = {
-  USDT:['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','AVAXUSDT','XLMUSDT','LTCUSDT',
-        'LINKUSDT','DOTUSDT','MATICUSDT','AAVEUSDT','UNIUSDT','ATOMUSDT','NEARUSDT','APTUSDT','STXUSDT','INJUSDT',
-        'SUIUSDT','ARBUSDT','OPUSDT','FILUSDT','LDOUSDT','RNDRUSDT','FETUSDT','WLDUSDT','SEIUSDT','TIAUSDT',
-        'HBARUSDT','ICPUSDT','ALGOUSDT','KASUSDT','ENAUSDT','JUPUSDT','PYTHUSDT','PENDLEUSDT','EIGENUSDT',
-        'MKRUSDT','COMPUSDT','GMXUSDT','CRVUSDT','SNXUSDT','RUNEUSDT','THETAUSDT','FLOWUSDT','IMXUSDT',
-        'TAOUSDT'],
+  // ~80 of the highest-VOLUME / most-liquid USDT pairs on Bybit spot. Curated for
+  // tradeable liquidity (thin micro-caps deliberately excluded per the liquidity
+  // finding in the evidence audit). MATIC→POL fixed (Polygon migration completed).
+  USDT:['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','AVAXUSDT','TRXUSDT','TONUSDT',
+        'LINKUSDT','DOTUSDT','POLUSDT','AAVEUSDT','UNIUSDT','ATOMUSDT','NEARUSDT','APTUSDT','LTCUSDT','XLMUSDT',
+        'BCHUSDT','SUIUSDT','ARBUSDT','OPUSDT','FILUSDT','LDOUSDT','RENDERUSDT','FETUSDT','WLDUSDT','SEIUSDT',
+        'TIAUSDT','HBARUSDT','ICPUSDT','ALGOUSDT','KASUSDT','ENAUSDT','JUPUSDT','PYTHUSDT','PENDLEUSDT','EIGENUSDT',
+        'MKRUSDT','COMPUSDT','GMXUSDT','CRVUSDT','SNXUSDT','RUNEUSDT','THETAUSDT','FLOWUSDT','IMXUSDT','TAOUSDT',
+        'SHIBUSDT','PEPEUSDT','WIFUSDT','BONKUSDT','FLOKIUSDT','ONDOUSDT','JASMYUSDT','GALAUSDT','SANDUSDT','AXSUSDT',
+        'MANAUSDT','CHZUSDT','GRTUSDT','ENSUSDT','DYDXUSDT','STXUSDT','INJUSDT','ETCUSDT','VETUSDT','EGLDUSDT',
+        'FTMUSDT','MINAUSDT','ROSEUSDT','1INCHUSDT','ZILUSDT','KAVAUSDT','ARUSDT','QNTUSDT','NEOUSDT','CFXUSDT'],
   JPY:['BTCJPY','ETHJPY','XRPJPY','SOLJPY','DOGEJPY','ADAJPY','AVAXJPY','LTCJPY','LINKJPY','DOTJPY',
        'BCCJPY','MATICJPY','ATOMJPY','XLMJPY','QTUMJPY','BATJPY','OMGJPY','XYMJPY','MONAJPY','ASTRJPY',
        'AXSJPY','FLRJPY','APTJPY','SANDJPY','CHZJPY','GALAJPY','OPJPY','ARBJPY','MKRJPY','RNDRJPY']
@@ -4722,7 +4732,7 @@ function autoLogSignals(){
       sym: d.sym, pair: d.pair, direction:'long', setupType: setupType,
       entry: entry, tp: tp, sl: sl,
       stopPct: Math.round(stopPct*100)/100, targetPct: Math.round(targetPct*100)/100, rr: Math.round(rr*100)/100,
-      score: d.score, opportunity: d.opportunity,
+      score: d.score, opportunity: d.opportunity, rsRank: d.rsRank!=null?d.rsRank:null,
       btcState: btcState,   // record BTC backdrop at log time for later analysis
       btcStateAtEntry: btcState, // snapshot for exit comparison
       htfAligned: (TF==='1d'||TF==='1w') ? null : ((window._dailyTrend && window._dailyTrend[d.sym] != null) ? window._dailyTrend[d.sym] : null), // was the DAILY trend up at entry? (Murphy M6, recorded for the Coach to grade)
@@ -5094,6 +5104,55 @@ function runHealthCheck(){
 // to give confident calls the sample can't back. This is the automated version of
 // honest professional feedback: it critiques your DATA, never predicts the market.
 // ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// SCORING-SYSTEM AUDIT — the "keep or remove this feature?" engine. For each of
+// the tool's own scores (Opportunity, RS, momentum, HTF-align, analyst grade),
+// it splits resolved trades into HIGH vs LOW buckets and measures whether the
+// high-value signals actually won more. If HIGH doesn't beat LOW, the score is
+// noise — flagged for removal. This is measured evidence, not opinion.
+// ═══════════════════════════════════════════════════════════════════════════
+function auditScoringSystems(){
+  var log = loadSignalLog();
+  var resolved = log.filter(function(s){ return s.status==='won'||s.status==='lost'; });
+  if(resolved.length < 20) return { ready:false, n:resolved.length };
+
+  function bucketTest(name, getVal, splitDesc){
+    var withVal = resolved.filter(function(s){ return getVal(s)!=null; });
+    if(withVal.length < 16) return { name:name, verdict:'too-few', n:withVal.length };
+    // split at the median value
+    var vals = withVal.map(getVal).sort(function(a,b){return a-b;});
+    var med = vals[Math.floor(vals.length/2)];
+    var hi = withVal.filter(function(s){ return getVal(s) >= med; });
+    var lo = withVal.filter(function(s){ return getVal(s) <  med; });
+    if(hi.length<6 || lo.length<6) return { name:name, verdict:'too-few', n:withVal.length };
+    var hiWR = Math.round(hi.filter(function(s){return s.status==='won';}).length/hi.length*100);
+    var loWR = Math.round(lo.filter(function(s){return s.status==='won';}).length/lo.length*100);
+    var gap = hiWR - loWR;
+    var verdict = gap >= 12 ? 'helps' : gap <= -12 ? 'inverted' : 'noise';
+    return { name:name, verdict:verdict, hiWR:hiWR, loWR:loWR, gap:gap, n:withVal.length, splitDesc:splitDesc };
+  }
+
+  function categoryTest(name, getCat, goodCat, badCat){
+    var g = resolved.filter(function(s){ return getCat(s)===goodCat; });
+    var b = resolved.filter(function(s){ return getCat(s)===badCat; });
+    if(g.length<6 || b.length<6) return { name:name, verdict:'too-few', n:g.length+b.length };
+    var gWR = Math.round(g.filter(function(s){return s.status==='won';}).length/g.length*100);
+    var bWR = Math.round(b.filter(function(s){return s.status==='won';}).length/b.length*100);
+    var gap = gWR - bWR;
+    var verdict = gap >= 12 ? 'helps' : gap <= -12 ? 'inverted' : 'noise';
+    return { name:name, verdict:verdict, hiWR:gWR, loWR:bWR, gap:gap, n:g.length+b.length, splitDesc:goodCat+' vs '+badCat };
+  }
+
+  var tests = [
+    bucketTest('Opportunity Score', function(s){return s.opportunity;}, 'high-score vs low-score signals'),
+    bucketTest('RS Rank', function(s){return s.rsRank;}, 'strong-RS vs weak-RS signals'),
+    bucketTest('Momentum Rank', function(s){return s.momRank;}, 'high-momentum vs low-momentum'),
+    categoryTest('HTF Alignment', function(s){return s.htfAligned===true?'aligned':(s.htfAligned===false?'counter':null);}, 'aligned', 'counter'),
+    categoryTest('Analyst Grade', function(s){return s.analystGrade;}, 'A', 'B')
+  ];
+  return { ready:true, n:resolved.length, tests:tests.filter(function(t){return t.verdict!=='too-few';}), pending:tests.filter(function(t){return t.verdict==='too-few';}) };
+}
+
 function buildCoachAdvice(){
   var st = signalLogStats();
   var log = loadSignalLog();
@@ -5366,6 +5425,31 @@ function renderCoach(){
       '<div style="font-size:12px;font-weight:700;color:'+col+';margin-bottom:3px">'+icon+' '+a.title+'</div>' +
       '<div style="font-size:11px;color:var(--t2);line-height:1.55">'+a.detail+'</div></div>';
   }).join('');
+
+  // ── SCORING-SYSTEM AUDIT — keep or remove each of the tool's own scores ──
+  var A = auditScoringSystems();
+  h += '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin:1rem 0 .75rem">';
+  h += '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:.3rem">🔬 Scoring-system audit — keep or remove?</div>';
+  if(!A.ready){
+    h += '<div style="font-size:11px;color:var(--t3);line-height:1.5">Needs 20+ resolved trades to test whether each score actually separates winners from losers. Currently '+A.n+'. Keep logging — this is how you learn which of the tool\'s own systems earn their place.</div>';
+  } else {
+    h += '<div style="font-size:11px;color:var(--t2);line-height:1.5;margin-bottom:.6rem">For each score, high-value signals are compared to low-value ones. If HIGH doesn\'t win more, the score is noise — a candidate to remove. Based on '+A.n+' resolved trades.</div>';
+    A.tests.forEach(function(t){
+      var col = t.verdict==='helps'?'var(--g)':t.verdict==='inverted'?'var(--r)':'var(--am)';
+      var icon = t.verdict==='helps'?'✅ KEEP':t.verdict==='inverted'?'🔴 INVERTED':'⚠️ NOISE';
+      var msg = t.verdict==='helps' ? 'High signals win '+t.hiWR+'% vs low '+t.loWR+'% (+'+t.gap+'pts). This score genuinely separates winners — keep it.'
+              : t.verdict==='inverted' ? 'High signals win '+t.hiWR+'% vs low '+t.loWR+'% ('+t.gap+'pts) — BACKWARDS. The score is anti-predictive; investigate or invert/remove.'
+              : 'High '+t.hiWR+'% vs low '+t.loWR+'% (gap '+(t.gap>=0?'+':'')+t.gap+'pts, under ±12). No real edge — this score isn\'t helping. Candidate to remove/simplify.';
+      h += '<div style="background:'+(t.verdict==='helps'?'rgba(38,166,154,.08)':t.verdict==='inverted'?'rgba(239,83,80,.08)':'rgba(245,158,11,.08)')+';border-left:3px solid '+col+';border-radius:8px;padding:.6rem .75rem;margin-bottom:.5rem">';
+      h += '<div style="font-size:12px;font-weight:700;color:'+col+';margin-bottom:2px">'+icon+' · '+t.name+'</div>';
+      h += '<div style="font-size:11px;color:var(--t2);line-height:1.5">'+msg+'</div></div>';
+    });
+    if(A.pending.length){
+      h += '<div style="font-size:10px;color:var(--t3);margin-top:6px">Not enough data yet to grade: '+A.pending.map(function(t){return t.name;}).join(', ')+'.</div>';
+    }
+    h += '<div style="font-size:9px;color:var(--t3);margin-top:8px;font-style:italic">This measures whether each score PREDICTED wins in your real log — the only honest way to decide keep vs remove. A "noise" verdict means the feature added complexity without edge.</div>';
+  }
+  h += '</div>';
 
   body.innerHTML = h;
 }
@@ -8625,6 +8709,7 @@ function buildChartTab(d) {
         '<div id="chart-fs-canvas" style="flex:1;position:relative;overflow:hidden">' +
           '<canvas id="chart-canvas-fs" style="display:block;cursor:crosshair"></canvas>' +
           '<div id="chart-legend-fs" style="position:absolute;top:6px;left:8px;font-size:11px;color:#787b86;pointer-events:none;line-height:1.7;font-family:-apple-system,sans-serif"></div>' +
+          '<div id="chart-rotate-hint" style="display:none;position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:rgba(124,77,255,.92);color:#fff;font-size:11px;font-weight:700;padding:7px 14px;border-radius:20px;pointer-events:none;white-space:nowrap;box-shadow:0 2px 12px rgba(0,0,0,.4)">🔄 Rotate your phone sideways for a bigger chart</div>' +
         '</div>' +
         // Compact trade table — right sidebar
         '<div id="chart-fs-table" style="width:200px;flex:0 0 200px;background:#1e222d;border-left:1px solid #2a2e39;display:flex;flex-direction:column;font-family:-apple-system,sans-serif;overflow-y:auto">' +
@@ -9140,20 +9225,21 @@ function drawChart() {
   ctx.fillRect(chartW, 0, RIGHT_PAD, TOTAL_H);
 
   // 3. Grid — horizontal only (TV doesn't draw vertical grid by default)
-  var priceStep  = nicePriceStep(pRange, 7);
+  var priceStep  = nicePriceStep(pRange, 6);   // fewer lines = cleaner
   var priceStart = Math.ceil(pMin / priceStep) * priceStep;
+  ctx.save();
   for (var pp = priceStart; pp <= pMax; pp += priceStep) {
     var gy = Math.round(pY(pp)) + 0.5;
     if (gy < TOP_PAD || gy > TOP_PAD + CANDLE_H) continue;
-    ctx.strokeStyle = C.gridLine;
+    ctx.strokeStyle = 'rgba(120,123,134,.10)';   // softer than before — candles pop
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(chartW, gy); ctx.stroke();
-    // Price label on right axis
     ctx.fillStyle = C.text2;
     ctx.font = '11px -apple-system,BlinkMacSystemFont,sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText(fmtPrice(pp), chartW + 6, gy + 4);
   }
+  ctx.restore();
 
   // 4. S/R horizontal levels
   if (ind.sr && d) {
@@ -11270,6 +11356,17 @@ function renderMarketRead(){
 
   var btcIcon = {bullish:'🟢',stable:'🟢',falling:'🟡',dumping:'🔴'}[m.btcState]||'⚪';
   var h='';
+  // ── AI MARKET BRIEFING — one AI call summarizing the whole board on demand ──
+  var hasKey = !!(localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key'));
+  h += '<div style="background:linear-gradient(135deg,rgba(124,77,255,.10),rgba(124,77,255,.02));border:.5px solid rgba(124,77,255,.35);border-radius:var(--rad-lg);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.5rem"><span style="font-size:16px">🤖</span><span style="font-size:13px;font-weight:800">AI Market Briefing</span><span style="margin-left:auto;font-size:9px;color:var(--t3)">one call · reads the whole board</span></div>';
+  if(hasKey){
+    h += '<button onclick="runMarketBriefing()" style="padding:9px 18px;border-radius:8px;border:none;background:#7c4dff;color:#fff;font-weight:800;cursor:pointer;font-family:inherit;font-size:13px">🤖 Brief me on the market now</button>';
+  } else {
+    h += '<div style="font-size:11px;color:var(--t2)">Add your free Gemini key (in any coin\'s Analyst tab) to enable the AI briefing.</div>';
+  }
+  h += '<div id="briefing-out" style="margin-top:.6rem"></div>';
+  h += '</div>';
   // ── ALT-WEATHER BANNER — shows WHY alt entries may be suppressed right now ──
   var altSuppress = _ethWeak || _btcDominanceRising || _breadthWeak;
   var reasons = [];
@@ -11311,8 +11408,45 @@ function renderMarketRead(){
 
   body.innerHTML = h;
 }
-// Reads Fear&Greed, % of coins below EMA200, BTC drawdown from recent high,
-// RSI extremes. Outputs a 0-100 "dip opportunity" score + honest verdict.
+
+// ── AI MARKET BRIEFING — gathers the whole board into ONE AI call ─────────────
+// Not per-coin, not continuous. Summarizes current signals + market context so
+// you get a single "here's the board" read. Same honesty rules as the analyst.
+function runMarketBriefing(){
+  var out = document.getElementById('briefing-out');
+  if(!out) return;
+  out.innerHTML = '<div style="font-size:11px;color:var(--t3)">🤖 Reading the whole board…</div>';
+
+  var m = buildMarketRead();
+  // Top signals right now (A/B tier buys), compact
+  var sigs = (allData||[]).filter(function(d){ return d.buySignal && !d._stale && (d.buyTier==='A'||d.buyTier==='B'); })
+    .sort(function(a,b){ return (b.opportunity||0)-(a.opportunity||0); })
+    .slice(0,12)
+    .map(function(d){ return { coin:d.pair.replace('/USDT','').replace('/JPY',''), tier:d.buyTier, setup:(d.struct||''), rsi:Math.round(d.rsi||0), volR:Math.round((d.volR||0)*10)/10, mom:d.momQuintile||'mid', trend:(d.ema20>d.ema50&&d.ema50>d.ema200)?'up':'mixed' }; });
+
+  var ctx = {
+    btcState: btcState,
+    altWeather: (_ethWeak||_btcDominanceRising||_breadthWeak) ? 'alt-unfriendly' : 'ok',
+    ethVsBtc: Math.round(_ethVsBtc*10)/10,
+    breadthPctAbove200: _breadth,
+    buyZoneScore: m && m.bz ? m.bz.score : null,
+    aPlusBSetups: m ? (m.aTier+m.bTier) : 0,
+    topSignals: sigs,
+    myTrackRecord: (function(){ var st=signalLogStats(); return st.resolved ? (st.winRate+'% over '+st.resolved+' resolved, expectancy '+(st.expectancyR!=null?st.expectancyR+'R':'n/a')) : 'no resolved trades yet'; })()
+  };
+
+  var sys = 'You are a brutally honest crypto spot-trading analyst giving a MARKET BRIEFING — a single read of the whole board, not individual trade calls. You get current market context and the top active buy signals as JSON. Rules: never predict prices or give probabilities; tie every point to the data; be blunt; SPOT only; factor the user\'s real track record (if below 40% breakeven, stress small size). Structure your briefing in plain text (no markdown symbols), ~200-350 words, with these UPPERCASE labels each on their own line: MARKET STATE (BTC regime + alt weather + what it means), THE BOARD (are there real setups or is it quiet? which 2-3 stand out and why, by the data — do NOT tell them to buy, describe quality), WHAT I\'D WATCH (the conditions that would make this a better/worse time to act), BOTTOM LINE (one blunt sentence). Remember: alt-unfriendly weather + weak setups = the honest answer is often "quiet, be patient." Evidence base: trend/momentum and HTF alignment are the real edges; unconfirmed breakouts and counter-trend entries underperform; keep them honest.';
+
+  _aiCallModel(sys, [{ role:'user', content:'Brief me on the current market:\n'+JSON.stringify(ctx, null, 1) }])
+  .then(function(text){
+    var safe = _aiFormat(text);
+    out.innerHTML = '<div style="background:var(--card);border-radius:8px;padding:.8rem .9rem;font-size:12px;color:var(--t2);line-height:1.65">'+safe+'</div>'+
+      '<div style="font-size:9px;color:var(--t3);margin-top:5px;font-style:italic">One AI read of the whole board — context, not trade calls. Tap a coin for its full analysis.</div>';
+  })
+  .catch(function(e){
+    out.innerHTML = '<div style="font-size:11px;color:var(--r)">Briefing failed: '+(e.message||e)+'. '+(String(e.message||'').match(/key|auth/i)?'Check your key.':'Try again.')+'</div>';
+  });
+}
 // ═══════════════════════════════════════════════════════════════════════════
 function detectMarketBuyZone() {
   if (!allData || !allData.length) return null;
@@ -11787,7 +11921,22 @@ detectProxy().then(function(){}).catch(function(){}).then(function(){
     _resizeTmr=setTimeout(function(){
       var nowMobile=window.innerWidth<=820;
       if(nowMobile!==_wasMobile){ _wasMobile=nowMobile; if(allData.length) render(); }
+      // If the fullscreen chart is open (e.g. user rotated phone), resize+redraw it
+      var fsOv=document.getElementById('chart-fullscreen-ov');
+      if(fsOv && fsOv.classList.contains('show')){
+        var fsC=document.getElementById('chart-fs-canvas'), cv=document.getElementById('chart-canvas-fs');
+        if(fsC && cv){ cv.style.width=fsC.clientWidth+'px'; cv.style.height=fsC.clientHeight+'px'; if(chartState.klines) drawChart(); }
+      }
     }, 200);
+  });
+  window.addEventListener('orientationchange', function(){
+    setTimeout(function(){
+      var fsOv=document.getElementById('chart-fullscreen-ov');
+      if(fsOv && fsOv.classList.contains('show')){
+        var fsC=document.getElementById('chart-fs-canvas'), cv=document.getElementById('chart-canvas-fs');
+        if(fsC && cv){ cv.style.width=fsC.clientWidth+'px'; cv.style.height=fsC.clientHeight+'px'; if(chartState.klines) drawChart(); }
+      }
+    }, 300);
   });
 
   // ── STALE-DATA WATCHDOG — warns if prices stop updating ────────────────────
