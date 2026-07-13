@@ -4733,6 +4733,21 @@ function autoLogSignals(){
       entry: entry, tp: tp, sl: sl,
       stopPct: Math.round(stopPct*100)/100, targetPct: Math.round(targetPct*100)/100, rr: Math.round(rr*100)/100,
       score: d.score, opportunity: d.opportunity, rsRank: d.rsRank!=null?d.rsRank:null,
+      // Metrics recorded so the scoring audit can grade whether each one PREDICTS wins
+      volR: d.volR!=null ? Math.round(d.volR*100)/100 : null,      // volume ratio at entry
+      trendQ: d.trendQ!=null ? d.trendQ : null,                     // trend quality 0-100
+      accum: d.accum!=null ? d.accum : null,                        // accumulation score 0-100
+      dnaBehavior: (window._aiDnaCache && window._aiDnaCache[d.sym] && window._aiDnaCache[d.sym].personality) || null, // coin personality
+      dnaAligned: (function(){                                       // is this setup ALIGNED with the coin's nature?
+        var p = (window._aiDnaCache && window._aiDnaCache[d.sym] && window._aiDnaCache[d.sym].personality) || null;
+        if(!p) return null;
+        // Trenders suit trend/breakout setups; Choppers/Pumpers suit dip/range entries.
+        var isTrendSetup = /breakout|retest|CHoCH/i.test(setupType);
+        var isDipSetup   = /dip/i.test(setupType);
+        if(/Trender/i.test(p))  return isTrendSetup ? true : (isDipSetup ? false : null);
+        if(/Chopper|Pumper/i.test(p)) return isDipSetup ? true : (isTrendSetup ? false : null);
+        return null;   // Balanced/Bleeder — no clear alignment claim
+      })(),
       btcState: btcState,   // record BTC backdrop at log time for later analysis
       btcStateAtEntry: btcState, // snapshot for exit comparison
       htfAligned: (TF==='1d'||TF==='1w') ? null : ((window._dailyTrend && window._dailyTrend[d.sym] != null) ? window._dailyTrend[d.sym] : null), // was the DAILY trend up at entry? (Murphy M6, recorded for the Coach to grade)
@@ -5145,8 +5160,13 @@ function auditScoringSystems(){
 
   var tests = [
     bucketTest('Opportunity Score', function(s){return s.opportunity;}, 'high-score vs low-score signals'),
+    bucketTest('Signal Score', function(s){return s.score;}, 'high vs low composite score'),
     bucketTest('RS Rank', function(s){return s.rsRank;}, 'strong-RS vs weak-RS signals'),
     bucketTest('Momentum Rank', function(s){return s.momRank;}, 'high-momentum vs low-momentum'),
+    bucketTest('Volume Ratio', function(s){return s.volR;}, 'high-volume vs low-volume entries'),
+    bucketTest('Trend Quality', function(s){return s.trendQ;}, 'clean-trend vs choppy-trend entries'),
+    bucketTest('Accumulation Score', function(s){return s.accum;}, 'high-accumulation vs low'),
+    categoryTest('DNA Alignment', function(s){return s.dnaAligned===true?'aligned':(s.dnaAligned===false?'against':null);}, 'aligned', 'against'),
     categoryTest('HTF Alignment', function(s){return s.htfAligned===true?'aligned':(s.htfAligned===false?'counter':null);}, 'aligned', 'counter'),
     categoryTest('Analyst Grade', function(s){return s.analystGrade;}, 'A', 'B')
   ];
@@ -5440,8 +5460,12 @@ function renderCoach(){
       var msg = t.verdict==='helps' ? 'High signals win '+t.hiWR+'% vs low '+t.loWR+'% (+'+t.gap+'pts). This score genuinely separates winners — keep it.'
               : t.verdict==='inverted' ? 'High signals win '+t.hiWR+'% vs low '+t.loWR+'% ('+t.gap+'pts) — BACKWARDS. The score is anti-predictive; investigate or invert/remove.'
               : 'High '+t.hiWR+'% vs low '+t.loWR+'% (gap '+(t.gap>=0?'+':'')+t.gap+'pts, under ±12). No real edge — this score isn\'t helping. Candidate to remove/simplify.';
+      // Honest sample-size caution — small n makes even big gaps unreliable
+      var conf = t.n >= 60 ? '' : t.n >= 30
+        ? ' <span style="color:var(--t3)">(n='+t.n+' — early read, could still be noise)</span>'
+        : ' <span style="color:var(--am)">(n='+t.n+' — LOW sample, treat as a hint not a verdict)</span>';
       h += '<div style="background:'+(t.verdict==='helps'?'rgba(38,166,154,.08)':t.verdict==='inverted'?'rgba(239,83,80,.08)':'rgba(245,158,11,.08)')+';border-left:3px solid '+col+';border-radius:8px;padding:.6rem .75rem;margin-bottom:.5rem">';
-      h += '<div style="font-size:12px;font-weight:700;color:'+col+';margin-bottom:2px">'+icon+' · '+t.name+'</div>';
+      h += '<div style="font-size:12px;font-weight:700;color:'+col+';margin-bottom:2px">'+icon+' · '+t.name+conf+'</div>';
       h += '<div style="font-size:11px;color:var(--t2);line-height:1.5">'+msg+'</div></div>';
     });
     if(A.pending.length){
@@ -8821,8 +8845,8 @@ function expandChartFull() {
       });
       canvas.addEventListener('wheel', function(e) {
         e.preventDefault();
-        chartState.zoom = Math.max(20, Math.min(300, chartState.zoom + (e.deltaY > 0 ? 8 : -8)));
-        if (chartState.klines) drawChart();
+        var nz2 = Math.max(20, Math.min(300, chartState.zoom + (e.deltaY > 0 ? 8 : -8)));
+        zoomAtCursor(canvas, e.clientX, nz2);   // anchored to the cursor
       }, {passive:false});
       // Touch
       var tsX = null, tsOff = 0, pinchD0 = 0, pinchZ0 = 0;
@@ -9003,6 +9027,28 @@ function loadChart(tf) {
     });
 }
 
+
+// ── CURSOR-ANCHORED ZOOM (research: center-anchored zoom is the amateur tell) ──
+// Keep the candle under the cursor pinned in place while zooming, exactly like
+// TradingView. Without this, zooming drifts the chart away from what you're
+// looking at. Math: find the data index under the cursor, apply the new zoom,
+// then shift offset so that index lands back under the cursor.
+function zoomAtCursor(canvas, clientX, newZoom) {
+  if (!chartState.klines) return;
+  var rect = canvas.getBoundingClientRect();
+  var RIGHT_PAD = 78;
+  var chartWcss = Math.max(1, rect.width - RIGHT_PAD);
+  var mouseX = Math.max(0, Math.min(chartWcss, clientX - rect.left));
+  var frac = mouseX / chartWcss;                       // 0..1 across the chart
+  var oldZoom = chartState.zoom;
+  var oldOffset = chartState.offset;
+  var idxUnderCursor = oldOffset + frac * oldZoom;     // data index at the cursor
+  chartState.zoom = newZoom;
+  var newOffset = Math.round(idxUnderCursor - frac * newZoom);
+  chartState.offset = Math.max(0, Math.min(Math.max(0, chartState.klines.length - newZoom), newOffset));
+  drawChart();
+}
+
 function initChartEvents() {
   var canvasId = chartState.canvasId || 'chart-canvas';
   var canvas = document.getElementById(canvasId);
@@ -9046,8 +9092,8 @@ function initChartEvents() {
   // Wheel zoom
   canvas.addEventListener('wheel', function(e) {
     e.preventDefault();
-    chartState.zoom = Math.max(20, Math.min(200, chartState.zoom + (e.deltaY > 0 ? 10 : -10)));
-    if (chartState.klines) drawChart();
+    var nz = Math.max(20, Math.min(200, chartState.zoom + (e.deltaY > 0 ? 10 : -10)));
+    zoomAtCursor(canvas, e.clientX, nz);   // anchored to the cursor, not the edge
   }, {passive: false});
   // Touch
   // TOUCH — TradingView behavior: quick drag = pan, pinch = zoom,
@@ -9122,7 +9168,24 @@ function getCandleWidth() {
   return Math.max(2, chartW / chartState.zoom);
 }
 
+// ── rAF-COALESCED PAINT (research: the #1 performance fix) ───────────────────
+// Every input (mousemove, wheel, drag, pinch, websocket tick) used to call
+// drawChart() directly — firing far more often than the 60fps display refresh and
+// causing jank. Now drawChart() just flags "dirty" and schedules ONE paint per
+// animation frame. All 26 existing call sites become throttled for free.
+var _chartDirty = false, _chartRafId = null;
 function drawChart() {
+  _chartDirty = true;
+  if (_chartRafId !== null) return;          // a paint is already scheduled
+  _chartRafId = requestAnimationFrame(function(){
+    _chartRafId = null;
+    if (!_chartDirty) return;
+    _chartDirty = false;
+    try { _drawChartNow(); } catch(e) {}
+  });
+}
+
+function _drawChartNow() {
   var canvas = document.getElementById(chartState.canvasId || 'chart-canvas');
   if (!canvas || !chartState.klines) return;
 
@@ -9174,13 +9237,24 @@ function drawChart() {
                 + (showRSI ? SEP + RSI_H : 0)
                 + BOTTOM_PAD;
 
-  canvas.width  = W * DPR;
-  canvas.height = TOTAL_H * DPR;
+  // DPR-correct sizing (research: crispness fix #1). Round the backing store to
+  // whole device pixels — fractional sizes cause blurry candles/text at browser
+  // zoom levels. { alpha:false } lets the browser skip transparency compositing.
+  canvas.width  = Math.round(W * DPR);
+  canvas.height = Math.round(TOTAL_H * DPR);
   canvas.style.width  = W + 'px';
   canvas.style.height = TOTAL_H + 'px';
 
-  var ctx = canvas.getContext('2d');
+  var ctx = canvas.getContext('2d', { alpha: false });
+  ctx.setTransform(1, 0, 0, 1, 0, 0);   // reset any prior transform before scaling
   ctx.scale(DPR, DPR);
+
+  // Half-pixel snap helper for 1px STROKES (grid, axes, level lines). A 1px line
+  // on an integer coord straddles two device rows and blurs; centering it on the
+  // pixel makes it crisp. NOTE: fills (candle bodies, volume bars) must NOT be
+  // offset — they snap to whole pixels instead (research: common cargo-cult error).
+  function snapY(y){ return Math.round(y * DPR) / DPR + (0.5 / DPR); }
+  function snapX(x){ return Math.round(x * DPR) / DPR + (0.5 / DPR); }
 
   var chartW = W - RIGHT_PAD;
 
@@ -9190,7 +9264,9 @@ function drawChart() {
   var visible = klines.slice(offset, offset + zoom);
   if (!visible.length) return;
 
-  var candleW = chartW / zoom;
+  // Right-edge whitespace (research/TradingView convention): reserve ~4 candle
+  // widths of empty space so the live candle isn't jammed against the price axis.
+  var candleW = chartW / (zoom + 4);
   var bodyW   = Math.max(1, Math.floor(candleW * 0.7));
   if (bodyW % 2 === 0) bodyW--; // keep odd for center alignment
 
@@ -9229,7 +9305,7 @@ function drawChart() {
   var priceStart = Math.ceil(pMin / priceStep) * priceStep;
   ctx.save();
   for (var pp = priceStart; pp <= pMax; pp += priceStep) {
-    var gy = Math.round(pY(pp)) + 0.5;
+    var gy = snapY(pY(pp));   // crisp 1px stroke (research: half-pixel snap)
     if (gy < TOP_PAD || gy > TOP_PAD + CANDLE_H) continue;
     ctx.strokeStyle = 'rgba(120,123,134,.10)';   // softer than before — candles pop
     ctx.lineWidth = 1;
@@ -9246,7 +9322,7 @@ function drawChart() {
     var _srLbls = [];
     function drawSRLine(price, col, lbl) {
       if (!price || price < pMin || price > pMax) return;
-      var y2 = Math.round(pY(price)) + 0.5;
+      var y2 = snapY(pY(price));   // crisp 1px stroke
       ctx.save();
       ctx.strokeStyle = col; ctx.lineWidth = 1;
       ctx.setLineDash([5, 5]);
