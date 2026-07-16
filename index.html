@@ -2811,6 +2811,9 @@ function loadAll() {
     // PHASE 9: Opportunity Score — master rank (needs rsRank + accum + bp)
     allData.forEach(function(d){ d.opportunity = calcOpportunity(d); });
 
+    // CROSS-SECTIONAL IC ENGINE — snapshot scores + evaluate pending forward returns
+    try { icMaybeSnapshot(allData); icEvaluatePending(allData); } catch(e){}
+
     setBadge('live','● Live');
     // Start WebSocket for live streaming after first data load
     if (!_wsActive) startWebSocket(allData.map(function(d){return d.sym;}));
@@ -5126,6 +5129,119 @@ function runHealthCheck(){
 // high-value signals actually won more. If HIGH doesn't beat LOW, the score is
 // noise — flagged for removal. This is measured evidence, not opinion.
 // ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// CROSS-SECTIONAL IC ENGINE — the research's biggest recommendation. A 34-trade
+// log has ~12% statistical power; but the screener scores ~80 coins every scan.
+// So instead of waiting months for trades, this snapshots ALL coins' scores
+// (max once per 12h), then 24h/48h later checks: did higher-scored coins
+// actually return more? (Spearman rank Information Coefficient — the standard
+// quant validation.) Hundreds of samples per week; verdicts in weeks, honestly.
+// Quant benchmark: stable mean IC ≥ +0.05 is genuinely strong; ~0 = no signal.
+// ═══════════════════════════════════════════════════════════════════════════
+var IC_SCORE_FIELDS = { opportunity:'Opportunity Score', score:'Signal Score', bp:'Breakout Probability',
+                        rsRank:'RS Rank', momRank:'Momentum Rank', trendQ:'Trend Quality',
+                        accum:'Accumulation Score', volR:'Volume Ratio' };
+
+function _icLoad(k){ try{ return JSON.parse(localStorage.getItem(k)||'[]'); }catch(e){ return []; } }
+function _icSave(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+
+function icMaybeSnapshot(data){
+  if(!data || data.length < 20) return;
+  var snaps = _icLoad('ic_snapshots');
+  var now = Date.now();
+  if(snaps.length && now - snaps[snaps.length-1].ts < 12*3600*1000) return;  // max 2/day — keeps samples non-overlapping
+  var rows = [];
+  data.forEach(function(d){
+    if(!d.sym || !d.price || d._stale) return;
+    var r = { s:d.sym, p:d.price };
+    Object.keys(IC_SCORE_FIELDS).forEach(function(f){ if(d[f]!=null && isFinite(d[f])) r[f]=Math.round(d[f]*100)/100; });
+    rows.push(r);
+  });
+  if(rows.length < 20) return;
+  snaps.push({ ts:now, rows:rows, done:{} });
+  while(snaps.length > 24) snaps.shift();
+  _icSave('ic_snapshots', snaps);
+}
+
+function _spearman(xs, ys){
+  function rank(a){
+    var idx = a.map(function(v,i){return [v,i];}).sort(function(p,q){return p[0]-q[0];});
+    var rk = new Array(a.length);
+    for(var i=0;i<idx.length;){
+      var j=i; while(j+1<idx.length && idx[j+1][0]===idx[i][0]) j++;
+      var avg=(i+j)/2+1;
+      for(var k=i;k<=j;k++) rk[idx[k][1]]=avg;
+      i=j+1;
+    }
+    return rk;
+  }
+  var rx=rank(xs), ry=rank(ys), n=xs.length;
+  var mx=0,my=0,i;
+  for(i=0;i<n;i++){mx+=rx[i];my+=ry[i];} mx/=n; my/=n;
+  var num=0,dx=0,dy=0;
+  for(i=0;i<n;i++){ var a=rx[i]-mx,b=ry[i]-my; num+=a*b; dx+=a*a; dy+=b*b; }
+  return (dx>0&&dy>0) ? num/Math.sqrt(dx*dy) : 0;
+}
+
+function icEvaluatePending(data){
+  if(!data || !data.length) return;
+  var snaps=_icLoad('ic_snapshots'); if(!snaps.length) return;
+  var results=_icLoad('ic_results');
+  var priceNow={}; data.forEach(function(d){ if(d.sym&&d.price&&!d._stale) priceNow[d.sym]=d.price; });
+  var now=Date.now(), changed=false;
+  var HORIZONS=[ {key:'h24', lo:20, hi:36}, {key:'h48', lo:44, hi:72} ];
+  snaps.forEach(function(sn){
+    var ageH=(now-sn.ts)/3600000;
+    HORIZONS.forEach(function(H){
+      if(sn.done[H.key]) return;
+      if(ageH < H.lo || ageH > H.hi) return;      // evaluate only inside the horizon window
+      var fwd={}, present=[];
+      sn.rows.forEach(function(r){ if(priceNow[r.s] && r.p>0){ fwd[r.s]=(priceNow[r.s]-r.p)/r.p; present.push(r); } });
+      if(present.length < 20) return;             // different market loaded — retry later in window
+      Object.keys(IC_SCORE_FIELDS).forEach(function(f){
+        var xs=[],ys=[];
+        present.forEach(function(r){ if(r[f]!=null){ xs.push(r[f]); ys.push(fwd[r.s]); } });
+        if(xs.length < 20) return;
+        var ic=_spearman(xs,ys);
+        results.push({ f:f, h:H.key, ic:Math.round(ic*1000)/1000, n:xs.length, ts:now });
+      });
+      sn.done[H.key]=true; changed=true;
+    });
+  });
+  var kept=snaps.filter(function(sn){ var ageH=(now-sn.ts)/3600000; return ageH<=72 && !(sn.done.h24&&sn.done.h48); });
+  while(results.length>400) results.shift();
+  if(changed || kept.length!==snaps.length){ _icSave('ic_snapshots',kept); _icSave('ic_results',results); }
+}
+
+function buildICLab(){
+  var results=_icLoad('ic_results');
+  var snaps=_icLoad('ic_snapshots');
+  var h='<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin:1rem 0 .75rem">';
+  h+='<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:.3rem">📈 Score IC Lab — cross-sectional validation</div>';
+  h+='<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">Instead of waiting for trades, this tests every score against the WHOLE BOARD: it snapshots all coins\' scores (max twice a day), then checks 24h and 48h later whether higher-scored coins actually returned more (Spearman rank IC — the standard quant test). Hundreds of samples per week — the statistically honest way to grade a score.</div>';
+  if(!results.length){
+    h+='<div style="font-size:11px;color:var(--t3)">⏳ Collecting… '+(snaps.length? snaps.length+' snapshot'+(snaps.length>1?'s':'')+' taken — first ICs arrive ~24h after a snapshot (open the app daily and it fills automatically).' : 'first snapshot will be taken on the next scan.')+'</div></div>';
+    return h;
+  }
+  Object.keys(IC_SCORE_FIELDS).forEach(function(f){
+    var rs=results.filter(function(r){return r.f===f && r.h==='h24';});
+    if(!rs.length) return;
+    var mean=rs.reduce(function(a,r){return a+r.ic;},0)/rs.length;
+    var pos=rs.filter(function(r){return r.ic>0;}).length;
+    var stab=Math.round(pos/rs.length*100);
+    var enough=rs.length>=10;
+    var icon,col,msg;
+    if(!enough){ icon='⏳ collecting'; col='var(--t3)'; msg=rs.length+'/10 snapshots before a verdict'; }
+    else if(mean>=0.03 && stab>=60){ icon='🟢 PREDICTIVE'; col='var(--g)'; msg='higher score → higher 24h return ('+stab+'% of snapshots agree)'; }
+    else if(mean<=-0.03 && stab<=40){ icon='🔴 INVERTED'; col='var(--r)'; msg='higher score → LOWER 24h return — anti-predictive'; }
+    else { icon='⚠️ FLAT'; col='var(--am)'; msg='no reliable relationship with forward returns — the score is not predicting'; }
+    h+='<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:.5px solid var(--bd);font-size:11px"><span style="color:var(--t2);white-space:nowrap">'+IC_SCORE_FIELDS[f]+'</span><span style="text-align:right"><span style="font-weight:800;color:'+col+'">'+icon+'</span> <span style="color:var(--t3)">IC '+(mean>=0?'+':'')+mean.toFixed(3)+' · n='+rs.length+'</span><div style="font-size:10px;color:var(--t3)">'+msg+'</div></span></div>';
+  });
+  h+='<div style="font-size:9px;color:var(--t3);margin-top:8px;font-style:italic">IC = rank correlation between a score and the next 24h return across all ~80 coins. Quant bar: stable +0.05 is strong, ~0 is noise. This grades the SCORES; the trade log still grades the setups. Verdicts need 10+ snapshots.</div>';
+  h+='</div>';
+  return h;
+}
+
 function auditScoringSystems(){
   var log = loadSignalLog();
   var resolved = log.filter(function(s){ return s.status==='won'||s.status==='lost'; });
@@ -5448,6 +5564,7 @@ function renderCoach(){
 
   // ── SCORING-SYSTEM AUDIT — keep or remove each of the tool's own scores ──
   var A = auditScoringSystems();
+  h += buildICLab();
   h += '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin:1rem 0 .75rem">';
   h += '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:.3rem">🔬 Scoring-system audit — keep or remove?</div>';
   if(!A.ready){
