@@ -4638,13 +4638,24 @@ function autoLogSignals(){
     // would pollute the track record. BTC itself is exempt (not an alt).
     var isBTC = (d.sym === 'BTCUSDT' || d.sym === 'BTCJPY');
     var btcStateOK = (btcState === 'bullish' || btcState === 'stable');
-    if(!isBTC && !btcStateOK) return;
+    // ── SWEEP-RECLAIM EXCEPTION ──────────────────────────────────────────────
+    // The BTC gate correctly blocks entries during falls. But the BEST entries
+    // often happen right AFTER a flush — when price sweeps below support, hunts
+    // stops, and reclaims. Blocking everything means missing the grab. So:
+    // if the coin just swept below support and reclaimed (buy_sweep), AND volume
+    // confirms (participation behind the reclaim), the gate allows it through as
+    // a MEASURED setup ("Sweep reclaim") — logged separately so the Coach can
+    // grade it. This is the one contrarian entry the evidence audit endorsed.
+    var isSweepReclaim = (d.liq === 'buy_sweep' && d.volR >= 1.2);
+    if(!isBTC && !btcStateOK && !isSweepReclaim) return;
     // ── MARKET-CONTEXT GATES — the fix for rule context-blindness ──
     // Suppress alt entries in alt-unfriendly weather, exactly the conditions you
     // flagged: ETH weakening, money fleeing to BTC (rising dominance), weak breadth.
     // BTC and ETH themselves are exempt (they ARE the majors).
+    // Sweep reclaims also pass through — the flush IS the adverse condition, and
+    // the reclaim is the resolution.
     var isMajor = isBTC || d.sym==='ETHUSDT';
-    if(!isMajor){
+    if(!isMajor && !isSweepReclaim){
       if(_ethWeak) return;              // ETH underperforming BTC → alts bleed
       if(_btcDominanceRising) return;   // money rotating into BTC → alt-unfriendly
       if(_breadthWeak) return;          // <35% of coins in uptrends → broad risk-off
@@ -4664,6 +4675,15 @@ function autoLogSignals(){
     if(!fullStack || (!priceLeads && !deepDipOK)) return; // confirmed uptrend + leading (or holding the 50)
     var nearRes = d.res && d.res > d.price && (d.res - d.price)/d.price*100 < 1.5;
     if(nearRes) return;                              // buying right under resistance = no room
+    // ── LATENESS GUARD (fix for "buying tops") ─────────────────────────────────
+    // The scoring audit's INVERTED Analyst Grade (A wins 7% vs B 42%) exposed the
+    // core failure: "everything confirmed" = the move is MATURE = you're late.
+    // The logger had no extension cap — it logged coins 8%+ above EMA20. Now:
+    // any entry more than 3.5% extended above EMA20 is skipped (the honest entry
+    // for an extended chart is the pullback, which EMA20/50-retest setups catch).
+    // Sweep reclaims are exempt (they fire AT support, never extended).
+    if(setupType !== 'Sweep reclaim' && d.ema20 > 0
+       && (d.price - d.ema20)/d.ema20*100 > 3.5) return;
     var conds = 2;                                    // stack+leader counted
     if(d.rsiRising) conds++;
     if(d.volR >= 1.2) conds++;
@@ -4729,6 +4749,14 @@ function autoLogSignals(){
         return w;
       })()
     };
+
+    // ── PORTFOLIO CAP (fix for signal clustering) ─────────────────────────────
+    // The Jul-02 log showed most signals firing on the SAME day — 15 signals on
+    // one market move is ONE correlated bet repeated 15 times, and one bad day
+    // wipes them all. Real portfolios cap concurrent risk. Max 5 open logged
+    // signals at once; later candidates wait for slots (measured honestly: the
+    // cap itself is part of the system being tested).
+    if(log.filter(function(s){ return s.status === 'open'; }).length >= 5) return;
 
     log.unshift({
       id: d.sym+'_'+setupType.replace(/\W/g,'')+'_'+Date.now(),
@@ -4834,6 +4862,17 @@ function autoLogSignals(){
     if(d.breakout && d.breakout.state==='confirmed'
        && trulyBullish && volOK && rsiOK) {
       logIt(d, 'Breakout confirmed');
+    }
+
+    // SWEEP RECLAIM — the one contrarian entry the evidence audit endorsed:
+    // "extreme-negative funding/positioning after a flush." Requires: the coin swept
+    // below support and reclaimed (buy_sweep from liq detection), volume ≥1.2× confirming
+    // real buyers behind the reclaim, and RSI not broken (≥30). This fires DURING BTC
+    // weakness — that's the point; it's catching the grab, not fighting the trend.
+    if(isSweepReclaim
+       && d.rsi >= 30                             // not totally broken
+       && d.price > (d.sup || 0)) {               // reclaimed above support
+      logIt(d, 'Sweep reclaim');
     }
 
     // BULLISH CHoCH — DEMOTED per evidence audit. Rigorous review found SMC/CHoCH
