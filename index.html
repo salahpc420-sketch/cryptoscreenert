@@ -7076,13 +7076,26 @@ function buildTradePlan(d){
   // ── VERDICT line ───────────────────────────────────────────────────────
   var canTrade = d.buySignal && !d.exhausted && (d.rrRatio==null || d.rrRatio>=1.5);
   var tier = d.buyTier;
+  // PRICE-AWARE BADGE (fix): "Tradeable now" used to show green even when price
+  // sat ABOVE the plan's entry zone — contradicting the AI's "wait for the level."
+  // A bullish coin ≠ a good entry price. Three states now:
+  //   inside/below the entry → ✅ Tradeable now
+  //   extended above the entry (>0.6%) → ⏳ Wait for entry zone (amber)
+  //   no buy setup → ⏸ Watchlist
+  var extAbovePlan = (typeof planEntry === 'number' && planEntry > 0)
+    ? (d.price - planEntry) / planEntry * 100 : 0;
+  var atEntry = extAbovePlan <= 0.6;   // within ~0.6% of the plan = actionable
+  var badgeTxt, badgeCol;
+  if (canTrade && atEntry)      { badgeTxt = '✅ Tradeable now';        badgeCol = 'var(--g)'; }
+  else if (canTrade)            { badgeTxt = '⏳ Wait for entry zone (price +' + extAbovePlan.toFixed(1) + '%)'; badgeCol = 'var(--am)'; }
+  else                          { badgeTxt = '⏸ Watchlist';            badgeCol = 'var(--t3)'; }
 
   // ── RENDER ─────────────────────────────────────────────────────────────
   var h = '<div style="background:var(--card2);border-radius:var(--rad-lg);padding:1rem;margin-bottom:1rem;border:.5px solid rgba(124,77,255,.3)">';
   h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.75rem">';
   h += '<div style="font-size:14px;font-weight:800;color:var(--text)">🎯 Trade Plan' + (fromAI ? ' <span style="font-size:10px;font-weight:700;color:#7c4dff;background:rgba(124,77,255,.12);padding:2px 7px;border-radius:4px;vertical-align:middle">🧠 from AI analysis</span>' : '') + '</div>';
   if(tier) h += '<span style="font-size:11px;font-weight:800;padding:2px 8px;border-radius:5px;background:'+(tier==='C'?'rgba(245,158,11,.15)':'rgba(38,166,154,.15)')+';color:'+(tier==='C'?'var(--am)':'var(--g)')+'">Tier '+tier+'</span>';
-  h += '<span style="margin-left:auto;font-size:11px;font-weight:700;color:'+(canTrade?'var(--g)':'var(--t3)')+'">'+(canTrade?'✅ Tradeable now':'⏸ Watchlist')+'</span>';
+  h += '<span style="margin-left:auto;font-size:11px;font-weight:700;color:'+badgeCol+'">'+badgeTxt+'</span>';
   h += '</div>';
 
   // Plan grid
