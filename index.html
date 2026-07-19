@@ -1713,6 +1713,71 @@ function calcSR(h, l, c) {
   return { sup:sup, res:res, sDist:((price-sup)/price*100).toFixed(1), rDist:((res-price)/price*100).toFixed(1) };
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TRENDLINE ENGINE v2 — proper fitting, not "last two pivots."
+// Anchor at the TRUE extreme (highest swing high / lowest swing low), then
+// choose the second pivot whose line collects the MOST validated touches
+// (a touch = high/low within 0.3% of the line; validity = price never pierces
+// the line >0.2% between the pivots). Break = a candle CLOSE through the line
+// (closes, not wicks — house rule). Used by the chart drawing AND the
+// "Trendline break" entry signal, so what you see is what the scanner sees.
+// ═══════════════════════════════════════════════════════════════════════════
+function detectTrendlines(h, l, c, s, e) {
+  s = Math.max(2, s == null ? 2 : s);
+  e = Math.min(h.length - 3, e == null ? h.length - 3 : e);
+  var sH = [], sLo = [];
+  for (var i = s; i <= e; i++) {
+    if (h[i]>h[i-1] && h[i]>h[i-2] && h[i]>h[i+1] && h[i]>h[i+2]) sH.push({i:i, v:h[i]});
+    if (l[i]<l[i-1] && l[i]<l[i-2] && l[i]<l[i+1] && l[i]<l[i+2]) sLo.push({i:i, v:l[i]});
+  }
+  function fit(pivots, dir) {              // dir -1 = down line on highs, +1 = up line on lows
+    if (pivots.length < 2) return null;
+    var anchor = pivots.reduce(function(a,b){ return dir<0 ? (b.v>a.v?b:a) : (b.v<a.v?b:a); });
+    var best = null;
+    pivots.forEach(function(p) {
+      if (p.i <= anchor.i + 2) return;
+      var slope = (p.v - anchor.v) / (p.i - anchor.i);
+      if (dir < 0 && slope >= 0) return;   // down line must descend
+      if (dir > 0 && slope <= 0) return;   // up line must ascend
+      var ok = true, touches = 0;
+      for (var j = anchor.i; j <= Math.min(e + 2, h.length - 1); j++) {
+        var lv = anchor.v + slope * (j - anchor.i);
+        var x = dir < 0 ? h[j] : l[j];
+        if (dir < 0 ? x > lv * 1.002 : x < lv * 0.998) {
+          if (j <= p.i) { ok = false; }    // pierced between the pivots → invalid line
+          break;                            // pierced after → line ends there, still usable
+        }
+        if (Math.abs(x - lv) / lv < 0.003) touches++;
+      }
+      if (!ok || touches < 2) return;
+      if (!best || touches > best.touches || (touches === best.touches && p.i > best.i2))
+        best = { i1: anchor.i, p1: anchor.v, i2: p.i, p2: p.v, slope: slope, touches: touches };
+    });
+    return best;
+  }
+  function lineVal(L, i) { return L.p1 + L.slope * (i - L.i1); }
+  function breakIdx(L, up) {               // first candle that CLOSED through the line
+    if (!L) return null;
+    for (var j = L.i2 + 1; j < c.length; j++) {
+      var lv = lineVal(L, j);
+      if (up ? (c[j] > lv && c[j-1] <= lv) : (c[j] < lv && c[j-1] >= lv)) return j;
+    }
+    return null;
+  }
+  var down = fit(sH, -1), up = fit(sLo, 1);
+  var last = c.length - 1;
+  if (down) {
+    down.breakIdx = breakIdx(down, true);
+    down.brokeUpNow = down.breakIdx === last;   // the break IS the latest closed candle → entry timing
+  }
+  if (up) {
+    up.breakIdx = breakIdx(up, false);
+    up.brokeDownNow = up.breakIdx === last;
+  }
+  return { down: down, up: up };
+}
+
 // Liquidity sweep detection
 function calcLiq(h, l, c, sup, res) {
   if (c.length < 20) return 'none';
@@ -2138,6 +2203,19 @@ function processSymbol(ticker) {
 
     var st  = calcStruct(h, l, c);
     var sr  = calcSR(h, l, c);
+    // Trendline-break detection (shared engine with the chart)
+    var _tl = detectTrendlines(h, l, c);
+    var tlBreakUp = !!(_tl.down && _tl.down.brokeUpNow);
+    var tlTouches = _tl.down ? _tl.down.touches : 0;
+    // UPTREND line: bounce (dip to the ascending support line + close above =
+    // dynamic-support entry) and breakdown (close below = structure failed)
+    var tlBounceUp = false, tlUpTouches = _tl.up ? _tl.up.touches : 0;
+    if (_tl.up && _tl.up.breakIdx == null) {
+      var _li = c.length - 1;
+      var _lv = _tl.up.p1 + _tl.up.slope * (_li - _tl.up.i1);
+      tlBounceUp = l[_li] <= _lv * 1.003 && c[_li] > _lv && c[_li] > c[_li - 1];
+    }
+    var tlBreakDown = !!(_tl.up && _tl.up.brokeDownNow);
     var liq = calcLiq(h, l, c, sr.sup, sr.res);
 
     // NEW: Breakout confirmation, EMA retest, pump/dump detection
@@ -2389,6 +2467,8 @@ function processSymbol(ticker) {
 
     return {
       sym:sym, pair:pair, price:price, chg:chg, vol24:vol24,
+      tlBreakUp:tlBreakUp, tlTouches:tlTouches,
+      tlBounceUp:tlBounceUp, tlUpTouches:tlUpTouches, tlBreakDown:tlBreakDown,
       rsi:rsi, ema20:e20, ema50:e50, ema200:e200,
       trend:trend, volR:volR, atrPct:atrPct,
       fromHigh: (function(){ var hi=Math.max.apply(null,c.slice(-30)); return hi>0?(price-hi)/hi*100:0; })(),
@@ -4672,8 +4752,15 @@ function autoLogSignals(){
     // EMA50 retest is by definition a DEEPER pullback: price sits below EMA20
     // at the 50 — so for that one setup the "price leading" check is replaced
     // by "holding the EMA50" (not lost it). Everything else gates identically.
-    var deepDipOK = setupType === 'EMA50 retest' && d.price > (d.ema50||0) * 0.995;
-    if(!fullStack || (!priceLeads && !deepDipOK)) return; // confirmed uptrend + leading (or holding the 50)
+    // Uptrend-line BREAKDOWN on a close = the coin's trend structure just
+    // failed. No new buys of ANY setup on this coin until structure rebuilds.
+    if(d.tlBreakDown) return;
+    var deepDipOK = (setupType === 'EMA50 retest' || setupType === 'Trendline bounce')
+                    && d.price > (d.ema50||0) * 0.995;
+    // Trendline breaks are EARLY entries — the stack hasn't flipped yet (that's
+    // the point). Exempt from fullStack; still require price leading the EMA20.
+    var earlyBreakOK = setupType === 'Trendline break' && d.price > (d.ema20||0);
+    if((!fullStack && !earlyBreakOK) || (!priceLeads && !deepDipOK && !earlyBreakOK)) return;
     var nearRes = d.res && d.res > d.price && (d.res - d.price)/d.price*100 < 1.5;
     if(nearRes) return;                              // buying right under resistance = no room
     // ── LATENESS GUARD (fix for "buying tops") ─────────────────────────────────
@@ -4873,6 +4960,29 @@ function autoLogSignals(){
     if(d.breakout && d.breakout.state==='confirmed'
        && trulyBullish && volOK && rsiOK) {
       logIt(d, 'Breakout confirmed');
+    }
+
+    // TRENDLINE BOUNCE — the UPTREND-line counterpart: price dips to a
+    // validated ascending support line (2+ touches), touches it and CLOSES
+    // back above, turning up — the dynamic-support dip entry. Own setup,
+    // own record; the Coach grades it like everything else.
+    if(d.tlBounceUp && d.tlUpTouches >= 2
+       && d.volR >= 0.8
+       && d.rsi >= 40 && momentumUp){
+      logIt(d, 'Trendline bounce');
+    }
+
+    // TRENDLINE BREAK — the user-observed EARLIEST entry: a candle CLOSE above
+    // a validated descending trendline (2+ touches). Early by nature — it fires
+    // BEFORE the full EMA stack confirms, which is exactly its value (the
+    // A-grade inversion showed waiting for perfection = buying tops). Protected
+    // instead by: volume >=1.2x (E2: breaks need volume), price above EMA20,
+    // RSI >=45 and rising. Own setup, own record — the Coach delivers the verdict.
+    if(d.tlBreakUp && d.tlTouches >= 2
+       && d.volR >= 1.2
+       && d.price > d.ema20
+       && d.rsi >= 45 && momentumUp){
+      logIt(d, 'Trendline break');
     }
 
     // SWEEP RECLAIM — the one contrarian entry the evidence audit endorsed:
@@ -10136,28 +10246,40 @@ function _drawChartNow() {
       }
     }
 
-    // LAYER B: Auto trendlines from swing points
-    var visS = Math.max(3, offset), visE = Math.min(klines.length - 4, offset + chartState.zoom);
-    var sH = [], sL = [];
-    for (var si3 = visS; si3 <= visE; si3++) {
-      var hv3 = highs3[si3], lv3 = lows3[si3];
-      var h1 = highs3[si3-1]||hv3, h2b = highs3[si3-2]||hv3, h3b = highs3[si3+1]||hv3, h4b = highs3[si3+2]||hv3;
-      var l1 = lows3[si3-1]||lv3,  l2b = lows3[si3-2]||lv3,  l3b = lows3[si3+1]||lv3,  l4b = lows3[si3+2]||lv3;
-      if (hv3 > h1 && hv3 > h2b && hv3 > h3b && hv3 > h4b) sH.push({i:si3, v:hv3});
-      if (lv3 < l1 && lv3 < l2b && lv3 < l3b && lv3 < l4b) sL.push({i:si3, v:lv3});
+    // LAYER B: AUTO TRENDLINES v2 — proper fitting via the shared engine:
+    // anchored at the true extreme, second pivot chosen for MAXIMUM validated
+    // touches, every touch marked with a dot, and the BREAK candle flagged with
+    // a ⚡ arrow. Same engine the scanner's "Trendline break" signal uses — what
+    // you see IS what the detector sees.
+    var closesTL = klines.map(function(k){ return parseFloat(k[4]); });
+    var tlS = Math.max(2, offset), tlE = Math.min(klines.length - 4, offset + chartState.zoom);
+    var TL = detectTrendlines(highs3, lows3, closesTL, tlS, tlE);
+    function drawTLv2(L, col, name, isDown) {
+      if (!L) return;
+      var broke = L.breakIdx != null;
+      aTrendLine(L.i1, L.p1, L.i2, L.p2, broke ? '#7c4dff' : col, 1.5, [7,4],
+        (broke ? '⚡ BROKEN · ' : '') + name + ' · ' + L.touches + ' touches');
+      // dots at every validated touch — you SEE why the line is trusted
+      ctx.save(); ctx.fillStyle = col; ctx.globalAlpha = .85;
+      for (var j = L.i1; j <= tlE; j++) {
+        var lv = L.p1 + L.slope * (j - L.i1);
+        var xv = isDown ? highs3[j] : lows3[j];
+        if (Math.abs(xv - lv) / lv < 0.003) {
+          var dx = cX(j - offset), dy = pY(xv);
+          if (dx > cL3 && dx < cR3 && dy > cT3 && dy < cB3) {
+            ctx.beginPath(); ctx.arc(dx, dy, 2.5, 0, Math.PI * 2); ctx.fill();
+          }
+        }
+      }
+      ctx.restore();
+      // the break candle gets a ⚡ arrow (recent breaks only — last 20 candles)
+      if (broke && closesTL.length - 1 - L.breakIdx <= 20) {
+        if (isDown) aArrow(L.breakIdx, lows3[L.breakIdx], true, '#7c4dff', '⚡TL BREAK');
+        else        aArrow(L.breakIdx, highs3[L.breakIdx], false, '#7c4dff', '⚡TL BREAKDOWN');
+      }
     }
-    // Resistance trendline (descending swing highs)
-    if (sH.length >= 2) {
-      var shA = sH[sH.length-2], shB = sH[sH.length-1];
-      if (shB.v < shA.v * 0.9995)
-        aTrendLine(shA.i, shA.v, shB.i, shB.v, '#ef5350', 1.5, [7,4], '↘ Resistance');
-    }
-    // Support trendline (ascending swing lows)
-    if (sL.length >= 2) {
-      var slA = sL[sL.length-2], slB = sL[sL.length-1];
-      if (slB.v > slA.v * 1.0005)
-        aTrendLine(slA.i, slA.v, slB.i, slB.v, '#26a69a', 1.5, [7,4], '↗ Support');
-    }
+    drawTLv2(TL.down, '#ef5350', '↘ Downtrend line', true);
+    drawTLv2(TL.up,   '#26a69a', '↗ Uptrend line', false);
 
     // LAYER C: Horizontal lines + right-axis pills (TV style, guaranteed no overlap)
     var tvLevels = [
