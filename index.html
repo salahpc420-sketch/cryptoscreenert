@@ -4950,7 +4950,17 @@ function autoLogSignals(){
 
     // EMA20 RETEST — bullish ONLY as a dip-buy in a confirmed uptrend.
     // Require the FULL stack up (not just 20>50) so a downtrend bounce can't qualify.
+    // ── LOG-VERDICT FIXES (Jul-19 log review, n=39 for this setup): ──
+    //   • 4h EMA20 retests ran 3W/20L (13%) and 1h 3W/8L in a weakening market —
+    //     the "retest" was usually the first pause of a DYING bounce. Two fixes:
+    //   1) HARD daily-trend gate (same as Dip buy): the 4h/1h retest only logs
+    //      when the coin's DAILY trend is genuinely up — no bear-rally retests.
+    //   2) 1h dropped for this setup (19% across 1h; retests need higher-TF weight).
+    var e20DailyUp = (TF==='1d'||TF==='1w') ? true
+                   : ((window._dailyTrend && window._dailyTrend[d.sym]===true));
     if(d.emaRetest && d.emaRetest.state==='retest_completed'
+       && TF !== '1h'                               // 1h retests: 19% — cut
+       && e20DailyUp                                // daily trend must agree
        && trulyBullish                              // full 20>50>200 stack, price above
        && rsiOK && momentumUp) {
       logIt(d, 'EMA20 retest');
@@ -9128,11 +9138,11 @@ function expandChartFull() {
       canvas._fsEventsInit = true;
       canvas.addEventListener('mousemove', function(e) {
         var rect = canvas.getBoundingClientRect();
-        var dpr  = window.devicePixelRatio || 1;
-        chartState.crosshair = {
-          x: (e.clientX - rect.left) * (canvas.width / rect.width),
-          y: (e.clientY - rect.top)  * (canvas.height / rect.height)
-        };
+        // FIX: store CSS-pixel coords + cssW/cssH — the exact shape the crosshair
+        // renderer expects (it was getting device pixels with no cssW → NaN →
+        // no price tag in fullscreen while the normal chart worked fine).
+        chartState.crosshair = { x: e.clientX - rect.left, y: e.clientY - rect.top,
+                                 cssW: rect.width, cssH: rect.height };
         if (chartState.dragging) {
           var dx  = e.clientX - chartState.dragStartX;
           var cW  = (canvas.getBoundingClientRect().width - 78) / chartState.zoom;
@@ -11769,9 +11779,9 @@ function renderMarketRead(){
   // ── AI MARKET BRIEFING — one AI call summarizing the whole board on demand ──
   var hasKey = !!(localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key'));
   h += '<div style="background:linear-gradient(135deg,rgba(124,77,255,.10),rgba(124,77,255,.02));border:.5px solid rgba(124,77,255,.35);border-radius:var(--rad-lg);padding:1rem;margin-bottom:1rem">';
-  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.5rem"><span style="font-size:16px">🤖</span><span style="font-size:13px;font-weight:800">AI Market Briefing</span><span style="margin-left:auto;font-size:9px;color:var(--t3)">one call · reads the whole board</span></div>';
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.5rem"><span style="font-size:16px">🤖</span><span style="font-size:13px;font-weight:800">AI Best-Setup Agent</span><span style="margin-left:auto;font-size:9px;color:var(--t3)">one call · rules scan 80 coins, AI ranks the survivors</span></div>';
   if(hasKey){
-    h += '<button onclick="runMarketBriefing()" style="padding:9px 18px;border-radius:8px;border:none;background:#7c4dff;color:#fff;font-weight:800;cursor:pointer;font-family:inherit;font-size:13px">🤖 Brief me on the market now</button>';
+    h += '<button onclick="runMarketBriefing()" style="padding:9px 18px;border-radius:8px;border:none;background:#7c4dff;color:#fff;font-weight:800;cursor:pointer;font-family:inherit;font-size:13px">🤖 Rank the best setups now</button>';
   } else {
     h += '<div style="font-size:11px;color:var(--t2)">Add your free Gemini key (in any coin\'s Analyst tab) to enable the AI briefing.</div>';
   }
@@ -11832,7 +11842,25 @@ function runMarketBriefing(){
   var sigs = (allData||[]).filter(function(d){ return d.buySignal && !d._stale && (d.buyTier==='A'||d.buyTier==='B'); })
     .sort(function(a,b){ return (b.opportunity||0)-(a.opportunity||0); })
     .slice(0,12)
-    .map(function(d){ return { coin:d.pair.replace('/USDT','').replace('/JPY',''), tier:d.buyTier, setup:(d.struct||''), rsi:Math.round(d.rsi||0), volR:Math.round((d.volR||0)*10)/10, mom:d.momQuintile||'mid', trend:(d.ema20>d.ema50&&d.ema50>d.ema200)?'up':'mixed' }; });
+    .map(function(d){
+      var ext20 = d.ema20 ? Math.round((d.price-d.ema20)/d.ema20*1000)/10 : null;   // % above/below EMA20 — the lateness read
+      var supDist = d.sup ? Math.round((d.price-d.sup)/d.price*1000)/10 : null;
+      return {
+        coin: d.pair.replace('/USDT','').replace('/JPY',''),
+        tier: d.buyTier, setup: (d.struct||''),
+        rsi: Math.round(d.rsi||0), volR: Math.round((d.volR||0)*10)/10,
+        mom: d.momQuintile||'mid', rsRank: d.rsRank||null,
+        trend: (d.ema20>d.ema50&&d.ema50>d.ema200)?'up':'mixed',
+        dailyTrendUp: (window._dailyTrend && window._dailyTrend[d.sym]===true) || false,
+        extAboveEMA20pct: ext20,                       // >3.5 = late/chasing per the log
+        supportDistPct: supDist,
+        trendline: d.tlBreakUp ? ('FRESH BREAK of downtrend line ('+(d.tlTouches||0)+' touches)')
+                 : d.tlBounceUp ? ('bounce off uptrend line ('+(d.tlUpTouches||0)+' touches)')
+                 : d.tlBreakDown ? 'UPTREND LINE BROKEN — structure failed' : 'none',
+        sweep: d.liq==='buy_sweep' ? 'liquidity sweep + reclaim' : 'no',
+        trendQ: d.trendQ||null, opportunity: d.opportunity||null
+      };
+    });
 
   var ctx = {
     btcState: btcState,
@@ -11845,7 +11873,7 @@ function runMarketBriefing(){
     myTrackRecord: (function(){ var st=signalLogStats(); return st.resolved ? (st.winRate+'% over '+st.resolved+' resolved, expectancy '+(st.expectancyR!=null?st.expectancyR+'R':'n/a')) : 'no resolved trades yet'; })()
   };
 
-  var sys = 'You are a brutally honest crypto spot-trading analyst giving a MARKET BRIEFING — a single read of the whole board, not individual trade calls. You get current market context and the top active buy signals as JSON. Rules: never predict prices or give probabilities; tie every point to the data; be blunt; SPOT only; factor the user\'s real track record (if below 40% breakeven, stress small size). Structure your briefing in plain text (no markdown symbols), ~200-350 words, with these UPPERCASE labels each on their own line: MARKET STATE (BTC regime + alt weather + what it means), THE BOARD (are there real setups or is it quiet? which 2-3 stand out and why, by the data — do NOT tell them to buy, describe quality), WHAT I\'D WATCH (the conditions that would make this a better/worse time to act), BOTTOM LINE (one blunt sentence). Remember: alt-unfriendly weather + weak setups = the honest answer is often "quiet, be patient." Evidence base: trend/momentum and HTF alignment are the real edges; unconfirmed breakouts and counter-trend entries underperform; keep them honest.';
+  var sys = 'You are a brutally honest crypto spot-trading analyst acting as a BEST-SETUP AGENT: rank the pre-filtered candidates and name the best setups on the board, strictly from the data given. You get current market context and the top active buy signals as JSON. Rules: never predict prices or give probabilities; tie every point to the data; be blunt; SPOT only; factor the user\'s real track record (if below 40% breakeven, stress small size). Structure your reply in plain text (no markdown symbols), ~250-400 words, with these UPPERCASE labels each on their own line: MARKET STATE (BTC regime + alt weather, one or two lines). RANKED SETUPS (rank the top 1-3 candidates BEST FIRST; for each: coin, the setup, and the specific data that earns its rank — trendline touches/breaks, sweep reclaims, daily trend agreement, extension vs EMA20 (over 3.5 percent = late, downgrade it), RS rank, volume; describe QUALITY, never say buy). AVOID (any candidate the data argues against — late/extended, counter-daily-trend, broken structure — and the one number that disqualifies it). WHAT WOULD CHANGE MY RANKING (the one or two conditions to watch). BOTTOM LINE (one blunt sentence; if nothing genuinely qualifies, say the honest answer is no setup today — an empty ranking is a valid ranking). Remember: alt-unfriendly weather + weak setups = the honest answer is often "quiet, be patient." Evidence base: trend/momentum and HTF alignment are the real edges; unconfirmed breakouts and counter-trend entries underperform; keep them honest.';
 
   _aiCallModel(sys, [{ role:'user', content:'Brief me on the current market:\n'+JSON.stringify(ctx, null, 1) }])
   .then(function(text){
