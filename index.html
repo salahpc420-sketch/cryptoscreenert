@@ -2917,6 +2917,7 @@ function loadAll() {
     renderMacroRegime();
     render();
     checkAlerts(allData);
+    try { checkAIMemoAlerts(allData); } catch(e){}   // AI entry-zone watches
     checkPriceAlerts(allData);
     autoLogSignals(); // record any new signals on the ACTIVE timeframe
     // Background: also log signals on the OTHER timeframes (1h/4h/1d/1w) so the
@@ -5766,12 +5767,13 @@ function renderCoach(){
 }
 
 function renderSignalLog(){
+  var _memoHTML = (function(){ try { return buildAIMemoPanel(); } catch(e){ return ''; } })();
   var body=document.getElementById('journal-body');
   if(!body) return;
   var log=loadSignalLog();
   var st=signalLogStats();
 
-  var head = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">' +
+  var head = _memoHTML + '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">' +
       '<div style="font-size:13px;font-weight:700;color:var(--text)">📡 Auto-tracked A+ Signals</div>' +
       '<div style="display:flex;gap:6px">' +
@@ -7031,6 +7033,84 @@ function _aiCallModel(sys, history, image){
 
 
 // Extract the AI's LEVELS_JSON line: store levels for the chart overlay, strip from display
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AI MEMO + ENTRY WATCH — after an analysis, the key points are auto-saved
+// (a memo log you can revisit) and the entry zone is ARMED: when live price
+// later reaches that zone, you get a toast + browser notification. Only for
+// coins YOU analyzed — nothing else is watched, so no alert spam.
+// ═══════════════════════════════════════════════════════════════════════════
+function loadAIMemos(){ try{ return JSON.parse(localStorage.getItem('ai_memos')||'[]'); }catch(e){ return []; } }
+function saveAIMemos(m){ try{ localStorage.setItem('ai_memos', JSON.stringify(m.slice(0,60))); }catch(e){} }
+
+function saveAIMemo(sym, lv, text){
+  if(!lv) return;
+  var d = allData.find(function(x){ return x.sym===sym; });
+  // Pull the AI's own BOTTOM LINE as the memo headline (its blunt one-liner)
+  var bl = '';
+  var m = (text||'').match(/BOTTOM LINE\s*([\s\S]{0,240})/i);
+  if(m) bl = m[1].split(/\n\n/)[0].replace(/\n/g,' ').trim();
+  var memos = loadAIMemos().filter(function(x){ return x.sym!==sym; });   // one live memo per coin
+  memos.unshift({
+    sym: sym, pair: d ? d.pair : sym, tf: TF, ts: Date.now(),
+    priceAtAnalysis: d ? d.price : null,
+    zone: (lv.planA && lv.planA.length===2) ? [Math.min(lv.planA[0],lv.planA[1]), Math.max(lv.planA[0],lv.planA[1])] : null,
+    sl: lv.sl||null, tp1: lv.tp1||null, tp2: lv.tp2||null, tp3: lv.tp3||null, breakout: lv.breakout||null,
+    bottomLine: bl, notified: false
+  });
+  saveAIMemos(memos);
+}
+
+// Called on every scan with fresh prices — fires once when price enters the zone
+function checkAIMemoAlerts(data){
+  var memos = loadAIMemos();
+  if(!memos.length || !data || !data.length) return;
+  var changed = false;
+  memos.forEach(function(mm){
+    if(mm.notified || !mm.zone) return;
+    if(Date.now() - mm.ts > 7*86400000) return;             // memos expire after 7 days
+    var d = data.find(function(x){ return x.sym===mm.sym; });
+    if(!d || !d.price) return;
+    var lo = mm.zone[0]*0.999, hi = mm.zone[1]*1.001;        // small tolerance
+    if(d.price >= lo && d.price <= hi){
+      mm.notified = true; changed = true;
+      var label = '🎯 AI entry zone reached';
+      try { showToast(d, 'strong', label); } catch(e){}
+      try { addAlHistory(d, 'ai_entry', label + ' — ' + mm.pair); } catch(e){}
+      try { sendBrowserNotif(d, label + ': ' + mm.pair); } catch(e){}
+      if(typeof sndOn!=='undefined' && sndOn){ try{ playSound('strong'); }catch(e){} }
+    }
+  });
+  if(changed) saveAIMemos(memos);
+}
+
+// Memo panel — shown in the Journal so the AI's key points are never lost
+function buildAIMemoPanel(){
+  var memos = loadAIMemos();
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🧠 AI Memos & armed entry watches</div>';
+  h += '<div style="font-size:11px;color:var(--t2);margin-bottom:.6rem">Saved automatically each time you run an AI analysis. Coins with an entry zone are WATCHED — you get a notification when live price reaches it (7-day expiry).</div>';
+  if(!memos.length){ return h + '<div style="font-size:11px;color:var(--t3)">No memos yet — run an AI analysis on any coin and its key points land here.</div></div>'; }
+  memos.slice(0,20).forEach(function(m){
+    var age = Math.round((Date.now()-m.ts)/3600000);
+    var live = allData.find(function(x){return x.sym===m.sym;});
+    var st = m.notified ? '<span style="color:var(--g);font-weight:700">✅ zone reached</span>'
+           : m.zone ? '<span style="color:var(--am);font-weight:700">👀 watching</span>'
+           : '<span style="color:var(--t3)">memo only</span>';
+    h += '<div style="border-top:.5px solid var(--bd);padding:8px 0">';
+    h += '<div style="display:flex;gap:8px;align-items:center;font-size:12px"><b>'+m.pair+'</b>'
+       + '<span style="color:var(--t3);font-size:10px">'+m.tf+' · '+(age<24?age+'h ago':Math.round(age/24)+'d ago')+'</span>'
+       + '<span style="margin-left:auto">'+st+'</span></div>';
+    if(m.zone) h += '<div style="font-size:11px;color:var(--t2);margin-top:3px">Entry '+fE(m.zone[0])+'–'+fE(m.zone[1])
+       + (m.sl?' · SL '+fE(m.sl):'') + (m.tp1?' · TP1 '+fE(m.tp1):'')
+       + (live?' · now '+fE(live.price):'') + '</div>';
+    if(m.bottomLine) h += '<div style="font-size:11px;color:var(--t3);margin-top:3px;font-style:italic">'+m.bottomLine.replace(/</g,'&lt;')+'</div>';
+    h += '</div>';
+  });
+  h += '<div style="text-align:right;margin-top:8px"><button onclick="localStorage.removeItem(\'ai_memos\');renderJournal();" style="font-size:10px;padding:3px 10px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t3);cursor:pointer">Clear memos</button></div>';
+  return h + '</div>';
+}
+
 function _extractAILevels(sym, text){
   var m = text.match(/LEVELS_JSON\s*(\{[^}]*\})/);
   if(m){
@@ -7038,6 +7118,7 @@ function _extractAILevels(sym, text){
       var o = JSON.parse(m[1]);
       window._aiLevels = window._aiLevels || {};
       window._aiLevels[sym] = o;
+      try { saveAIMemo(sym, o, text); } catch(e){}   // auto-memo + entry watch
       // If the Analyst tab is open for this coin, refresh so the Trade Plan below
       // picks up the AI's levels immediately (replace rule-based plan).
       try {
