@@ -5518,6 +5518,117 @@ function _agentQuery(filters){
   return out;
 }
 
+
+// ── AGENT TOOL 2: the LIVE BOARD (all 80 coins, scores, signals, structure) ──
+function _agentBoard(f){
+  f = f || {};
+  var rows = (allData||[]).filter(function(d){ return !d._stale; });
+  if(f.signalsOnly) rows = rows.filter(function(d){ return d.buySignal; });
+  if(f.tier) rows = rows.filter(function(d){ return d.buyTier === f.tier; });
+  if(f.minOpportunity!=null) rows = rows.filter(function(d){ return (d.opportunity||0) >= f.minOpportunity; });
+  if(f.minRsRank!=null) rows = rows.filter(function(d){ return (d.rsRank||0) >= f.minRsRank; });
+  if(f.struct) rows = rows.filter(function(d){ return d.struct === f.struct; });
+  if(f.trendlineBreak) rows = rows.filter(function(d){ return d.tlBreakUp; });
+  if(f.sweep) rows = rows.filter(function(d){ return d.liq === 'buy_sweep'; });
+  if(f.sym) rows = rows.filter(function(d){ return d.sym === f.sym || d.pair.indexOf(f.sym) === 0; });
+  rows.sort(function(a,b){ return (b[f.sortBy||'opportunity']||0) - (a[f.sortBy||'opportunity']||0); });
+  var lim = Math.min(f.limit||10, 20);
+  return {
+    totalScanned: (allData||[]).length, matched: rows.length, timeframe: TF,
+    coins: rows.slice(0, lim).map(function(d){
+      return { coin:d.pair.replace('/USDT','').replace('/JPY',''),
+        price:d.price, chg24h:Math.round((d.chg||0)*10)/10,
+        opportunity:d.opportunity||null, score:d.score||null, rsRank:d.rsRank||null,
+        momQuintile:d.momQuintile||null, trendQ:d.trendQ||null, accum:d.accum||null,
+        rsi:Math.round(d.rsi||0), volR:Math.round((d.volR||0)*100)/100,
+        struct:d.struct||null, tier:d.buyTier||null, buySignal:!!d.buySignal,
+        extAboveEMA20pct: d.ema20 ? Math.round((d.price-d.ema20)/d.ema20*1000)/10 : null,
+        dailyTrendUp: !!(window._dailyTrend && window._dailyTrend[d.sym]),
+        trendline: d.tlBreakUp ? 'fresh downtrend-line BREAK ('+(d.tlTouches||0)+' touches)'
+                 : d.tlBounceUp ? 'bounce off uptrend line'
+                 : d.tlBreakDown ? 'uptrend line BROKEN — structure failed' : 'none',
+        sweep: d.liq==='buy_sweep' ? 'liquidity sweep + reclaim' : 'no',
+        support:d.sup||null, resistance:d.res||null };
+    })
+  };
+}
+
+// ── AGENT TOOL 3: market CONTEXT + the tool's own self-audit verdicts ──
+function _agentContext(){
+  var st = signalLogStats();
+  var bz = (typeof detectMarketBuyZone==='function') ? detectMarketBuyZone() : null;
+  var out = {
+    btcState: btcState, breadthPctAbove200: _breadth,
+    ethVsBtc24h: Math.round(_ethVsBtc*10)/10,
+    altWeather: (_ethWeak||_btcDominanceRising||_breadthWeak) ? 'alt-unfriendly' : 'ok',
+    suppressionReasons: [ _ethWeak?'ETH weakening vs BTC':null,
+      _btcDominanceRising?'BTC dominance rising':null,
+      _breadthWeak?'breadth under 35%':null ].filter(Boolean),
+    buyZoneScore: bz ? bz.score : null, buyZoneVerdict: bz ? bz.verdict : null,
+    activeTimeframe: TF,
+    myTrackRecord: { resolved: st.resolved, winRatePct: st.winRate,
+      ci: st.ci ? [st.ci.low, st.ci.high] : null, expectancyR: st.expectancyR }
+  };
+  // the tool grading itself — which of its own scores actually predict
+  try {
+    var A = auditScoringSystems();
+    if(A && A.ready) out.scoringAudit = A.tests.map(function(t){
+      return { score:t.name, verdict:t.verdict, highWR:t.hiWR, lowWR:t.loWR, gap:t.gap, n:t.n };
+    });
+    else out.scoringAudit = 'not enough resolved trades yet ('+(A?A.n:0)+')';
+  } catch(e){ out.scoringAudit = 'unavailable'; }
+  try {
+    var icr = _icLoad('ic_results');
+    if(icr.length){
+      var byF = {};
+      icr.filter(function(r){return r.h==='h24';}).forEach(function(r){ (byF[r.f]=byF[r.f]||[]).push(r.ic); });
+      out.icLab = Object.keys(byF).map(function(k){
+        var m = byF[k].reduce(function(a,b){return a+b;},0)/byF[k].length;
+        return { score:k, meanIC:Math.round(m*1000)/1000, snapshots:byF[k].length };
+      });
+    } else out.icLab = 'still collecting snapshots';
+  } catch(e){ out.icLab = 'unavailable'; }
+  return out;
+}
+
+// ── AGENT TOOL 4: NEWS headlines (CoinTelegraph + CoinDesk + Yahoo) ──
+function _agentNews(f){
+  f = f || {};
+  var items = (newsCache||[]).slice(0, 40);
+  if(f.contains){
+    var q = String(f.contains).toUpperCase();
+    items = items.filter(function(n){ return (n.title||'').toUpperCase().indexOf(q) >= 0; });
+  }
+  return { totalHeadlines: (newsCache||[]).length,
+    headlines: items.slice(0, f.limit||15).map(function(n){
+      return { title:n.title, source:n.source||'', age:(typeof timeAgo==='function'?timeAgo(n.date):'') };
+    }) };
+}
+
+// ── AGENT TOOL 5: chart VISION for one coin (quota-aware, on request only) ──
+function _agentChartImage(sym){
+  return new Promise(function(res){
+    try {
+      var d = (allData||[]).find(function(x){ return x.sym===sym || x.pair.indexOf(sym)===0; });
+      if(!d) return res(null);
+      curSym = d.sym; window._d = d;
+      chartState.sym = d.sym; chartState.d = d;
+      loadChart(TF);
+      setTimeout(function(){
+        try {
+          var cv = document.getElementById('chart-canvas');
+          if(!cv || cv.width < 80) return res(null);
+          var sc = Math.min(1, 900/cv.width);
+          var oc = document.createElement('canvas');
+          oc.width = Math.round(cv.width*sc); oc.height = Math.round(cv.height*sc);
+          oc.getContext('2d').drawImage(cv, 0, 0, oc.width, oc.height);
+          res(oc.toDataURL('image/png').split(',')[1]);
+        } catch(e){ res(null); }
+      }, 2500);
+    } catch(e){ res(null); }
+  });
+}
+
 function runResearchAgent(){
   var out = document.getElementById('agent-out');
   var qEl = document.getElementById('agent-q');
@@ -5525,23 +5636,48 @@ function runResearchAgent(){
   var question = qEl.value.trim();
   if(!question){ out.innerHTML = '<div style="font-size:11px;color:var(--t3)">Ask something about your log first.</div>'; return; }
 
-  var sys = 'You are a rigorous, brutally honest quantitative research analyst investigating a trader\'s REAL signal log. You have ONE tool: query(filters). To use it, reply with a single line: QUERY {json} — nothing else on that line. Available filters: setup (exact setup name), tf ("1h","4h","1d"), btcState ("bullish","stable","falling","dumping"), minBreadth, maxBreadth (0-100), htfAligned (true/false), momQuintile ("top","mid","bottom"), minVolR, maxVolR, minRsi, maxRsi, groupBy ("setup","tf","btcState","momQuintile","htfAligned"). Each result gives n, won, lost, winRate, ci (95% Wilson interval), expectancyR (net of fees). WORKFLOW: think about what slice answers the question, QUERY it, read the result, and if the answer needs a follow-up slice, QUERY again (max 4 queries). When you have enough, reply with your FINAL ANSWER (no QUERY line). STATISTICAL HONESTY IS MANDATORY: under 10 resolved trades in a slice, say the slice cannot support a conclusion; under 30, call it a weak hint and cite the confidence interval; note that comparing many slices inflates false positives (multiple comparisons). NEVER recommend a trade, predict a price, or claim an edge the sample cannot support. If the honest answer is "your log is too small to answer this", say exactly that. Be concise and specific, cite the numbers you saw, and write plain text with no markdown symbols.';
+  var sys = 'You are a rigorous, brutally honest crypto research analyst with TOOLS that read this trader own screener. Investigate step by step: pick a tool, read the real result, follow the thread. To call a tool, reply with ONE line and nothing else on it. TOOLS: '
+    + 'LOG {json} - resolved trades. filters: setup, tf, btcState, minBreadth, maxBreadth, htfAligned, momQuintile, minVolR, maxVolR, minRsi, maxRsi, groupBy(setup|tf|btcState|momQuintile|htfAligned). returns n, won, lost, winRate, ci (95 percent Wilson), expectancyR net of fees. '
+    + 'BOARD {json} - the LIVE board of all scanned coins right now. filters: signalsOnly, tier, minOpportunity, minRsRank, struct, trendlineBreak, sweep, sym, sortBy, limit. per coin returns price, chg24h, opportunity, score, rsRank, momQuintile, trendQ, accum, rsi, volR, struct, tier, buySignal, extAboveEMA20pct, dailyTrendUp, trendline, sweep, support, resistance. '
+    + 'CONTEXT {} - market regime plus the tool grading ITSELF: btcState, breadth, ethVsBtc, altWeather, suppressionReasons, buyZone, the user track record, scoringAudit (which of its own scores predict wins), icLab (information coefficients). '
+    + 'NEWS {json} - recent headlines. filters: contains, limit. '
+    + 'CHART {\"sym\":\"BTCUSDT\"} - renders that coin chart so you can SEE it. Costs quota: use at most once, only when a visual read genuinely matters. '
+    + 'WORKFLOW: call a tool, read the result, call another if needed, maximum 5 calls, then give your FINAL ANSWER with no tool line. '
+    + 'STATISTICAL HONESTY IS MANDATORY: for LOG slices, under 10 resolved means the slice cannot support a conclusion, under 30 is a weak hint that must cite the confidence interval, and comparing many slices inflates false positives. BOARD data is CURRENT CONDITIONS, not outcomes - describe setup quality, never predict. '
+    + 'EVIDENCE BASE: trend and higher-timeframe alignment are the proven edges; entries more than 3.5 percent above EMA20 are late and this trader log proved loud extended entries lost; unconfirmed breakouts and counter-daily-trend entries underperform; accumulation scores and CHoCH have no proven edge. '
+    + 'NEVER recommend a trade, predict a price, or claim an edge the data cannot support. If the honest answer is that the data is too thin, say exactly that. Cite which tool gave which number. Plain text, no markdown symbols, concise.';
 
-  var history = [{ role:'user', content: 'Question about my signal log: ' + question }];
+  var _agentChartImg = null;
+  var history = [{ role:'user', content: 'Question: ' + question }];
   var steps = [];
   out.innerHTML = '<div style="font-size:11px;color:var(--t3)">🔬 Agent investigating…</div>';
 
   function step(i){
-    if(i > 4){ render('Reached the query limit without a final answer.'); return; }
-    _aiCallModel(sys, history).then(function(text){
-      var m = text.match(/QUERY\s*(\{[\s\S]*?\})/);
+    if(i > 5){ render('Reached the query limit without a final answer.'); return; }
+    _aiCallModel(sys, history, _agentChartImg).then(function(text){
+      _agentChartImg = null;
+      var m = text.match(/(LOG|BOARD|CONTEXT|NEWS|CHART|QUERY)\s*(\{[\s\S]*?\})/);
       if(m){
-        var filters = {};
-        try { filters = JSON.parse(m[1]); } catch(e){}
-        var res = _agentQuery(filters);
-        steps.push({ q: filters, r: res });
+        var tool = m[1]==='QUERY' ? 'LOG' : m[1];
+        var args = {}; try { args = JSON.parse(m[2]); } catch(e){}
         history.push({ role:'assistant', content: text });
-        history.push({ role:'user', content: 'QUERY RESULT: ' + JSON.stringify(res) });
+        if(tool==='CHART'){
+          out.innerHTML = '<div style="font-size:11px;color:var(--t3)">🔬 Step '+(steps.length+1)+': rendering '+(args.sym||'')+' chart to look at it…</div>';
+          _agentChartImage(args.sym||'').then(function(img){
+            steps.push({ tool:'CHART', q:args, r:{ rendered: !!img } });
+            if(img){ _agentChartImg = img;
+              history.push({ role:'user', content: 'CHART RESULT: rendered for '+(args.sym||'')+'. The image is attached — read it visually.' });
+            } else history.push({ role:'user', content: 'CHART RESULT: could not render that symbol.' });
+            step(i+1);
+          });
+          return;
+        }
+        var res = tool==='LOG' ? _agentQuery(args)
+                : tool==='BOARD' ? _agentBoard(args)
+                : tool==='CONTEXT' ? _agentContext()
+                : tool==='NEWS' ? _agentNews(args) : {};
+        steps.push({ tool: tool, q: args, r: res });
+        history.push({ role:'user', content: tool+' RESULT: '+JSON.stringify(res) });
         renderProgress();
         step(i+1);
       } else {
@@ -5553,9 +5689,13 @@ function runResearchAgent(){
     });
   }
   function renderProgress(){
-    out.innerHTML = '<div style="font-size:11px;color:var(--t3)">🔬 Step '+steps.length+': queried '
-      + Object.keys(steps[steps.length-1].q).join(', ')
-      + ' → n=' + steps[steps.length-1].r.matched.n + ' … thinking</div>';
+    var last = steps[steps.length-1] || {};
+    var r = last.r||{};
+    var got = r.matched && r.matched.n!==undefined ? 'n='+r.matched.n
+            : r.coins ? (r.matched+' of '+r.totalScanned+' coins')
+            : r.headlines ? (r.headlines.length+' headlines')
+            : 'ok';
+    out.innerHTML = '<div style="font-size:11px;color:var(--t3)">🔬 Step '+steps.length+': '+(last.tool||'LOG')+' → '+got+' … thinking</div>';
   }
   function render(answer){
     var h = '';
@@ -5563,10 +5703,13 @@ function runResearchAgent(){
       h += '<div style="background:var(--card3);border-radius:8px;padding:8px 10px;margin-bottom:8px">';
       h += '<div style="font-size:10px;color:var(--t3);font-weight:700;text-transform:uppercase;margin-bottom:4px">Queries the agent ran (check them yourself)</div>';
       steps.forEach(function(s, i){
-        h += '<div style="font-size:10px;color:var(--t2);padding:2px 0">'+(i+1)+'. '
-          + JSON.stringify(s.q) + ' → n=' + s.r.matched.n
-          + (s.r.matched.winRate!=null ? ', WR '+s.r.matched.winRate+'%' : '')
-          + (s.r.matched.expectancyR!=null ? ', '+s.r.matched.expectancyR+'R' : '') + '</div>';
+        var r = s.r||{};
+        var sm = r.matched && r.matched.n!==undefined
+              ? ('n='+r.matched.n + (r.matched.winRate!=null?', WR '+r.matched.winRate+'%':'') + (r.matched.expectancyR!=null?', '+r.matched.expectancyR+'R':''))
+              : r.coins ? (r.matched+' of '+r.totalScanned+' coins')
+              : r.headlines ? (r.headlines.length+' headlines')
+              : r.rendered!==undefined ? (r.rendered?'chart seen':'render failed') : 'ok';
+        h += '<div style="font-size:10px;color:var(--t2);padding:2px 0"><b style="color:#7c4dff">'+(s.tool||'LOG')+'</b> '+JSON.stringify(s.q||{})+' → '+sm+'</div>';
       });
       h += '</div>';
     }
@@ -5581,17 +5724,17 @@ function buildResearchAgentPanel(){
   var hasKey = !!(localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key'));
   var st = signalLogStats();
   var h = '<div style="background:linear-gradient(135deg,rgba(124,77,255,.10),rgba(124,77,255,.02));border:.5px solid rgba(124,77,255,.35);border-radius:var(--rad-lg);padding:1rem;margin-bottom:1rem">';
-  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.4rem"><span style="font-size:16px">🔬</span><span style="font-size:13px;font-weight:800">Research Agent — ask your log anything</span><span style="margin-left:auto;font-size:9px;color:var(--t3)">read-only · queries data in steps</span></div>';
-  h += '<div style="font-size:11px;color:var(--t2);line-height:1.5;margin-bottom:.6rem">Unlike the briefing, this agent QUERIES your log itself and follows the thread — up to 4 slices — then answers with the numbers it actually saw. It cannot trade or change settings.</div>';
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.4rem"><span style="font-size:16px">🔬</span><span style="font-size:13px;font-weight:800">Research Agent — ask anything about your market</span><span style="margin-left:auto;font-size:9px;color:var(--t3)">read-only · queries data in steps</span></div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.5;margin-bottom:.6rem">It has TOOLS: your trade log, the live board of all scanned coins, market context (regime, breadth, its own score audits), news headlines — and it can SEE one chart on request. It investigates in steps and answers from what it actually read. Read-only: it cannot trade or change any setting.</div>';
   if(!hasKey){
     h += '<div style="font-size:11px;color:var(--t3)">Add your free Gemini key (any coin → Analyst tab) to enable the agent.</div></div>';
     return h;
   }
   h += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
-  h += '<input id="agent-q" placeholder="e.g. which setup wins best when BTC is stable?" onkeydown="if(event.key===\'Enter\')runResearchAgent()" style="flex:1;min-width:200px;padding:8px 10px;border-radius:8px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:12px;font-family:inherit">';
+  h += '<input id="agent-q" placeholder="e.g. best setups right now? / does my daily-trend gate help?" onkeydown="if(event.key===\'Enter\')runResearchAgent()" style="flex:1;min-width:200px;padding:8px 10px;border-radius:8px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:12px;font-family:inherit">';
   h += '<button onclick="runResearchAgent()" style="padding:8px 16px;border-radius:8px;border:none;background:#7c4dff;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">Investigate</button></div>';
   h += '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">';
-  ['Which setup performs best?','Does the daily trend gate actually help?','Is 4h better than 1d for me?','Do high-volume entries lose more?'].forEach(function(q){
+  ['Best setups on the board right now?','Which setup performs best in my log?','Is now a good time to trade at all?','Any news affecting my top coins?','Which of my scores actually predict wins?'].forEach(function(q){
     h += '<button onclick="document.getElementById(\'agent-q\').value=this.textContent;runResearchAgent()" style="font-size:10px;padding:3px 8px;border-radius:99px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);cursor:pointer;font-family:inherit">'+q+'</button>';
   });
   h += '</div>';
