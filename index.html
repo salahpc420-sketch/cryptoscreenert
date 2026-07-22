@@ -5460,6 +5460,147 @@ function auditScoringSystems(){
   return { ready:true, n:resolved.length, tests:tests.filter(function(t){return t.verdict!=='too-few';}), pending:tests.filter(function(t){return t.verdict==='too-few';}) };
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AGENTIC RESEARCH ANALYST — a genuine think→act→observe loop over YOUR log.
+// The AI does not receive a pre-digested summary; it QUERIES the data itself
+// via a tool, sees real results, and can query again to follow the thread —
+// up to 4 steps. Strictly READ-ONLY: it can slice and count, never trade,
+// never change a gate, never write to the log. Safe because every claim it
+// makes is checkable against the same query you can run yourself.
+// ═══════════════════════════════════════════════════════════════════════════
+function _agentQuery(filters){
+  // filters: {setup, tf, btcState, minBreadth, maxBreadth, htfAligned, momQuintile,
+  //           minVolR, maxVolR, minRsi, maxRsi, groupBy}
+  var log = loadSignalLog().filter(function(s){ return s.status==='won'||s.status==='lost'; });
+  var f = filters || {};
+  function ok(s){
+    if(f.setup && (s.setupType||'') !== f.setup) return false;
+    if(f.tf && s.tf !== f.tf) return false;
+    if(f.btcState && (s.btcStateAtEntry||s.btcState) !== f.btcState) return false;
+    var br = (s.mktContext||{}).breadth;
+    if(f.minBreadth!=null && !(br!=null && br>=f.minBreadth)) return false;
+    if(f.maxBreadth!=null && !(br!=null && br<=f.maxBreadth)) return false;
+    if(f.htfAligned!=null && s.htfAligned !== f.htfAligned) return false;
+    if(f.momQuintile && s.momQuintile !== f.momQuintile) return false;
+    if(f.minVolR!=null && !(s.volR!=null && s.volR>=f.minVolR)) return false;
+    if(f.maxVolR!=null && !(s.volR!=null && s.volR<=f.maxVolR)) return false;
+    if(f.minRsi!=null && !((s.entryReason||{}).rsi!=null && s.entryReason.rsi>=f.minRsi)) return false;
+    if(f.maxRsi!=null && !((s.entryReason||{}).rsi!=null && s.entryReason.rsi<=f.maxRsi)) return false;
+    return true;
+  }
+  var sel = log.filter(ok);
+  function stat(g){
+    var w = g.filter(function(s){return s.status==='won';}).length;
+    var n = g.length, feeR=0.13, sum=0;
+    g.forEach(function(s){ sum += ((s.status==='won' ? (s.rr||1.5) : -1) - feeR); });
+    var ci = n ? wilsonCI(w, n) : null;
+    return { n:n, won:w, lost:n-w, winRate: n?Math.round(w/n*100):null,
+             ci: ci ? [ci.low, ci.high] : null,
+             expectancyR: n?Math.round(sum/n*100)/100:null };
+  }
+  var out = { matched: stat(sel) };
+  if(f.groupBy){
+    var groups = {};
+    sel.forEach(function(s){
+      var k = f.groupBy==='setup' ? (s.setupType||'?')
+            : f.groupBy==='tf' ? (s.tf||'?')
+            : f.groupBy==='btcState' ? (s.btcStateAtEntry||s.btcState||'?')
+            : f.groupBy==='momQuintile' ? (s.momQuintile||'?')
+            : f.groupBy==='htfAligned' ? String(s.htfAligned)
+            : '?';
+      (groups[k] = groups[k] || []).push(s);
+    });
+    out.groups = {};
+    Object.keys(groups).forEach(function(k){ out.groups[k] = stat(groups[k]); });
+  }
+  out.totalResolvedInLog = log.length;
+  return out;
+}
+
+function runResearchAgent(){
+  var out = document.getElementById('agent-out');
+  var qEl = document.getElementById('agent-q');
+  if(!out || !qEl) return;
+  var question = qEl.value.trim();
+  if(!question){ out.innerHTML = '<div style="font-size:11px;color:var(--t3)">Ask something about your log first.</div>'; return; }
+
+  var sys = 'You are a rigorous, brutally honest quantitative research analyst investigating a trader\'s REAL signal log. You have ONE tool: query(filters). To use it, reply with a single line: QUERY {json} — nothing else on that line. Available filters: setup (exact setup name), tf ("1h","4h","1d"), btcState ("bullish","stable","falling","dumping"), minBreadth, maxBreadth (0-100), htfAligned (true/false), momQuintile ("top","mid","bottom"), minVolR, maxVolR, minRsi, maxRsi, groupBy ("setup","tf","btcState","momQuintile","htfAligned"). Each result gives n, won, lost, winRate, ci (95% Wilson interval), expectancyR (net of fees). WORKFLOW: think about what slice answers the question, QUERY it, read the result, and if the answer needs a follow-up slice, QUERY again (max 4 queries). When you have enough, reply with your FINAL ANSWER (no QUERY line). STATISTICAL HONESTY IS MANDATORY: under 10 resolved trades in a slice, say the slice cannot support a conclusion; under 30, call it a weak hint and cite the confidence interval; note that comparing many slices inflates false positives (multiple comparisons). NEVER recommend a trade, predict a price, or claim an edge the sample cannot support. If the honest answer is "your log is too small to answer this", say exactly that. Be concise and specific, cite the numbers you saw, and write plain text with no markdown symbols.';
+
+  var history = [{ role:'user', content: 'Question about my signal log: ' + question }];
+  var steps = [];
+  out.innerHTML = '<div style="font-size:11px;color:var(--t3)">🔬 Agent investigating…</div>';
+
+  function step(i){
+    if(i > 4){ render('Reached the query limit without a final answer.'); return; }
+    _aiCallModel(sys, history).then(function(text){
+      var m = text.match(/QUERY\s*(\{[\s\S]*?\})/);
+      if(m){
+        var filters = {};
+        try { filters = JSON.parse(m[1]); } catch(e){}
+        var res = _agentQuery(filters);
+        steps.push({ q: filters, r: res });
+        history.push({ role:'assistant', content: text });
+        history.push({ role:'user', content: 'QUERY RESULT: ' + JSON.stringify(res) });
+        renderProgress();
+        step(i+1);
+      } else {
+        history.push({ role:'assistant', content: text });
+        render(text);
+      }
+    }).catch(function(e){
+      out.innerHTML = '<div style="font-size:11px;color:var(--r)">Agent failed: '+(e.message||e)+'</div>';
+    });
+  }
+  function renderProgress(){
+    out.innerHTML = '<div style="font-size:11px;color:var(--t3)">🔬 Step '+steps.length+': queried '
+      + Object.keys(steps[steps.length-1].q).join(', ')
+      + ' → n=' + steps[steps.length-1].r.matched.n + ' … thinking</div>';
+  }
+  function render(answer){
+    var h = '';
+    if(steps.length){
+      h += '<div style="background:var(--card3);border-radius:8px;padding:8px 10px;margin-bottom:8px">';
+      h += '<div style="font-size:10px;color:var(--t3);font-weight:700;text-transform:uppercase;margin-bottom:4px">Queries the agent ran (check them yourself)</div>';
+      steps.forEach(function(s, i){
+        h += '<div style="font-size:10px;color:var(--t2);padding:2px 0">'+(i+1)+'. '
+          + JSON.stringify(s.q) + ' → n=' + s.r.matched.n
+          + (s.r.matched.winRate!=null ? ', WR '+s.r.matched.winRate+'%' : '')
+          + (s.r.matched.expectancyR!=null ? ', '+s.r.matched.expectancyR+'R' : '') + '</div>';
+      });
+      h += '</div>';
+    }
+    h += '<div style="background:var(--card);border-radius:8px;padding:.8rem;font-size:12px;color:var(--t2);line-height:1.65">'+_aiFormat(answer)+'</div>';
+    h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;font-style:italic">Read-only research agent — it queries your log, it cannot trade or change any setting. Every number above is reproducible from your own data.</div>';
+    out.innerHTML = h;
+  }
+  step(1);
+}
+
+function buildResearchAgentPanel(){
+  var hasKey = !!(localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key'));
+  var st = signalLogStats();
+  var h = '<div style="background:linear-gradient(135deg,rgba(124,77,255,.10),rgba(124,77,255,.02));border:.5px solid rgba(124,77,255,.35);border-radius:var(--rad-lg);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.4rem"><span style="font-size:16px">🔬</span><span style="font-size:13px;font-weight:800">Research Agent — ask your log anything</span><span style="margin-left:auto;font-size:9px;color:var(--t3)">read-only · queries data in steps</span></div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.5;margin-bottom:.6rem">Unlike the briefing, this agent QUERIES your log itself and follows the thread — up to 4 slices — then answers with the numbers it actually saw. It cannot trade or change settings.</div>';
+  if(!hasKey){
+    h += '<div style="font-size:11px;color:var(--t3)">Add your free Gemini key (any coin → Analyst tab) to enable the agent.</div></div>';
+    return h;
+  }
+  h += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+  h += '<input id="agent-q" placeholder="e.g. which setup wins best when BTC is stable?" onkeydown="if(event.key===\'Enter\')runResearchAgent()" style="flex:1;min-width:200px;padding:8px 10px;border-radius:8px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:12px;font-family:inherit">';
+  h += '<button onclick="runResearchAgent()" style="padding:8px 16px;border-radius:8px;border:none;background:#7c4dff;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">Investigate</button></div>';
+  h += '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">';
+  ['Which setup performs best?','Does the daily trend gate actually help?','Is 4h better than 1d for me?','Do high-volume entries lose more?'].forEach(function(q){
+    h += '<button onclick="document.getElementById(\'agent-q\').value=this.textContent;runResearchAgent()" style="font-size:10px;padding:3px 8px;border-radius:99px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);cursor:pointer;font-family:inherit">'+q+'</button>';
+  });
+  h += '</div>';
+  if(st.resolved < 30) h += '<div style="font-size:10px;color:var(--am);margin-top:6px">⚠️ Only '+st.resolved+' resolved trades — the agent will mostly (correctly) answer "sample too small". It gets useful past ~100.</div>';
+  h += '<div id="agent-out" style="margin-top:.6rem"></div>';
+  h += '</div>';
+  return h;
+}
+
 function buildCoachAdvice(){
   var st = signalLogStats();
   var log = loadSignalLog();
@@ -5716,10 +5857,12 @@ function renderJournal(){
 }
 
 function renderCoach(){
+  var _agentHTML = (function(){ try { return buildResearchAgentPanel(); } catch(e){ return ''; } })();
   var body=document.getElementById('journal-body');
   if(!body) return;
   var C = buildCoachAdvice();
-  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  var h = _agentHTML;
+  h += '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
   h += '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:.3rem">🧑‍🏫 Coach — advice from your real log</div>';
   h += '<div style="font-size:11px;color:var(--t2);line-height:1.5">Evidence-based feedback from YOUR logged trades, with confidence intervals. It critiques your data — it does not predict the market or tell you to buy anything.</div>';
   h += '</div>';
@@ -5767,7 +5910,7 @@ function renderCoach(){
 }
 
 function renderSignalLog(){
-  var _memoHTML = (function(){ try { return buildAIMemoPanel(); } catch(e){ return ''; } })();
+  var _memoHTML = (function(){ try { return buildAITradePanel() + buildAIMemoPanel(); } catch(e){ return ''; } })();
   var body=document.getElementById('journal-body');
   if(!body) return;
   var log=loadSignalLog();
@@ -7114,12 +7257,125 @@ function checkAIMemoAlerts(data){
       try { addAlHistory(d, 'ai_entry', label + ' — ' + mm.pair); } catch(e){}
       try { sendBrowserNotif(d, label + ': ' + mm.pair); } catch(e){}
       if(typeof sndOn!=='undefined' && sndOn){ try{ playSound('strong'); }catch(e){} }
+      try { openAITrade(mm, d); } catch(e){}     // record the AI-planned entry
     }
   });
   if(changed) saveAIMemos(memos);
+  try { resolveAITrades(data); } catch(e){}      // check TP/SL on open AI trades
 }
 
 // Memo panel — shown in the Journal so the AI's key points are never lost
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AI TRADE LOG — measures whether the AI's ENTRY ZONES actually work.
+// Deliberately SEPARATE from the signal log: the rule system is a controlled
+// experiment; AI trades are a hand-picked sample (only coins you chose to
+// analyze). Mixing them would contaminate both verdicts. Same honesty rules:
+// entry recorded when price reaches the AI's zone, resolved on TP/SL using
+// candle high/low, win rate with Wilson CI, R-expectancy net of fees.
+// ═══════════════════════════════════════════════════════════════════════════
+function loadAITrades(){ try{ return JSON.parse(localStorage.getItem('ai_trades')||'[]'); }catch(e){ return []; } }
+function saveAITrades(t){ try{ localStorage.setItem('ai_trades', JSON.stringify(t.slice(0,300))); }catch(e){} }
+
+function openAITrade(memo, d){
+  if(!memo || !memo.sl || !memo.tp1 || !d) return;
+  var trades = loadAITrades();
+  if(trades.some(function(t){ return t.sym===memo.sym && t.status==='open'; })) return;  // one at a time per coin
+  var entry = d.price;
+  if(entry <= memo.sl) return;                      // already invalid — don't log a dead trade
+  var stopPct = (entry - memo.sl)/entry*100;
+  var tpPct   = (memo.tp1 - entry)/entry*100;
+  if(tpPct <= 0 || stopPct <= 0) return;
+  trades.unshift({
+    id: memo.sym+'_ai_'+Date.now(), sym: memo.sym, pair: memo.pair, tf: memo.tf,
+    entry: entry, sl: memo.sl, tp: memo.tp1, tp2: memo.tp2||null, tp3: memo.tp3||null,
+    rr: Math.round(tpPct/stopPct*100)/100, stopPct: Math.round(stopPct*100)/100,
+    ts: Date.now(), status:'open', outcome:null, closePrice:null, closedTs:null,
+    bottomLine: memo.bottomLine||''
+  });
+  saveAITrades(trades);
+  console.log('[AI trade] opened', memo.pair, 'entry', entry);
+}
+
+// Resolve open AI trades on closed candles (same method as the signal log)
+var _aiResolveBusy = false;
+function resolveAITrades(data){
+  if(_aiResolveBusy) return;
+  var trades = loadAITrades();
+  var open = trades.filter(function(t){ return t.status==='open'; });
+  if(!open.length) return;
+  _aiResolveBusy = true;
+  Promise.all(open.map(function(t){
+    var hrs = (Date.now()-t.ts)/3600000;
+    var use15 = hrs <= 200;
+    var bars = Math.min(900, Math.ceil(hrs*(use15?4:1))+5);
+    return bybitKlines(t.sym, use15?'15m':'1h', bars).then(function(kl){
+      if(!kl || !kl.length) return;
+      var rec = trades.find(function(x){ return x.id===t.id; });
+      if(!rec) return;
+      for(var i=0;i<kl.length;i++){
+        var ts = parseInt(kl[i][0]); if(ts <= t.ts) continue;   // only candles AFTER entry
+        var hi = parseFloat(kl[i][2]), lo = parseFloat(kl[i][3]);
+        var tpHit = hi >= t.tp, slHit = lo <= t.sl;
+        if(tpHit && slHit){ rec.status='ambiguous'; rec.outcome='TP & SL same candle'; rec.closedTs=ts; break; }
+        if(tpHit){ rec.status='won'; rec.outcome='TP hit'; rec.closePrice=t.tp; rec.closedTs=ts; break; }
+        if(slHit){ rec.status='lost'; rec.outcome='SL hit'; rec.closePrice=t.sl; rec.closedTs=ts; break; }
+      }
+      if(rec.status==='open' && (Date.now()-t.ts) > 14*86400000){
+        rec.status='expired'; rec.outcome='No TP/SL in 14d';
+      }
+    }).catch(function(){});
+  })).then(function(){ saveAITrades(trades); _aiResolveBusy=false; })
+     .catch(function(){ _aiResolveBusy=false; });
+}
+
+function aiTradeStats(){
+  var t = loadAITrades();
+  var won = t.filter(function(x){return x.status==='won';}).length;
+  var lost = t.filter(function(x){return x.status==='lost';}).length;
+  var open = t.filter(function(x){return x.status==='open';}).length;
+  var res = won+lost;
+  var ci = res>0 ? wilsonCI(won,res) : null;
+  var feeR = 0.13, sumR = 0;
+  t.forEach(function(x){
+    if(x.status!=='won' && x.status!=='lost') return;
+    sumR += (x.status==='won' ? (x.rr||1.5) : -1) - feeR;
+  });
+  return { total:t.length, won:won, lost:lost, open:open, resolved:res,
+           winRate: res? Math.round(won/res*100):null, ci:ci,
+           expectancyR: res? Math.round(sumR/res*100)/100 : null, trades:t };
+}
+
+function buildAITradePanel(){
+  var s = aiTradeStats();
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🤖 AI Trade Log — do the AI\'s entry zones work?</div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.5;margin-bottom:.6rem">A trade opens automatically when live price reaches an AI entry zone, and resolves on TP1/SL from candle data. <strong>Kept separate from the signal log on purpose</strong> — the rules are a controlled experiment; these are coins you hand-picked to analyze, so mixing them would corrupt both verdicts.</div>';
+  if(!s.total){ return h + '<div style="font-size:11px;color:var(--t3)">No AI trades yet — analyze a coin, and if price later reaches its entry zone, the trade is recorded here automatically.</div></div>'; }
+  var wrCol = s.resolved<20 ? 'var(--t3)' : (s.winRate>=45?'var(--g)':'var(--r)');
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));gap:8px;text-align:center;margin-bottom:.5rem">';
+  h += '<div><div style="font-size:20px;font-weight:800;color:'+wrCol+'">'+(s.winRate!=null?s.winRate+'%':'—')+'</div><div style="font-size:10px;color:var(--t3)">win rate</div></div>';
+  h += '<div><div style="font-size:20px;font-weight:800;color:var(--g)">'+s.won+'</div><div style="font-size:10px;color:var(--t3)">won</div></div>';
+  h += '<div><div style="font-size:20px;font-weight:800;color:var(--r)">'+s.lost+'</div><div style="font-size:10px;color:var(--t3)">lost</div></div>';
+  h += '<div><div style="font-size:20px;font-weight:800;color:var(--am)">'+s.open+'</div><div style="font-size:10px;color:var(--t3)">open</div></div>';
+  if(s.expectancyR!=null) h += '<div><div style="font-size:20px;font-weight:800;color:'+(s.expectancyR>0?'var(--g)':'var(--r)')+'">'+(s.expectancyR>0?'+':'')+s.expectancyR+'R</div><div style="font-size:10px;color:var(--t3)">expectancy</div></div>';
+  h += '</div>';
+  if(s.resolved>0 && s.resolved<20) h += '<div style="font-size:11px;color:var(--am);background:rgba(245,158,11,.1);border-radius:6px;padding:7px">⚠️ Only '+s.resolved+' resolved'+(s.ci?' — true rate likely '+s.ci.low+'–'+s.ci.high+'%':'')+'. Far too few to judge the AI\'s levels. This sample grows slowly (only coins you analyze) — expect many weeks.</div>';
+  else if(s.ci) h += '<div style="font-size:11px;color:var(--t2)">'+s.resolved+' resolved · true rate likely '+s.ci.low+'–'+s.ci.high+'% (95% CI)</div>';
+  // recent trades
+  h += '<div style="margin-top:.6rem">';
+  s.trades.slice(0,8).forEach(function(t){
+    var col = t.status==='won'?'var(--g)':t.status==='lost'?'var(--r)':'var(--t3)';
+    var lbl = t.status==='won'?'✅ TP':t.status==='lost'?'❌ SL':t.status==='open'?'⏳ open':'—';
+    h += '<div style="display:flex;gap:8px;font-size:11px;padding:4px 0;border-top:.5px solid var(--bd)">'
+       + '<b style="flex:0 0 80px">'+t.pair+'</b>'
+       + '<span style="color:var(--t3)">E '+fE(t.entry)+' · SL '+fE(t.sl)+' · TP '+fE(t.tp)+'</span>'
+       + '<span style="margin-left:auto;color:'+col+';font-weight:700">'+lbl+'</span></div>';
+  });
+  h += '</div></div>';
+  return h;
+}
+
 function buildAIMemoPanel(){
   var memos = loadAIMemos();
   var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
@@ -7224,6 +7480,21 @@ function _extractAILevels(sym, text){
     }catch(e){}
     return text.replace(/LEVELS_JSON\s*\{[^}]*\}/,'').trim();
   }
+  // NO LEVELS_JSON in the reply (the model sometimes omits it) — still save a
+  // memo by parsing the levels out of the prose, and still refresh the Trade
+  // Plan. Without this, analyses on any device silently produced no memo.
+  try {
+    saveAIMemo(sym, null, text);
+    var mem = loadAIMemos()[0];
+    if (mem && mem.sym === sym) {
+      window._aiLevels = window._aiLevels || {};
+      window._aiLevels[sym] = { planA: mem.zone, sl: mem.sl, tp1: mem.tp1, tp2: mem.tp2, tp3: mem.tp3 };
+      if (window._d && window._d.sym === sym) {
+        var ph = document.getElementById('trade-plan-host');
+        if (ph) ph.innerHTML = buildTradePlan(window._d);
+      }
+    }
+  } catch(e){}
   return text;
 }
 function _aiFormat(text){
