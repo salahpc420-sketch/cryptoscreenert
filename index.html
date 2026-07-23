@@ -7159,6 +7159,24 @@ function buildAskClaudeSection(d){
     h += '<div style="display:flex;gap:8px;align-items:center">';
     h += '<button onclick="askClaude(\''+d.sym+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#7c4dff;color:#fff;font-weight:800;cursor:pointer;font-family:inherit;font-size:13px">🧠 Analyze '+d.pair.replace('/USDT','').replace('/JPY','')+' now</button>';
     h += '<span style="font-size:10px;color:var(--t3)">free (Gemini/OpenRouter) or ~1¢ (Claude) · <a href="#" onclick="localStorage.removeItem(\'ai_api_key\');localStorage.removeItem(\'anthropic_api_key\');buildClaudeTab(allData.find(function(x){return x.sym===\''+d.sym+'\'}));return false" style="color:var(--t3)">change key</a></span>';
+    // Model picker — only relevant for OpenRouter keys (one key, many models)
+    var _k = (localStorage.getItem('ai_api_key')||'').trim();
+    if(_k.indexOf('sk-or-') === 0){
+      var cur = localStorage.getItem('or_model') || 'google/gemini-2.0-flash-exp:free';
+      var opts = [
+        ['google/gemini-2.0-flash-exp:free','Gemini 2.0 Flash (free)'],
+        ['anthropic/claude-opus-4.8','Claude Opus 4.8 (best reasoning, paid)'],
+        ['anthropic/claude-sonnet-4.5','Claude Sonnet 4.5 (fast, cheaper)'],
+        ['openai/gpt-4o','GPT-4o'],
+        ['deepseek/deepseek-chat','DeepSeek (very cheap)']
+      ];
+      h += '<div style="margin-top:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
+      h += '<span style="font-size:10px;color:var(--t3)">OpenRouter model:</span>';
+      h += '<select onchange="localStorage.setItem(\'or_model\',this.value);" style="font-size:11px;padding:3px 6px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-family:inherit">';
+      opts.forEach(function(o){ h += '<option value="'+o[0]+'"'+(o[0]===cur?' selected':'')+'>'+o[1]+'</option>'; });
+      h += '</select>';
+      h += '<span style="font-size:9px;color:var(--t3)">paid models bill your OpenRouter credit per analysis</span></div>';
+    }
     // OpenRouter users can pick which model to route to
     if((localStorage.getItem('ai_api_key')||'').indexOf('sk-or-')===0){
       var _om = localStorage.getItem('or_model') || 'google/gemini-2.0-flash-exp:free';
