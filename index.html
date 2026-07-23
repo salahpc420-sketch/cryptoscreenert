@@ -7151,14 +7151,19 @@ function buildAskClaudeSection(d){
   var h = '<div style="background:linear-gradient(135deg,rgba(124,77,255,.08),rgba(124,77,255,.02));border:.5px solid rgba(124,77,255,.35);border-radius:var(--rad-lg);padding:1rem;margin-bottom:1rem">';
   h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.4rem"><span style="font-size:16px">🧠</span><span style="font-size:13px;font-weight:800;color:var(--text)">Ask Claude — live AI analyst</span><span style="margin-left:auto;font-size:9px;color:var(--t3)">real model reasoning, not rules</span></div>';
   if(!hasKey){
-    h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">Get a genuine AI analysis of this exact setup — the model reasons over the live indicators, your plan levels, and your log\'s real track record. <strong>FREE option:</strong> a Google Gemini key from <strong>aistudio.google.com</strong> (free, no credit card, generous daily limit). Or an Anthropic Claude key from console.anthropic.com (paid, ~1¢/analysis, strongest reasoning). Paste either — the tool auto-detects which. The key is stored <strong>only in this browser</strong> — never in the code, never on GitHub.</div>';
-    h += '<div style="display:flex;gap:6px"><input id="claude-key-input" type="password" placeholder="Gemini key (free) or sk-ant-… (Claude)" style="flex:1;padding:8px 10px;border-radius:8px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:12px;font-family:inherit">';
+    h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">Get a genuine AI analysis of this exact setup — the model reasons over the live indicators, your plan levels, and your log\'s real track record. <strong>FREE option:</strong> a Google Gemini key from <strong>aistudio.google.com</strong> (free, no card). Also supported: an <strong>OpenRouter</strong> key (sk-or-…, one key for many models) or an Anthropic Claude key (sk-ant-…). Paste any of the three — the tool auto-detects the provider. The key is stored <strong>only in this browser</strong> — never in the code, never on GitHub.</div>';
+    h += '<div style="display:flex;gap:6px"><input id="claude-key-input" type="password" placeholder="Gemini (free) · sk-or-… (OpenRouter) · sk-ant-… (Claude)" style="flex:1;padding:8px 10px;border-radius:8px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:12px;font-family:inherit">';
     h += '<button onclick="saveClaudeKey()" style="padding:8px 14px;border-radius:8px;border:none;background:#7c4dff;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">Save key</button></div>';
     h += '<div style="font-size:9px;color:var(--t3);margin-top:6px">⚠️ Don\'t enter your key on a shared/public computer.</div>';
   } else {
     h += '<div style="display:flex;gap:8px;align-items:center">';
     h += '<button onclick="askClaude(\''+d.sym+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#7c4dff;color:#fff;font-weight:800;cursor:pointer;font-family:inherit;font-size:13px">🧠 Analyze '+d.pair.replace('/USDT','').replace('/JPY','')+' now</button>';
-    h += '<span style="font-size:10px;color:var(--t3)">free (Gemini) or ~1¢ (Claude) · <a href="#" onclick="localStorage.removeItem(\'ai_api_key\');localStorage.removeItem(\'anthropic_api_key\');buildClaudeTab(allData.find(function(x){return x.sym===\''+d.sym+'\'}));return false" style="color:var(--t3)">change key</a></span>';
+    h += '<span style="font-size:10px;color:var(--t3)">free (Gemini/OpenRouter) or ~1¢ (Claude) · <a href="#" onclick="localStorage.removeItem(\'ai_api_key\');localStorage.removeItem(\'anthropic_api_key\');buildClaudeTab(allData.find(function(x){return x.sym===\''+d.sym+'\'}));return false" style="color:var(--t3)">change key</a></span>';
+    // OpenRouter users can pick which model to route to
+    if((localStorage.getItem('ai_api_key')||'').indexOf('sk-or-')===0){
+      var _om = localStorage.getItem('or_model') || 'google/gemini-2.0-flash-exp:free';
+      h += '<div style="font-size:10px;color:var(--t3);margin-top:5px">OpenRouter model: <span style="cursor:pointer;text-decoration:underline;color:#7c4dff" onclick="var v=prompt(\'OpenRouter model id (e.g. google/gemini-2.0-flash-exp:free, anthropic/claude-3.5-sonnet, deepseek/deepseek-chat)\',\''+_om+'\');if(v){localStorage.setItem(\'or_model\',v.trim());location.reload();}">'+_om+'</span></div>';
+    }
     h += '</div>';
   }
   h += '<div style="font-size:9px;color:var(--t3);margin-top:6px">👁 Tip: open the 📊 Chart tab once first — the AI will then also SEE the rendered chart image, not just the numbers.</div>';
@@ -7286,7 +7291,40 @@ function askClaude(sym){
 // the setup data, candles, and DNA in context.
 function _aiCallModel(sys, history, image){
   var key = (localStorage.getItem('ai_api_key') || localStorage.getItem('anthropic_api_key') || '').trim();
-  var isGemini = key.indexOf('sk-ant') !== 0;
+  // ── PROVIDER ROUTING ──────────────────────────────────────────────────────
+  //   sk-ant… → Anthropic (Claude)   |   sk-or-… → OpenRouter   |   else → Gemini
+  var isAnthropic = key.indexOf('sk-ant') === 0;
+  var isOpenRouter = key.indexOf('sk-or-') === 0;
+  var isGemini = !isAnthropic && !isOpenRouter;
+
+  if (isOpenRouter) {
+    // OpenRouter speaks the OpenAI chat format. Model is user-configurable via
+    // localStorage 'or_model'; default is a free, capable model so it works
+    // out of the box. Vision images are passed as data URLs when supported.
+    var orModel = localStorage.getItem('or_model') || 'google/gemini-2.0-flash-exp:free';
+    var msgs = [{ role: 'system', content: sys }].concat(history.map(function(m, i){
+      if (image && i === 0 && m.role === 'user') {
+        return { role: 'user', content: [
+          { type: 'text', text: m.content },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,' + image } }
+        ]};
+      }
+      return { role: m.role, content: m.content };
+    }));
+    return fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'Authorization': 'Bearer ' + key,
+                 'HTTP-Referer': location.origin, 'X-Title': 'Crypto Spot Screener' },
+      body: JSON.stringify({ model: orModel, max_tokens: 2500, messages: msgs })
+    }).then(function(r){ return r.json(); }).then(function(data){
+      if (data.error) throw new Error(data.error.message || 'OpenRouter error');
+      var t = data.choices && data.choices[0] && data.choices[0].message
+              && data.choices[0].message.content;
+      if (!t || !String(t).trim()) throw new Error('Empty response — try again or pick another model');
+      return String(t).trim();
+    });
+  }
+
   if (isGemini) {
     return fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + encodeURIComponent(key), {
       method: 'POST',
