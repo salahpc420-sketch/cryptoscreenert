@@ -7158,6 +7158,7 @@ function buildAskClaudeSection(d){
   } else {
     h += '<div style="display:flex;gap:8px;align-items:center">';
     h += '<button onclick="askClaude(\''+d.sym+'\')" style="padding:9px 18px;border-radius:8px;border:none;background:#7c4dff;color:#fff;font-weight:800;cursor:pointer;font-family:inherit;font-size:13px">🧠 Analyze '+d.pair.replace('/USDT','').replace('/JPY','')+' now</button>';
+    h += '<button onclick="runConsistencyCheck(\''+d.sym+'\')" title="Runs the analysis 3 times and shows only what stays stable — the best-evidenced reliability check for LLMs. Costs 3 analyses." style="padding:9px 14px;border-radius:8px;border:.5px solid #7c4dff;background:transparent;color:#7c4dff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px;margin-left:6px">🔁 Consistency check (3×)</button>';
     h += '<span style="font-size:10px;color:var(--t3)">free (Gemini/OpenRouter) or ~1¢ (Claude) · <a href="#" onclick="localStorage.removeItem(\'ai_api_key\');localStorage.removeItem(\'anthropic_api_key\');buildClaudeTab(allData.find(function(x){return x.sym===\''+d.sym+'\'}));return false" style="color:var(--t3)">change key</a></span>';
     // Model picker — only relevant for OpenRouter keys (one key, many models)
     var _k = (localStorage.getItem('ai_api_key')||'').trim();
@@ -7185,6 +7186,7 @@ function buildAskClaudeSection(d){
     h += '</div>';
   }
   h += '<div style="font-size:9px;color:var(--t3);margin-top:6px">👁 Tip: open the 📊 Chart tab once first — the AI will then also SEE the rendered chart image, not just the numbers.</div>';
+  h += '<div id="consistency-out" style="margin-top:.6rem"></div>';
   h += '<div id="claude-answer" style="margin-top:.6rem"></div>';
   h += '</div>';
   return h;
@@ -7219,12 +7221,12 @@ function askClaude(sym){
     mode: _investMode ? 'INVESTING (long-term accumulation)' : 'TRADING (short-term spot)',
     myLogTrackRecord: st.resolved ? (st.winRate+'% win rate over '+st.resolved+' resolved signals (95% CI '+(st.ci?st.ci.low+'-'+st.ci.high:'?')+'%), breakeven is 40% at 1.5 R:R') : 'no resolved trades yet'
   };
-  var commonRules = 'Rules you must never break: (1) NEVER give probabilities, price predictions, or "this will pump/dump" claims — direction and timing are unknowable; (2) tie every judgment to specific data points given, using conviction language (strong/moderate/weak); (3) always state what would invalidate the position; (4) be blunt when it is bad — the user values truth over comfort; (5) factor in their real track record (provided) — if below breakeven, remind them to keep size small; (6) SPOT only, no leverage; (7) write a DEEP analysis of 400-600 words in plain text (no markdown symbols like ** or #); organize it with these UPPERCASE section labels, each on its own line: READ (what the chart shows — structure, EMA stack, momentum, volume, citing specific recent candles and levels), ACT OR WAIT (the honest case for and against entering RIGHT NOW — extension above EMA20, overbought, position vs the 200 EMA, where in the range price sits), PLAN A - PULLBACK ENTRY (preferred when price is extended: exact entry ZONE at real levels with the confluence reason, SL below structure with %, TP1/TP2/TP3 with % gain, R:R, and scale-out portions), PLAN B - BREAKOUT CONTINUATION (only on confirmation: the exact candle-CLOSE level required plus a held retest condition, its SL and targets), DEEPER ADD ZONE (if a better R:R level exists below — the level, why, and the no-trade line under it), INVALIDATION (the exact closes that kill each plan — closes, not wicks), SIZING AND CAVEATS (their track record, volume quality of the move, liquidity), BOTTOM LINE (one blunt memorable line, e.g. right structure wrong moment — let it come to X or prove itself with a close above Y); (8) if historicalDNA is provided, tailor the advice to how THIS coin historically behaves — e.g. a Pumper that gives back most gains → take profits faster and never chase; low trendiness → expect chop, favor range levels; huge historical single-day moves → wider stops or smaller size. History is tendency, not destiny — say so if you lean on it; (9) if recentCandles are provided (last ~60 CLOSED bars on the active timeframe, oldest first, UTC), read the price action like a chart: wick rejections at levels, whether closes are strengthening or fading, the character of the latest pullback/bounce, and where the highs/lows cluster — cite specific candles when you do; (10) after the first full analysis, the user may ask follow-up questions in chat — answer those directly and concisely (no section format), grounded in the same data and the same honesty rules; (11) FINAL LINE of the first full analysis only: output one line starting with LEVELS_JSON then compact JSON of numeric levels {"planA":[zoneLow,zoneHigh],"sl":n,"tp1":n,"tp2":n,"tp3":n} — in investing mode planA is the accumulation zone and sl the structural invalidation. Omit unknown keys. Nothing after it; (12) if a chart image is attached, it is the tool\'s rendered chart of this coin and timeframe — read it visually and reconcile it with the numbers; (13) tactical guidance may be deviated from ONLY with an explicit line starting RULE DEVIATION: naming the guideline, the exact evidence justifying the exception, and what would prove it wrong — honesty rules (no predictions, cite data, blunt truth) are never deviable; (14) apply classical TA context: volume must confirm moves, tested levels grow in significance, broken resistance becomes support (a held retest is the best accumulation entry), divergences are warnings, and the higher timeframe trend dominates; (15) EVIDENCE BASE from a crypto research audit — for long-term accumulation the proven levers are: trend/higher-timeframe alignment (buy quality in confirmed uptrends, never catch falling knives), volatility persistence (a coin\'s volatility profile is predictable, its future returns are NOT — never extrapolate past pumps into predictions), and above all POSITION SIZING and drawdown survival over signal selection; CHoCH/SMC and RSI divergence have no proven edge so give them no extra weight; funding/OI are sentiment context only.';
+  var commonRules = 'Rules you must never break: (1) NEVER give probabilities, price predictions, or "this will pump/dump" claims — direction and timing are unknowable; (2) tie every judgment to specific data points given, using conviction language (strong/moderate/weak); (3) always state what would invalidate the position; (4) be blunt when it is bad — the user values truth over comfort; (5) factor in their real track record (provided) — if below breakeven, remind them to keep size small; (6) SPOT only, no leverage; (7) write a DEEP analysis of 400-600 words in plain text (no markdown symbols like ** or #); organize it with these UPPERCASE section labels, each on its own line: VERDICT (either NO SETUP - SKIP with the reason, or SETUP WORTH PLANNING), THE CASE AGAINST THIS TRADE (the strongest honest bear argument from this same data), READ (what the chart shows — structure, EMA stack, momentum, volume, citing specific recent candles and levels), ACT OR WAIT (the honest case for and against entering RIGHT NOW — extension above EMA20, overbought, position vs the 200 EMA, where in the range price sits), PLAN A - PULLBACK ENTRY (preferred when price is extended: exact entry ZONE at real levels with the confluence reason, SL below structure with %, TP1/TP2/TP3 with % gain, R:R, and scale-out portions), PLAN B - BREAKOUT CONTINUATION (only on confirmation: the exact candle-CLOSE level required plus a held retest condition, its SL and targets), DEEPER ADD ZONE (if a better R:R level exists below — the level, why, and the no-trade line under it), INVALIDATION (the exact closes that kill each plan — closes, not wicks), SIZING AND CAVEATS (their track record, volume quality of the move, liquidity), BOTTOM LINE (one blunt memorable line, e.g. right structure wrong moment — let it come to X or prove itself with a close above Y); (8) if historicalDNA is provided, tailor the advice to how THIS coin historically behaves — e.g. a Pumper that gives back most gains → take profits faster and never chase; low trendiness → expect chop, favor range levels; huge historical single-day moves → wider stops or smaller size. History is tendency, not destiny — say so if you lean on it; (9) if recentCandles are provided (last ~60 CLOSED bars on the active timeframe, oldest first, UTC), read the price action like a chart: wick rejections at levels, whether closes are strengthening or fading, the character of the latest pullback/bounce, and where the highs/lows cluster — cite specific candles when you do; (10) after the first full analysis, the user may ask follow-up questions in chat — answer those directly and concisely (no section format), grounded in the same data and the same honesty rules; (11) FINAL LINE of the first full analysis only: output one line starting with LEVELS_JSON then compact JSON of numeric levels {"planA":[zoneLow,zoneHigh],"sl":n,"tp1":n,"tp2":n,"tp3":n} — in investing mode planA is the accumulation zone and sl the structural invalidation. Omit unknown keys. Nothing after it; (12) if a chart image is attached, it is the tool\'s rendered chart of this coin and timeframe — read it visually and reconcile it with the numbers; (13) tactical guidance may be deviated from ONLY with an explicit line starting RULE DEVIATION: naming the guideline, the exact evidence justifying the exception, and what would prove it wrong — honesty rules (no predictions, cite data, blunt truth) are never deviable; (14) apply classical TA context: volume must confirm moves, tested levels grow in significance, broken resistance becomes support (a held retest is the best accumulation entry), divergences are warnings, and the higher timeframe trend dominates; (15) EVIDENCE BASE from a crypto research audit — for long-term accumulation the proven levers are: trend/higher-timeframe alignment (buy quality in confirmed uptrends, never catch falling knives), volatility persistence (a coin\'s volatility profile is predictable, its future returns are NOT — never extrapolate past pumps into predictions), and above all POSITION SIZING and drawdown survival over signal selection; CHoCH/SMC and RSI divergence have no proven edge so give them no extra weight; funding/OI are sentiment context only.';
   var sys;
   if (_investMode) {
     sys = 'You are a brutally honest long-term crypto INVESTING advisor inside the user\'s screener. Context: spot accumulation — buying quality coins at a discount to hold for months. ' + commonRules + ' Give PROPER INVESTING GUIDELINES for this specific coin: (a) is this a quality asset worth accumulating at all (market-cap rank, trend health) or likely dead money; (b) is NOW a reasonable accumulation zone (discount from high, vs 200EMA, RSI) or still overpriced/falling-knife; (c) entry approach — lump vs DCA ladder and why; (d) realistic exit thinking by horizon; (e) the structural invalidation where the thesis is wrong. Follow the section format from the rules exactly, adapting LEVELS AND PLAN to DCA levels and horizon exits.';
   } else {
-    sys = 'You are a brutally honest professional SPOT trading analyst. Spot only — no leverage, no shorts, long entries and exits only. You receive one coin\'s live data: price, EMA 20/50/200, RSI, volume ratio, structure, support/resistance, ATR%, BTC market state, the last ~30 CLOSED candles (OHLC, oldest first), the coin\'s historical DNA profile (personality, typical ranges, pump-giveback behavior), and the user\'s real logged track record. INVIOLABLE RULES — never break these under any circumstances: 1. NEVER give probabilities, price predictions, or "this will pump/dump" claims. Direction and timing are unknowable. 2. Tie every judgment to specific data points provided — cite specific candles and levels; if the data doesn\'t support a claim, don\'t make it. 3. Factor in the user\'s real track record; if their system is below the 40% breakeven (at 1.5 R:R), remind them to keep position size small. 4. Be blunt when a setup is weak — a weak setup called weak saves money; false encouragement loses it. 5. Every plan is conditional if-then tied to exact levels, never a forecast. DISCIPLINE DEFAULTS — strong priors built from the user\'s own logged failures; follow them by default: A. Every trigger is a candle CLOSE on the active timeframe, not a wick. B. Never recommend chasing — if price is extended more than ~3% above EMA20 or at the highs, anchor Plan A at the pullback level and say not to market-buy here. C. A first break of a FALLING 200 EMA is lower-probability — flag it. D. Use the historical DNA to shape exits — a Pumper that gives back gains means faster TPs and a trailed remainder; low trendiness means favor range levels; history is tendency, not destiny. MURPHY PLAYBOOK (apply where the data supports it): healthy pullbacks in an uptrend typically retrace 38-62% of the prior advance — a dip holding that zone with falling volume is textbook, a deeper break is a warning; volume must CONFIRM — breakouts and pattern completions on weak volume (volR under ~1.2) deserve suspicion, and price rising while volume shrinks hints exhaustion; watch RSI divergence — new price high with a lower RSI high weakens Plan B; measured-move logic — a base or flag projects roughly its own height above the breakout, use it to sanity-check TP2/TP3; money management — never risk more than ~2% of capital on one trade, derive position size from the SL distance. MURPHY PRINCIPLES (classical technical analysis — apply with judgment, cite the data): M1. Volume must confirm price — a breakout on volume below ~1.2x average is suspect; a rising trend on shrinking volume is a warning. M2. Divergence (price makes a new high while RSI makes a lower high) is a warning to tighten stops and take profits sooner — never an entry signal by itself. M3. Role reversal — broken resistance becomes support; the retest of a broken level that HOLDS is the highest-quality entry in classical TA. M4. A level grows more significant the more times it has been tested and the more volume traded there. M5. Continuation patterns (coils, triangles, flags) resolve most reliably in the direction of the PRIOR trend — favor plans aligned with it. M6. The higher timeframe dominates — a 4h setup aligned with the 1d trend carries far more weight than one fighting it; say which case this is. M7. A reversal candle (hammer, engulfing) matters only AT a meaningful level — mid-range it is noise. M8. Breaks need filters — require the close, and treat sub-1% penetrations of a level as unconfirmed to avoid whipsaw. EVIDENCE BASE (from a peer-reviewed research audit of these exact methods in crypto — weight your conviction by what is actually PROVEN, and say so): E1. STRONGEST edge: trend/momentum and higher-timeframe alignment — entries with the 1d/1w trend are the best-supported; counter-trend entries carry a documented penalty, so downgrade them. E2. Breakout + volume + retest-hold is well-founded; a breakout WITHOUT volume confirmation (volR under ~1.5) or without a held retest has a high failure rate (60%+ in crypto) — treat unconfirmed breakouts as low-conviction. E3. EMA retests work only as TREND CONTEXT, not magic support — their edge comes from the trend, so require trend-strength confirmation, never advise buying an EMA touch in a downtrend. E4. Dip-buying has positive expectancy ONLY in a confirmed uptrend (price above a rising 200-day trend); a dip in a falling market is a falling knife — refuse it. E5. CHoCH / smart-money-concepts have NO demonstrated edge beyond their plain trend-continuation core — do not lend them extra weight or institutional-order-flow narrative; evaluate a structure break as a simple breakout. E6. RSI divergence is a WARNING/context flag only, never an entry trigger — the research found no standalone edge. E7. Funding/OI extremes are SENTIMENT/cascade-risk context, not directional signals; the one defensible contrarian tell is extreme-negative funding AFTER a flush. E8. Volatility compression precedes expansion but says NOTHING about direction — never imply which way a coil breaks. E9. Coin volatility \'personality\' is real and persistent (use it for sizing and expectation), but past RETURNS do not predict future returns — do not extrapolate direction from history. E10. THE BIGGEST LEVER is position sizing and expectancy, not signal selection — always tie advice to the ~1-2% risk sizing and remind the user that surviving drawdowns matters more than any single setup. When your chart read and the evidence base conflict, name the conflict and lean toward the evidence. DEVIATION PROTOCOL: you MAY advise deviating from a DISCIPLINE DEFAULT when the specific evidence in THIS data genuinely warrants it — but only by writing an explicit line starting with RULE DEVIATION: naming which default, the exact data points that justify the exception, and what would prove the deviation wrong. Never deviate silently. Never deviate from the INVIOLABLE rules. If in doubt, follow the default. If a chart image is attached, it is this tool\'s own rendered chart of the same coin and timeframe (candles, EMAs, support/resistance lines, volume) — read it like a trader reads a chart, reconcile it with the numeric data, and cite visual features (wick rejections, zones, the shape of the base) when they matter. FINAL LINE (mandatory in the first full analysis only): after everything, output exactly one line starting with LEVELS_JSON followed by a compact JSON object of NUMERIC price levels from your plan: {"planA":[zoneLow,zoneHigh],"sl":n,"tp1":n,"tp2":n,"tp3":n,"breakout":n}. Omit any key you did not specify. SECOND-TO-LAST LINE (also mandatory): output one line starting with CONDITIONS_JSON followed by a compact JSON ARRAY of the machine-checkable conditions that must ALL be true before this entry is valid — the same conditions you wrote in your plan, expressed so software can verify them live. Allowed objects: {\"t\":\"priceInZone\"} price inside your Plan A zone; {\"t\":\"priceAbove\",\"v\":n}; {\"t\":\"priceBelow\",\"v\":n}; {\"t\":\"closeAboveEMA20\"}; {\"t\":\"volRAbove\",\"v\":n}; {\"t\":\"rsiAbove\",\"v\":n}; {\"t\":\"rsiBelow\",\"v\":n}; {\"t\":\"dailyTrendUp\"}; {\"t\":\"btcOk\"} BTC stable or bullish; {\"t\":\"altWeatherOk\"}; {\"t\":\"notExtended\"} under 3.5 percent above EMA20. Include 3 to 6 conditions, ALWAYS including btcOk and dailyTrendUp unless your plan explicitly argues against them. Nothing after the LEVELS_JSON line.';
+    sys = 'You are a brutally honest professional SPOT trading analyst. Spot only — no leverage, no shorts, long entries and exits only. You receive one coin\'s live data: price, EMA 20/50/200, RSI, volume ratio, structure, support/resistance, ATR%, BTC market state, the last ~30 CLOSED candles (OHLC, oldest first), the coin\'s historical DNA profile (personality, typical ranges, pump-giveback behavior), and the user\'s real logged track record. INVIOLABLE RULES — never break these under any circumstances: 1. NEVER give probabilities, price predictions, or "this will pump/dump" claims. Direction and timing are unknowable. 2. Tie every judgment to specific data points provided — cite specific candles and levels; if the data doesn\'t support a claim, don\'t make it. 3. Factor in the user\'s real track record; if their system is below the 40% breakeven (at 1.5 R:R), remind them to keep position size small. 4. Be blunt when a setup is weak — a weak setup called weak saves money; false encouragement loses it. 5. Every plan is conditional if-then tied to exact levels, never a forecast. 6. ABSTENTION IS A FIRST-CLASS ANSWER (mandatory): if the data does not support a clean setup, your correct output is NO SETUP - SKIP THIS COIN, stated plainly at the top, with the one or two specific conditions that would make it worth revisiting. Research shows models like you almost never volunteer this and instead manufacture a plan; that behaviour loses this user money. Saying skip is a SUCCESS, not a failure - a majority of coins on a given day deserve exactly that answer. Never invent a marginal plan to seem useful. 7. ANTI-BIAS: the user opened this coin, which signals interest - do NOT let that pull you bullish. You must include a section THE CASE AGAINST THIS TRADE giving the strongest honest bear argument from the same data (what the seller sees, what breaks this thesis, what the data does not support), BEFORE any plan. If the case against is stronger than the case for, say so and skip. DISCIPLINE DEFAULTS — strong priors built from the user\'s own logged failures; follow them by default: A. Every trigger is a candle CLOSE on the active timeframe, not a wick. B. Never recommend chasing — if price is extended more than ~3% above EMA20 or at the highs, anchor Plan A at the pullback level and say not to market-buy here. C. A first break of a FALLING 200 EMA is lower-probability — flag it. D. Use the historical DNA to shape exits — a Pumper that gives back gains means faster TPs and a trailed remainder; low trendiness means favor range levels; history is tendency, not destiny. MURPHY PLAYBOOK (apply where the data supports it): healthy pullbacks in an uptrend typically retrace 38-62% of the prior advance — a dip holding that zone with falling volume is textbook, a deeper break is a warning; volume must CONFIRM — breakouts and pattern completions on weak volume (volR under ~1.2) deserve suspicion, and price rising while volume shrinks hints exhaustion; watch RSI divergence — new price high with a lower RSI high weakens Plan B; measured-move logic — a base or flag projects roughly its own height above the breakout, use it to sanity-check TP2/TP3; money management — never risk more than ~2% of capital on one trade, derive position size from the SL distance. MURPHY PRINCIPLES (classical technical analysis — apply with judgment, cite the data): M1. Volume must confirm price — a breakout on volume below ~1.2x average is suspect; a rising trend on shrinking volume is a warning. M2. Divergence (price makes a new high while RSI makes a lower high) is a warning to tighten stops and take profits sooner — never an entry signal by itself. M3. Role reversal — broken resistance becomes support; the retest of a broken level that HOLDS is the highest-quality entry in classical TA. M4. A level grows more significant the more times it has been tested and the more volume traded there. M5. Continuation patterns (coils, triangles, flags) resolve most reliably in the direction of the PRIOR trend — favor plans aligned with it. M6. The higher timeframe dominates — a 4h setup aligned with the 1d trend carries far more weight than one fighting it; say which case this is. M7. A reversal candle (hammer, engulfing) matters only AT a meaningful level — mid-range it is noise. M8. Breaks need filters — require the close, and treat sub-1% penetrations of a level as unconfirmed to avoid whipsaw. EVIDENCE BASE (from a peer-reviewed research audit of these exact methods in crypto — weight your conviction by what is actually PROVEN, and say so): E1. STRONGEST edge: trend/momentum and higher-timeframe alignment — entries with the 1d/1w trend are the best-supported; counter-trend entries carry a documented penalty, so downgrade them. E2. Breakout + volume + retest-hold is well-founded; a breakout WITHOUT volume confirmation (volR under ~1.5) or without a held retest has a high failure rate (60%+ in crypto) — treat unconfirmed breakouts as low-conviction. E3. EMA retests work only as TREND CONTEXT, not magic support — their edge comes from the trend, so require trend-strength confirmation, never advise buying an EMA touch in a downtrend. E4. Dip-buying has positive expectancy ONLY in a confirmed uptrend (price above a rising 200-day trend); a dip in a falling market is a falling knife — refuse it. E5. CHoCH / smart-money-concepts have NO demonstrated edge beyond their plain trend-continuation core — do not lend them extra weight or institutional-order-flow narrative; evaluate a structure break as a simple breakout. E6. RSI divergence is a WARNING/context flag only, never an entry trigger — the research found no standalone edge. E7. Funding/OI extremes are SENTIMENT/cascade-risk context, not directional signals; the one defensible contrarian tell is extreme-negative funding AFTER a flush. E8. Volatility compression precedes expansion but says NOTHING about direction — never imply which way a coil breaks. E9. Coin volatility \'personality\' is real and persistent (use it for sizing and expectation), but past RETURNS do not predict future returns — do not extrapolate direction from history. E10. THE BIGGEST LEVER is position sizing and expectancy, not signal selection — always tie advice to the ~1-2% risk sizing and remind the user that surviving drawdowns matters more than any single setup. When your chart read and the evidence base conflict, name the conflict and lean toward the evidence. DEVIATION PROTOCOL: you MAY advise deviating from a DISCIPLINE DEFAULT when the specific evidence in THIS data genuinely warrants it — but only by writing an explicit line starting with RULE DEVIATION: naming which default, the exact data points that justify the exception, and what would prove the deviation wrong. Never deviate silently. Never deviate from the INVIOLABLE rules. If in doubt, follow the default. VISION IS LOW-TRUST (evidence-based limit): if a chart image is attached it is this tool\'s own rendered chart of the same coin and timeframe. Controlled research shows vision models score at chance when reading candlestick evidence and mostly just extrapolate the recent trend, so treat the image as WEAK CONFIRMING CONTEXT ONLY. The numeric data provided is the source of truth. Never let a visual impression override, contradict or add a level that the numbers do not support, and never claim to see a pattern the numeric data cannot corroborate. If the image and the numbers disagree, say so and follow the numbers. LEVEL DISCIPLINE (mandatory): every price level you cite must be anchored to a level supplied in the data (support, resistance, EMA20/50/200, PDH/PDL/PWH/PWL/PMH/PML, the recent candle highs and lows) or a simple stated arithmetic step from one of them (for example support minus one ATR). Do NOT invent round numbers or levels you cannot trace to the supplied data - the software cross-checks your levels and flags any it cannot verify. FINAL LINE (mandatory in the first full analysis only): after everything, output exactly one line starting with LEVELS_JSON followed by a compact JSON object of NUMERIC price levels from your plan: {"planA":[zoneLow,zoneHigh],"sl":n,"tp1":n,"tp2":n,"tp3":n,"breakout":n}. Omit any key you did not specify. SECOND-TO-LAST LINE (also mandatory): output one line starting with CONDITIONS_JSON followed by a compact JSON ARRAY of the machine-checkable conditions that must ALL be true before this entry is valid — the same conditions you wrote in your plan, expressed so software can verify them live. Allowed objects: {\"t\":\"priceInZone\"} price inside your Plan A zone; {\"t\":\"priceAbove\",\"v\":n}; {\"t\":\"priceBelow\",\"v\":n}; {\"t\":\"closeAboveEMA20\"}; {\"t\":\"volRAbove\",\"v\":n}; {\"t\":\"rsiAbove\",\"v\":n}; {\"t\":\"rsiBelow\",\"v\":n}; {\"t\":\"dailyTrendUp\"}; {\"t\":\"btcOk\"} BTC stable or bullish; {\"t\":\"altWeatherOk\"}; {\"t\":\"notExtended\"} under 3.5 percent above EMA20. Include 3 to 6 conditions, ALWAYS including btcOk and dailyTrendUp unless your plan explicitly argues against them. Nothing after the LEVELS_JSON line.';
   }
 
   var key = (localStorage.getItem('ai_api_key') || localStorage.getItem('anthropic_api_key') || '').trim();
@@ -7756,6 +7758,148 @@ function buildAIMemoPanel(){
   return h + '</div>';
 }
 
+
+// ── LEVEL VERIFIER (research item 3) — catch confabulated prices ─────────────
+// LLMs are documented to invent levels when reading raw OHLC. Every level the
+// AI outputs is checked against levels the deterministic engine actually
+// computed (S/R, EMAs, PDH/PDL/PW/PM, recent candle extremes). Anything that
+// matches nothing real is flagged in the UI — the user sees which numbers the
+// software could NOT verify, instead of trusting them blindly.
+
+// ── SELF-CONSISTENCY CHECK (research item 5) — opt-in, costs 3x quota ────────
+// Best-supported reliability lever for LLMs (Wang et al. 2023): sample the same
+// question several times and keep only what is STABLE. Directly attacks the
+// non-determinism that makes AI advice hard to trust. Opt-in because it triples
+// cost — use it on the one coin you are seriously considering.
+function runConsistencyCheck(sym){
+  var out = document.getElementById('consistency-out');
+  if(!out) return;
+  var d = (allData||[]).find(function(x){ return x.sym===sym; });
+  if(!d) return;
+  out.innerHTML = '<div style="font-size:11px;color:var(--t3)">🔁 Running 3 independent reads… (this costs 3 analyses)</div>';
+
+  var sys = 'You are a brutally honest SPOT trading analyst. Answer ONLY with one compact JSON object and nothing else: '
+    + '{"verdict":"SKIP" or "PLAN", "direction_bias":"bullish" or "neutral" or "bearish", "entryLow":n, "entryHigh":n, "sl":n, "tp1":n, "confidence":"low" or "medium" or "high", "reason":"one short sentence"}. '
+    + 'Rules: never predict prices; if the data does not support a clean setup the correct verdict is SKIP (that is a success, not a failure); every level must be anchored to a level present in the data; the user is a spot trader with a losing track record so weak setups must be called weak.';
+  var payload = { pair:d.pair, tf:TF, price:d.price, ema20:d.ema20, ema50:d.ema50, ema200:d.ema200,
+    rsi:Math.round(d.rsi||0), volR:Math.round((d.volR||0)*100)/100, struct:d.struct,
+    support:d.sup, resistance:d.res, atrPct:Math.round((d.atrPct||0)*10)/10,
+    btcState:btcState, breadth:_breadth,
+    dailyTrendUp: !!(window._dailyTrend && window._dailyTrend[sym]),
+    extAboveEMA20pct: d.ema20 ? Math.round((d.price-d.ema20)/d.ema20*1000)/10 : null };
+
+  var runs = [];
+  function one(i){
+    if(i >= 3){ render(); return; }
+    _aiCallModel(sys, [{ role:'user', content: JSON.stringify(payload) }]).then(function(t){
+      try {
+        var m = t.match(/\{[\s\S]*\}/);
+        if(m) runs.push(JSON.parse(m[0]));
+      } catch(e){}
+      out.innerHTML = '<div style="font-size:11px;color:var(--t3)">🔁 Read '+(i+1)+'/3 done…</div>';
+      one(i+1);
+    }).catch(function(){ one(i+1); });
+  }
+
+  function render(){
+    if(runs.length < 2){ out.innerHTML = '<div style="font-size:11px;color:var(--r)">Consistency check failed — could not complete enough reads.</div>'; return; }
+    var verdicts = runs.map(function(r){ return (r.verdict||'').toUpperCase(); });
+    var skips = verdicts.filter(function(v){ return v==='SKIP'; }).length;
+    var agree = Math.max(skips, verdicts.length-skips);
+    var stable = agree === verdicts.length;
+    var majority = skips > verdicts.length/2 ? 'SKIP' : 'PLAN';
+    function avg(k){ var v=runs.map(function(r){return r[k];}).filter(function(x){return typeof x==='number'&&isFinite(x);});
+      return v.length ? v.reduce(function(a,b){return a+b;},0)/v.length : null; }
+    function spread(k){ var v=runs.map(function(r){return r[k];}).filter(function(x){return typeof x==='number'&&isFinite(x);});
+      if(v.length<2) return null; var mn=Math.min.apply(null,v), mx=Math.max.apply(null,v);
+      return mn>0 ? Math.round((mx-mn)/mn*1000)/10 : null; }
+
+    var col = stable ? 'var(--g)' : 'var(--am)';
+    var h = '<div style="background:var(--card);border-radius:8px;padding:.75rem .875rem">';
+    h += '<div style="font-size:12px;font-weight:800;color:'+col+';margin-bottom:4px">'
+       + (stable ? '✅ STABLE — all '+runs.length+' reads agree: '+majority
+                 : '⚠️ UNSTABLE — reads disagree ('+agree+'/'+runs.length+' for '+majority+')') + '</div>';
+    h += '<div style="font-size:11px;color:var(--t2);line-height:1.6">Verdicts: '+verdicts.join(' · ')+'</div>';
+    var sl = spread('sl'), t1 = spread('tp1'), el = spread('entryLow');
+    if(sl!=null || t1!=null || el!=null){
+      h += '<div style="font-size:11px;color:var(--t2);margin-top:4px">Level agreement — '
+        + (el!=null?'entry ±'+el+'% · ':'') + (sl!=null?'SL ±'+sl+'% · ':'') + (t1!=null?'TP1 ±'+t1+'%':'') + '</div>';
+      var a1 = avg('entryLow'), a2 = avg('entryHigh'), a3 = avg('sl'), a4 = avg('tp1');
+      if(a3) h += '<div style="font-size:11px;color:var(--t3);margin-top:3px">Averaged plan: entry '
+        + (a1?fE(a1):'—') + (a2?'–'+fE(a2):'') + ' · SL ' + fE(a3) + (a4?' · TP1 '+fE(a4):'') + '</div>';
+    }
+    var reasons = runs.map(function(r){ return r.reason; }).filter(Boolean);
+    if(reasons.length) h += '<div style="font-size:10px;color:var(--t3);margin-top:5px;line-height:1.5">' + reasons.map(function(r,i){ return (i+1)+'. '+String(r).replace(/</g,'&lt;'); }).join('<br>') + '</div>';
+    h += '<div style="font-size:9px;color:var(--t3);margin-top:6px;font-style:italic">'
+       + (stable ? 'Stable across independent reads — the conclusion is not an artifact of one sampling run.'
+                 : 'The model changed its mind between identical reads. Treat this setup as low-confidence — instability IS the signal here.')
+       + '</div></div>';
+    out.innerHTML = h;
+  }
+  one(0);
+}
+
+function _verifyAILevels(sym, lv){
+  var d = (allData||[]).find(function(x){ return x.sym===sym; });
+  if(!d || !lv) return null;
+  var anchors = [];
+  function add(v, name){ if(v && isFinite(v) && v>0) anchors.push({v:v, name:name}); }
+  add(d.sup,'support'); add(d.res,'resistance');
+  add(d.ema20,'EMA20'); add(d.ema50,'EMA50'); add(d.ema200,'EMA200');
+  add(d.price,'current price');
+  // levels the chart engine computed for this coin, when present
+  try {
+    var pk = window._periodLevels && window._periodLevels[sym];
+    if(pk){ ['pdh','pdl','pwh','pwl','pmh','pml'].forEach(function(k){ add(pk[k], k.toUpperCase()); }); }
+  } catch(e){}
+  // recent closed-candle extremes give legitimate structure levels too
+  try {
+    if(d._closes && d._closes.length){
+      add(Math.max.apply(null, d._closes), 'recent high');
+      add(Math.min.apply(null, d._closes), 'recent low');
+    }
+  } catch(e){}
+  if(!anchors.length) return null;
+  var atrPct = d.atrPct || 3;
+  var tol = Math.max(0.006, Math.min(0.05, atrPct/100));   // ATR-scaled tolerance
+  function nearest(v){
+    var best=null;
+    anchors.forEach(function(a){
+      var diff = Math.abs(v-a.v)/a.v;
+      if(!best || diff < best.diff) best = { name:a.name, diff:diff };
+    });
+    return best;
+  }
+  var checks = [];
+  function check(v, label){
+    if(v==null || !isFinite(v)) return;
+    var n = nearest(v);
+    checks.push({ label:label, value:v, ok: n && n.diff <= tol,
+                  anchor: n ? n.name : '—', offPct: n ? Math.round(n.diff*1000)/10 : null });
+  }
+  if(lv.planA && lv.planA.length===2){ check(lv.planA[0],'entry zone low'); check(lv.planA[1],'entry zone high'); }
+  check(lv.sl,'stop loss'); check(lv.tp1,'TP1'); check(lv.tp2,'TP2'); check(lv.tp3,'TP3');
+  check(lv.breakout,'breakout level');
+  if(!checks.length) return null;
+  var bad = checks.filter(function(x){ return !x.ok; });
+  return { checks:checks, unverified:bad.length, total:checks.length,
+           tolPct: Math.round(tol*1000)/10 };
+}
+
+function _verifyBadgeHTML(v){
+  if(!v) return '';
+  if(!v.unverified){
+    return '<div style="font-size:10px;color:var(--g);margin-top:6px">✅ All '+v.total+' AI levels verified against real computed levels (±'+v.tolPct+'%)</div>';
+  }
+  var h = '<div style="margin-top:6px;background:rgba(245,158,11,.10);border-left:3px solid var(--am);border-radius:6px;padding:6px 9px">';
+  h += '<div style="font-size:10px;font-weight:800;color:var(--am)">⚠️ '+v.unverified+' of '+v.total+' AI levels could not be matched to any computed level</div>';
+  v.checks.filter(function(x){return !x.ok;}).forEach(function(x){
+    h += '<div style="font-size:10px;color:var(--t2);margin-top:2px">'+x.label+' '+fE(x.value)+' — nearest real level: '+x.anchor+' ('+x.offPct+'% away)</div>';
+  });
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:3px;font-style:italic">Models can invent levels from raw candles. Treat unverified numbers with suspicion.</div></div>';
+  return h;
+}
+
 function _extractAILevels(sym, text){
   // Pull the AI's machine-checkable entry conditions (watched live afterwards)
   try {
@@ -7772,6 +7916,7 @@ function _extractAILevels(sym, text){
       var o = JSON.parse(m[1]);
       window._aiLevels = window._aiLevels || {};
       window._aiLevels[sym] = o;
+      try { window._aiVerify = window._aiVerify || {}; window._aiVerify[sym] = _verifyAILevels(sym, o); } catch(e){}
       try { saveAIMemo(sym, o, text); } catch(e){}   // auto-memo + entry watch
       // If the Analyst tab is open for this coin, refresh so the Trade Plan below
       // picks up the AI's levels immediately (replace rule-based plan).
@@ -7825,6 +7970,7 @@ function renderAIThread(sym){
   h += '<div style="display:flex;gap:6px;margin-top:.6rem">';
   h += '<input id="ai-chat-input" placeholder="Ask a follow-up about this setup…" onkeydown="if(event.key===\'Enter\')sendAIChat(\''+sym+'\')" style="flex:1;padding:8px 10px;border-radius:8px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:12px;font-family:inherit">';
   h += '<button onclick="sendAIChat(\''+sym+'\')" style="padding:8px 14px;border-radius:8px;border:none;background:#7c4dff;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">Send</button></div>';
+  try { var _v = window._aiVerify && window._aiVerify[sym]; if(_v) h += _verifyBadgeHTML(_v); } catch(e){}
   h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;font-style:italic">Real AI ('+state.provider+') reasoning over this coin\'s data — opinions, not predictions. The decision is yours.'+((window._aiLevels&&window._aiLevels[sym])?' · 📊 <strong>AI levels drawn on the Chart tab</strong>':'')+'</div>';
   out.innerHTML = h;
   var inp = document.getElementById('ai-chat-input'); if(inp) inp.focus();
