@@ -7217,6 +7217,12 @@ function askClaude(sym){
     btcState: btcState, buySignal: !!d.buySignal, buyTier: d.buyTier||null,
     currentCandleClosesInMin: (function(){ var r = candleCloseMs(TF); return r != null ? Math.round(r/60000) : null; })(),
     exhausted: !!d.exhausted, valueScore: d.invScore||null,
+    // The trendline state the chart draws — previously missing from the payload,
+    // so the AI could not comment on a line the user could plainly see.
+    trendline: d.tlBreakUp ? ('FRESH BREAK above a validated downtrend line ('+(d.tlTouches||0)+' touches)')
+             : d.tlBounceUp ? ('bounce off a validated uptrend line ('+(d.tlUpTouches||0)+' touches)')
+             : d.tlBreakDown ? 'UPTREND LINE BROKEN on a close — structure failed'
+             : 'no validated trendline event',
     drawdownFromHigh: d.ddHigh!=null?d.ddHigh+'%':null,
     mode: _investMode ? 'INVESTING (long-term accumulation)' : 'TRADING (short-term spot)',
     myLogTrackRecord: st.resolved ? (st.winRate+'% win rate over '+st.resolved+' resolved signals (95% CI '+(st.ci?st.ci.low+'-'+st.ci.high:'?')+'%), breakeven is 40% at 1.5 R:R') : 'no resolved trades yet'
@@ -7414,6 +7420,9 @@ function _parseLevelsFromText(text, ref){
 
 function saveAIMemo(sym, lv, text){
   var _d0 = allData.find(function(x){ return x.sym===sym; });
+  // FIX: honor the AI's own abstention. If it said NO SETUP / SKIP, the memo is
+  // saved as a REVISIT watch — it must not arm an entry the analyst refused.
+  var _skip = /NO SETUP|SKIP THIS COIN|VERDICT[^\n]{0,40}SKIP/i.test(String(text||''));
   var _ref = _d0 ? _d0.price : 0;
   // merge: LEVELS_JSON wins, prose fills the gaps
   var fb = _ref ? _parseLevelsFromText(text, _ref) : {};
@@ -7431,7 +7440,15 @@ function saveAIMemo(sym, lv, text){
   memos.unshift({
     sym: sym, pair: d ? d.pair : sym, tf: TF, ts: Date.now(),
     priceAtAnalysis: d ? d.price : null,
-    zone: (lv.planA && lv.planA.length===2) ? [Math.min(lv.planA[0],lv.planA[1]), Math.max(lv.planA[0],lv.planA[1])] : null,
+    // FIX: a zero-width "zone" (both bounds equal) can never be satisfied —
+    // widen it to a usable ±0.3% band around the level the AI named.
+    zone: (function(){
+      if(!(lv.planA && lv.planA.length===2)) return null;
+      var lo = Math.min(lv.planA[0], lv.planA[1]), hi = Math.max(lv.planA[0], lv.planA[1]);
+      if(hi - lo < lo*0.001){ var mid=(lo+hi)/2; lo = mid*0.997; hi = mid*1.003; }
+      return [lo, hi];
+    })(),
+    skip: _skip,
     sl: lv.sl||null, tp1: lv.tp1||null, tp2: lv.tp2||null, tp3: lv.tp3||null, breakout: lv.breakout||null,
     res: d ? d.res : null, sup: d ? d.sup : null,
     invalidation: lv.sl || (d ? d.sup*0.985 : null),   // the line that kills the thesis
@@ -7520,6 +7537,7 @@ function checkAIMemoAlerts(data){
     }
 
     if(mm.notified) return;
+    if(mm.skip) return;      // AI said NO SETUP — never arm an entry it refused
     // FIRE when ALL of the AI's conditions are true (falls back to zone-only
     // if the memo has no conditions at all)
     var trigger = ev ? ev.allMet
@@ -7659,7 +7677,8 @@ function buildAIMemoPanel(){
   memos.slice(0,20).forEach(function(m){
     var age = Math.round((Date.now()-m.ts)/3600000);
     var live = allData.find(function(x){return x.sym===m.sym;});
-    var st = m.notified ? '<span style="color:var(--g);font-weight:700">✅ zone reached</span>'
+    var st = m.skip ? '<span style="color:var(--r);font-weight:700">⛔ AI said SKIP — revisit only</span>'
+           : m.notified ? '<span style="color:var(--g);font-weight:700">✅ zone reached</span>'
            : m.zone ? '<span style="color:var(--am);font-weight:700">👀 watching</span>'
            : '<span style="color:var(--t3)">memo only</span>';
     h += '<div style="border-top:.5px solid var(--bd);padding:8px 0">';
@@ -7901,16 +7920,20 @@ function _verifyBadgeHTML(v){
 }
 
 function _extractAILevels(sym, text){
+  // FIX: models often wrap the JSON in ```json fences. Strip fence markers
+  // before parsing, otherwise CONDITIONS_JSON/LEVELS_JSON silently fail and the
+  // memo falls back to generic defaults (looked fine, was wrong).
+  var _p = String(text).replace(/```(?:json)?/gi, '');
   // Pull the AI's machine-checkable entry conditions (watched live afterwards)
   try {
-    var cm = text.match(/CONDITIONS_JSON\s*(\[[\s\S]*?\])/);
+    var cm = _p.match(/CONDITIONS_JSON\s*(\[[\s\S]*?\])/);
     if(cm){
       window._aiConds = window._aiConds || {};
       window._aiConds[sym] = JSON.parse(cm[1]);
-      text = text.replace(/CONDITIONS_JSON\s*\[[\s\S]*?\]/, '').trim();
+      text = text.replace(/CONDITIONS_JSON[\s\S]*?\][\s`]*/i, '').trim();
     }
   } catch(e){}
-  var m = text.match(/LEVELS_JSON\s*(\{[^}]*\})/);
+  var m = _p.match(/LEVELS_JSON\s*(\{[^}]*\})/);
   if(m){
     try{
       var o = JSON.parse(m[1]);
@@ -7927,7 +7950,7 @@ function _extractAILevels(sym, text){
         }
       } catch(e){}
     }catch(e){}
-    return text.replace(/LEVELS_JSON\s*\{[^}]*\}/,'').trim();
+    return text.replace(/LEVELS_JSON[\s\S]*?\}[\s`]*/i,'').replace(/```(?:json)?/gi,'').trim();
   }
   // NO LEVELS_JSON in the reply (the model sometimes omits it) — still save a
   // memo by parsing the levels out of the prose, and still refresh the Trade
@@ -8101,7 +8124,8 @@ function buildTradePlan(d){
   var favored = pbConds.length > boConds.length ? 'Pullback' : boConds.length > pbConds.length ? 'Breakout' : 'Mixed / unclear';
 
   // ── VERDICT line ───────────────────────────────────────────────────────
-  var canTrade = d.buySignal && !d.exhausted && (d.rrRatio==null || d.rrRatio>=1.5);
+  var canTrade = d.buySignal && !d.exhausted && (d.rrRatio==null || d.rrRatio>=1.5)
+                 && (rr1 == null || !isFinite(rr1) || rr1 > 0);   // never call a negative-R:R plan tradeable
   var tier = d.buyTier;
   // PRICE-AWARE BADGE (fix): "Tradeable now" used to show green even when price
   // sat ABOVE the plan's entry zone — contradicting the AI's "wait for the level."
@@ -10093,7 +10117,8 @@ function populateFSTable(d) {
   var pos    = loadPos ? loadPos(d.sym) : null;
   var entry  = pos ? pos.entry : d.ema20 * 1.001;
   var sl     = pos ? pos.sl    : d.sup * 0.984;
-  var tp1    = pos ? pos.tp1   : Math.min(d.res * 0.998, entry * 1.03);
+  var _rt2 = (d.res && d.res * 0.998 > entry * 1.002) ? d.res * 0.998 : null;
+  var tp1    = pos ? pos.tp1   : (_rt2 ? Math.min(_rt2, entry * 1.03) : entry * 1.03);
   var tp2    = pos ? pos.tp2   : entry * 1.06;
   var tp3    = pos ? pos.tp3   : entry * 1.10;
   var slPct  = entry > 0 ? ((entry - sl)  / entry * 100) : 0;
@@ -11496,7 +11521,11 @@ function updateChartAnalystBar(d) {
   var pos = loadPos ? loadPos(d.sym) : null;
   var entry = pos ? pos.entry : d.ema20 * 1.001;
   var sl    = pos ? pos.sl   : d.sup * 0.984;
-  var tp1   = pos ? pos.tp1  : Math.min(d.res * 0.998, entry * 1.03);
+  // FIX: when entry (EMA20-anchored) sits ABOVE the nearest resistance, capping
+  // TP1 at that resistance puts the target BELOW the entry — a negative-R:R plan
+  // displayed as a buy. If resistance is not above entry, it is not a target.
+  var _resTgt = (d.res && d.res * 0.998 > entry * 1.002) ? d.res * 0.998 : null;
+  var tp1   = pos ? pos.tp1  : (_resTgt ? Math.min(_resTgt, entry * 1.03) : entry * 1.03);
   var tp2   = pos ? pos.tp2  : entry * 1.06;
   var tp3   = pos ? pos.tp3  : entry * 1.10;
   var slPct   = entry > 0 ? ((entry - sl)  / entry * 100) : 0;
