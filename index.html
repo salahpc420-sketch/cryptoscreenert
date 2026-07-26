@@ -215,7 +215,7 @@ td{padding:7px 8px;white-space:nowrap}
 .news-cnt{font-size:11px;color:var(--t3)}
 .news-tog{font-size:10px;color:var(--t3);margin-left:4px}
 .ticker-wrap{overflow:hidden;height:32px;position:relative}
-.ticker-track{display:flex;white-space:nowrap;position:absolute;animation:ticker 90s linear infinite;will-change:transform}
+.ticker-track{display:flex;white-space:nowrap;position:absolute;animation:ticker 240s linear infinite;will-change:transform}
 .ticker-track:hover{animation-play-state:paused}
 @keyframes ticker{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 .ticker-item{display:inline-flex;align-items:center;gap:6px;padding:0 22px;height:32px;font-size:12px;color:var(--text);cursor:pointer;text-decoration:none;flex:0 0 auto;transition:color .12s}
@@ -2306,6 +2306,49 @@ function processSymbol(ticker) {
     var _pools = calcPeriodPools(klines);
     var liq = calcLiq(h, l, c, sr.sup, sr.res, atr, _pools);
 
+    // ── EARLY-WATCH RAW FEATURES (research Stage 1) ────────────────────────────
+    // Cross-sectional z-scoring happens later, once every coin is scanned.
+    // Lookbacks adapt to whatever history is loaded so this works on any TF.
+    var _ew = (function(){
+      var n = c.length;
+      if(n < 40) return null;
+      var momLB = Math.min(30, Math.floor(n*0.25));
+      var hiLB  = Math.min(90, Math.floor(n*0.60));
+      var px = c[n-1];
+      // 1. momentum (log return over momLB bars)
+      var mom = c[n-1-momLB] > 0 ? Math.log(px / c[n-1-momLB]) : 0;
+      // 2. distance to high-water mark (nearer the high = stronger)
+      var hiWin = h.slice(-hiLB), hiMax = Math.max.apply(null, hiWin);
+      var distHigh = hiMax > 0 ? px / hiMax : 0;
+      // 3. Bollinger BandWidth percentile — the compression measure
+      function bw(i){
+        var w = c.slice(Math.max(0,i-19), i+1); if(w.length < 20) return null;
+        var m = w.reduce(function(a,b){return a+b;},0)/w.length;
+        var sd = Math.sqrt(w.reduce(function(a,b){return a+(b-m)*(b-m);},0)/w.length);
+        return m > 0 ? (4*sd)/m : null;              // (upper-lower)/middle
+      }
+      var bwNow = bw(n-1), bwHist = [];
+      for(var i = Math.max(20, n-120); i < n; i++){ var b = bw(i); if(b!=null) bwHist.push(b); }
+      var squeeze = 0;
+      if(bwNow != null && bwHist.length > 20){
+        var below = bwHist.filter(function(x){ return x < bwNow; }).length;
+        squeeze = -(below / bwHist.length);           // low percentile → high score
+      }
+      // 4. ATR contraction (recent vol below longer-run vol)
+      var atr14 = calcATR(h, l, c, 14), atr50 = calcATR(h, l, c, 50);
+      var atrC = (atr50 > 0) ? -(atr14/atr50) : 0;
+      // 5. volume dry-up (recent volume below its longer average)
+      function avg(a){ return a.length ? a.reduce(function(x,y){return x+y;},0)/a.length : 0; }
+      var v5 = avg(v.slice(-5)), v50 = avg(v.slice(-50));
+      var volDry = v50 > 0 ? -(v5/v50) : 0;
+      // 6. volume EXPANSION flag — the confirmation gate, not a rank input
+      var vMean = avg(v.slice(-50,-1)), vSd = 0;
+      var vw = v.slice(-50,-1);
+      if(vw.length > 5){ vSd = Math.sqrt(vw.reduce(function(a,b){return a+(b-vMean)*(b-vMean);},0)/vw.length); }
+      var volExp = (vSd > 0) ? ((v[n-1]-vMean)/vSd) >= 2 : false;
+      return { mom:mom, distHigh:distHigh, squeeze:squeeze, atrC:atrC, volDry:volDry, volExp:volExp };
+    })();
+
     // NEW: Breakout confirmation, EMA retest, pump/dump detection
     var e20arr = calcEMAArr(c, 20);
     var e50arr = calcEMAArr(c, 50);
@@ -2555,7 +2598,7 @@ function processSymbol(ticker) {
 
     return {
       sym:sym, pair:pair, price:price, chg:chg, vol24:vol24,
-      tlBreakUp:tlBreakUp, tlTouches:tlTouches, liqAbove:_liqUp, liqBelow:_liqDn,
+      tlBreakUp:tlBreakUp, tlTouches:tlTouches, liqAbove:_liqUp, liqBelow:_liqDn, _ew:_ew,
       tlBounceUp:tlBounceUp, tlUpTouches:tlUpTouches, tlBreakDown:tlBreakDown,
       rsi:rsi, ema20:e20, ema50:e50, ema200:e200,
       trend:trend, volR:volR, atrPct:atrPct,
@@ -2979,6 +3022,9 @@ function loadAll() {
 
     // PHASE 9: Opportunity Score — master rank (needs rsRank + accum + bp)
     allData.forEach(function(d){ d.opportunity = calcOpportunity(d); });
+
+    // EARLY WATCH — cross-sectional base/expansion ranking
+    try { computeEarlyWatch(allData); } catch(e){}
 
     // CROSS-SECTIONAL IC ENGINE — snapshot scores + evaluate pending forward returns
     try { icMaybeSnapshot(allData); icEvaluatePending(allData); } catch(e){}
@@ -7659,32 +7705,47 @@ function renderWatchPanel(sym){
   Object.keys(WATCH_TYPES).forEach(function(t){
     var def = WATCH_TYPES[t], on = (w.types||[]).indexOf(t) >= 0;
     h += '<label style="display:flex;gap:7px;align-items:center;font-size:11px;padding:3px 0;cursor:pointer">'
-       + '<input type="checkbox" data-wt="'+t+'"'+(on?' checked':'')+' style="cursor:pointer">'
+       + '<input type="checkbox" data-wt="'+t+'"'+(on?' checked':'')+' onchange="saveWatcherFor(\''+sym+'\',true)" style="cursor:pointer">'
        + '<span>'+def.icon+' '+def.label+'</span></label>';
   });
   h += '<div style="display:flex;gap:6px;align-items:center;margin-top:6px">'
      + '<span style="font-size:11px;color:var(--t3)">My level:</span>'
-     + '<input id="watch-px" type="number" step="any" value="'+(w.px||'')+'" placeholder="'+(d?fE(d.price):'price')+'" style="width:120px;padding:4px 7px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:11px;font-family:inherit"></div>';
-  h += '<div style="display:flex;gap:6px;margin-top:9px">'
-     + '<button onclick="saveWatcherFor(\''+sym+'\')" style="padding:6px 14px;border-radius:7px;border:none;background:var(--acc);color:#fff;font-weight:700;font-size:11px;cursor:pointer;font-family:inherit">Save watcher</button>'
-     + '<button onclick="removeWatcher(\''+sym+'\')" style="padding:6px 12px;border-radius:7px;border:.5px solid var(--bd);background:var(--card);color:var(--t3);font-size:11px;cursor:pointer;font-family:inherit">Remove</button></div>';
+     + '<input id="watch-px" type="number" step="any" value="'+(w.px||'')+'" onchange="saveWatcherFor(\''+sym+'\',true)" placeholder="'+(d?fE(d.price):'price')+'" style="width:120px;padding:4px 7px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:11px;font-family:inherit"></div>';
+  h += '<div style="display:flex;gap:8px;align-items:center;margin-top:9px">'
+     + '<span id="watch-status" style="font-size:11px;font-weight:700;color:'+((w.types||[]).length?'var(--g)':'var(--t3)')+'">'
+     +   ((w.types||[]).length ? '✅ Watching '+(w.types||[]).length+' condition'+((w.types||[]).length>1?'s':'') : 'Tick a condition — it saves instantly')
+     + '</span>'
+     + '<button onclick="removeWatcher(\''+sym+'\')" style="margin-left:auto;padding:5px 12px;border-radius:7px;border:.5px solid var(--bd);background:var(--card);color:var(--t3);font-size:11px;cursor:pointer;font-family:inherit">Remove all</button></div>';
   el.innerHTML = h;
 }
 
-function saveWatcherFor(sym){
+// Saves on EVERY change (quiet=true) so a selection can never be lost to a
+// re-render before the user presses a button — the old failure mode.
+function saveWatcherFor(sym, quiet){
   var el = document.getElementById('watch-panel'); if(!el) return;
   var d = (allData||[]).find(function(x){ return x.sym===sym; });
   var types = [];
-  el.querySelectorAll('input[data-wt]').forEach(function(i){ if(i.checked) types.push(i.getAttribute('data-wt')); });
+  Array.prototype.slice.call(el.querySelectorAll('input[data-wt]')).forEach(function(i){
+    if(i.checked) types.push(i.getAttribute('data-wt'));
+  });
   var pxEl = document.getElementById('watch-px');
   var px = pxEl ? parseFloat(pxEl.value) : 0;
+  var prev = loadWatchers().find(function(x){ return x.sym===sym; }) || {};
   var ws = loadWatchers().filter(function(x){ return x.sym!==sym; });
   if(types.length){
-    ws.unshift({ sym:sym, pair:d?d.pair:sym, types:types, px:isFinite(px)?px:0, ts:Date.now() });
+    var rec = { sym:sym, pair:d?d.pair:sym, types:types, px:isFinite(px)?px:0, ts:prev.ts||Date.now() };
+    // preserve fired-timestamps so re-ticking a box does not re-spam alerts
+    Object.keys(prev).forEach(function(k){ if(k.indexOf('_fired')>0) rec[k]=prev[k]; });
+    ws.unshift(rec);
   }
   saveWatchers(ws);
-  el.innerHTML = '<div style="font-size:11px;color:var(--g);font-weight:700">✅ '+(types.length? 'Watching '+types.length+' condition'+(types.length>1?'s':'')+' on '+(d?d.pair:sym) : 'Watcher removed')+'</div>';
-  setTimeout(function(){ el.style.display='none'; }, 1600);
+  var st = document.getElementById('watch-status');
+  if(st){
+    st.style.color = types.length ? 'var(--g)' : 'var(--t3)';
+    st.textContent = types.length ? '✅ Saved — watching '+types.length+' condition'+(types.length>1?'s':'')
+                                  : 'No conditions selected — nothing is being watched';
+  }
+  if(!quiet) setTimeout(function(){ el.style.display='none'; }, 1200);
 }
 
 function removeWatcher(sym){
@@ -13024,6 +13085,105 @@ var _macroRegime = null;
 // output as "here's the situation" — NOT "here's what to do." The decision stays
 // with the user, because the tool's judgment is unproven until the log earns it.
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EARLY WATCH — cross-sectional "base before expansion" ranking (research Stage 1)
+// Built exactly to the research's prescription, and to its limits:
+//   • features are z-scored ACROSS COINS at each scan (not absolute thresholds)
+//   • distHigh is orthogonalized against momentum so they don't double-count
+//   • EQUAL weights — the research was explicit that hand-tuned weights on
+//     correlated inputs test as noise, which this tool already proved once
+//   • output is READINESS (compression/dry-up = magnitude) + a weak DIRECTION
+//     tilt, never a pump prediction. Volatility compression predicts the SIZE
+//     of the next move, not its direction — so a breakout+volume confirmation
+//     is required before anything is called "triggered".
+// ═══════════════════════════════════════════════════════════════════════════
+function _zAcross(vals){
+  var ok = vals.filter(function(x){ return x!=null && isFinite(x); });
+  if(ok.length < 8) return vals.map(function(){ return 0; });
+  var m = ok.reduce(function(a,b){return a+b;},0)/ok.length;
+  var sd = Math.sqrt(ok.reduce(function(a,b){return a+(b-m)*(b-m);},0)/ok.length);
+  if(!(sd > 0)) return vals.map(function(){ return 0; });
+  return vals.map(function(x){ return (x!=null && isFinite(x)) ? Math.max(-3, Math.min(3,(x-m)/sd)) : 0; });
+}
+// Remove the part of y explained by x (OLS residual) so correlated features
+// don't get counted twice — the research's orthogonalization step.
+function _residualize(y, x){
+  var n = y.length, sx=0, sy=0;
+  for(var i=0;i<n;i++){ sx+=x[i]; sy+=y[i]; }
+  var mx=sx/n, my=sy/n, num=0, den=0;
+  for(var i=0;i<n;i++){ num += (x[i]-mx)*(y[i]-my); den += (x[i]-mx)*(x[i]-mx); }
+  var b = den>0 ? num/den : 0;
+  return y.map(function(yi,i){ return yi - (my + b*(x[i]-mx)); });
+}
+
+function computeEarlyWatch(data){
+  var rows = data.filter(function(d){ return d._ew && !d._stale; });
+  if(rows.length < 10){ data.forEach(function(d){ d.earlyScore=null; d.earlyState=null; }); return; }
+  var zMom  = _zAcross(rows.map(function(d){ return d._ew.mom; }));
+  var zHigh = _zAcross(rows.map(function(d){ return d._ew.distHigh; }));
+  var zSqz  = _zAcross(rows.map(function(d){ return d._ew.squeeze; }));
+  var zAtr  = _zAcross(rows.map(function(d){ return d._ew.atrC; }));
+  var zVol  = _zAcross(rows.map(function(d){ return d._ew.volDry; }));
+  // relative strength measured against THIS board's median move
+  var chgs = rows.map(function(d){ return d.chg||0; }).slice().sort(function(a,b){return a-b;});
+  var medChg = chgs[Math.floor(chgs.length/2)] || 0;
+  var zRs   = _zAcross(rows.map(function(d){ return (d.chg||0) - medChg; }));
+  // orthogonalize: distHigh carries momentum information, strip it
+  var hResid = _zAcross(_residualize(zHigh, zMom));
+
+  rows.forEach(function(d, i){
+    // READINESS = is this coin coiled? (magnitude only — direction unknown)
+    var readiness = (zSqz[i] + zAtr[i] + zVol[i]) / 3;
+    // TILT = weak directional lean from validated cross-sectional factors
+    var tilt      = (zMom[i] + hResid[i] + zRs[i]) / 3;
+    d.earlyReadiness = Math.round(readiness*100)/100;
+    d.earlyTilt      = Math.round(tilt*100)/100;
+    d.earlyScore     = Math.round(((readiness + tilt)/2)*100)/100;
+    // Honest state machine — never "will pump"
+    var brokeOut = d._ew.volExp && (d.res ? d.price > d.res : false);
+    if(brokeOut && readiness > 0)      d.earlyState = 'triggered';
+    else if(readiness > 0.6 && tilt > 0.3) d.earlyState = 'coiled_lean';
+    else if(readiness > 0.6)           d.earlyState = 'coiled';
+    else if(tilt > 0.8)                d.earlyState = 'leading';
+    else                                d.earlyState = null;
+  });
+  data.forEach(function(d){ if(d.earlyScore===undefined) d.earlyScore = null; });
+}
+
+var EARLY_STATES = {
+  triggered:   { icon:'🚀', label:'Base breakout triggered', note:'volume expansion confirmed the break', col:'var(--g)' },
+  coiled_lean: { icon:'🟢', label:'Coiling base + relative strength', note:'compressed, and outperforming the board — weak upward lean', col:'var(--g)' },
+  coiled:      { icon:'🟦', label:'Coiling base', note:'compression high, volume drying up — DIRECTION UNKNOWN', col:'var(--am)' },
+  leading:     { icon:'💪', label:'Leading the board', note:'relative strength, but not coiled — already moving', col:'var(--t2)' }
+};
+
+function buildEarlyWatchPanel(){
+  var rows = (allData||[]).filter(function(d){ return d.earlyState; })
+                          .sort(function(a,b){ return (b.earlyScore||0)-(a.earlyScore||0); });
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.3rem"><span style="font-size:15px">🌱</span>'
+     + '<span style="font-size:13px;font-weight:700">Early Watch — bases before expansion</span>'
+     + '<span style="margin-left:auto;font-size:9px;color:var(--t3)">cross-sectional · equal-weighted · unvalidated</span></div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">Ranks all scanned coins by <b>readiness</b> (volatility compression + ATR contraction + volume dry-up) and a weak <b>directional tilt</b> (momentum + distance-to-high + relative strength), each z-scored across the board and orthogonalized. Compression predicts the SIZE of the next move, not its direction — so nothing is called a pump.</div>';
+  if(!rows.length){ return h + '<div style="font-size:11px;color:var(--t3)">No coins currently meet the readiness or leadership thresholds.</div></div>'; }
+  rows.slice(0,10).forEach(function(d){
+    var st = EARLY_STATES[d.earlyState] || {icon:'•',label:d.earlyState,note:'',col:'var(--t2)'};
+    h += '<div style="border-top:.5px solid var(--bd);padding:7px 0">';
+    h += '<div style="display:flex;gap:8px;align-items:center;font-size:12px">'
+       + '<b style="min-width:88px">'+d.pair+'</b>'
+       + '<span style="color:'+st.col+';font-weight:700;font-size:11px">'+st.icon+' '+st.label+'</span>'
+       + '<span style="margin-left:auto;font-size:10px;color:var(--t3)">score '+(d.earlyScore>=0?'+':'')+d.earlyScore+'</span></div>';
+    h += '<div style="font-size:10px;color:var(--t3);margin-top:2px">'+st.note
+       + ' · readiness '+(d.earlyReadiness>=0?'+':'')+d.earlyReadiness
+       + ' · tilt '+(d.earlyTilt>=0?'+':'')+d.earlyTilt
+       + ' · '+fE(d.price)+'</div>';
+    h += '</div>';
+  });
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:9px;font-style:italic;line-height:1.5">⚠️ UNVALIDATED. The research found no method that reliably predicts which specific liquid coin will pump; the only literature that does concerns coordinated fraud on illiquid coins. This list is a ranking hypothesis — its honest test is whether the IC Lab eventually shows a positive cross-sectional information coefficient. Treat it as a watchlist, not a buy list.</div>';
+  return h + '</div>';
+}
+
 function buildMarketRead(){
   if(!allData || !allData.length) return null;
   var bz = detectMarketBuyZone();
@@ -13091,6 +13251,7 @@ function renderMarketRead(){
 
   var btcIcon = {bullish:'🟢',stable:'🟢',falling:'🟡',dumping:'🔴'}[m.btcState]||'⚪';
   var h='';
+  try { h += buildEarlyWatchPanel(); } catch(e){}
   // ── AI MARKET BRIEFING — one AI call summarizing the whole board on demand ──
   var hasKey = !!(localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key'));
   h += '<div style="background:linear-gradient(135deg,rgba(124,77,255,.10),rgba(124,77,255,.02));border:.5px solid rgba(124,77,255,.35);border-radius:var(--rad-lg);padding:1rem;margin-bottom:1rem">';
@@ -13173,6 +13334,7 @@ function runMarketBriefing(){
                  : d.tlBounceUp ? ('bounce off uptrend line ('+(d.tlUpTouches||0)+' touches)')
                  : d.tlBreakDown ? 'UPTREND LINE BROKEN — structure failed' : 'none',
         sweep: d.liq==='buy_sweep' ? 'liquidity sweep + reclaim' : 'no',
+        earlyState: d.earlyState||null, earlyScore: d.earlyScore!=null?d.earlyScore:null,
         trendQ: d.trendQ||null, opportunity: d.opportunity||null
       };
     });
