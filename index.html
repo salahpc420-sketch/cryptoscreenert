@@ -855,7 +855,9 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
         <button class="mtab" id="mt-news" onclick="switchMTab('news')">📰 News</button>
         <button class="mtab" id="mt-ai" onclick="switchMTab('ai')">🤖 Analyst</button>
         <button class="mtab" id="mt-dna" onclick="switchMTab('dna')">🧬 DNA</button>
+        <button class="mtab" id="mt-watch" onclick="toggleWatchPanel(curSym)" title="Watch this coin for conditions you choose">👁 Watch</button>
       </div>
+      <div id="watch-panel" style="display:none;background:var(--card2);border-radius:var(--rad);padding:.75rem;margin-bottom:.6rem"></div>
       <div id="msec"></div>
     </div>
     <div class="mftr"><span style="font-size:11px;color:var(--t3)">⚠ Educational only — not financial advice</span><button class="btn primary" style="margin-left:auto;font-size:12px" onclick="reanalyse()">↻ Refresh Data</button></div>
@@ -1769,11 +1771,17 @@ function detectTrendlines(h, l, c, s, e) {
   var last = c.length - 1;
   if (down) {
     down.breakIdx = breakIdx(down, true);
-    down.brokeUpNow = down.breakIdx === last;   // the break IS the latest closed candle → entry timing
+    // FIX: a one-candle window meant a 4h break that happened while the app was
+    // closed was missed forever — that is luck, not discipline. Widen to the last
+    // 3 closed candles, but ONLY while price is still holding above the line, so
+    // a break that already failed back does not count as fresh.
+    down.brokeUpNow = down.breakIdx != null && (last - down.breakIdx) <= 2
+                      && c[last] > lineVal(down, last);
   }
   if (up) {
     up.breakIdx = breakIdx(up, false);
-    up.brokeDownNow = up.breakIdx === last;
+    up.brokeDownNow = up.breakIdx != null && (last - up.breakIdx) <= 2
+                      && c[last] < lineVal(up, last);
   }
   return { down: down, up: up };
 }
@@ -2997,7 +3005,9 @@ function loadAll() {
     renderMacroRegime();
     render();
     checkAlerts(allData);
+    try { checkWatchers(allData); } catch(e){}       // user-defined coin watchers
     try { checkAIMemoAlerts(allData); } catch(e){}   // AI entry-zone watches
+    try { resolveLatenessBlocks(allData); } catch(e){}   // grade the lateness guard
     checkPriceAlerts(allData);
     autoLogSignals(); // record any new signals on the ACTIVE timeframe
     // Background: also log signals on the OTHER timeframes (1h/4h/1d/1w) so the
@@ -3046,7 +3056,7 @@ function setBadge(cls,txt){
 // FORMAT
 // ═══════════════════════════════════════════════════════════
 function fP(p){if(p>=1000000)return p.toLocaleString('en',{maximumFractionDigits:0});if(p>=10000)return '$'+p.toLocaleString('en',{maximumFractionDigits:0});if(p>=1)return '$'+p.toFixed(3);if(p>=0.0001)return '$'+p.toFixed(5);return '$'+p.toFixed(8);}
-function fE(p){if(p>=10000)return p.toLocaleString('en',{maximumFractionDigits:0});if(p>=1)return p.toFixed(3);return p.toFixed(5);}
+function fE(p){if(p==null||!isFinite(p))return '—';if(p>=10000)return p.toLocaleString('en',{maximumFractionDigits:0});if(p>=1)return p.toFixed(3);if(p>=0.01)return p.toFixed(5);if(p>=0.00001)return p.toFixed(8);return p>0?p.toPrecision(3):'0';}
 function fV(v){if(v>=1e9)return '$'+(v/1e9).toFixed(2)+'B';if(v>=1e6)return '$'+(v/1e6).toFixed(1)+'M';return '$'+(v/1e3).toFixed(0)+'K';}
 
 // ═══════════════════════════════════════════════════════════
@@ -4851,8 +4861,18 @@ function autoLogSignals(){
     // any entry more than 3.5% extended above EMA20 is skipped (the honest entry
     // for an extended chart is the pullback, which EMA20/50-retest setups catch).
     // Sweep reclaims are exempt (they fire AT support, never extended).
-    if(setupType !== 'Sweep reclaim' && d.ema20 > 0
-       && (d.price - d.ema20)/d.ema20*100 > 3.5) return;
+    // ATR-ADAPTIVE (fix): a FIXED 3.5% was wrong for the same reason a fixed sweep
+    // threshold was wrong — on BTC (~2% ATR) 3.5% above EMA20 is ~1.75 ATR and
+    // genuinely stretched, while on a memecoin (~12% ATR) it is 0.3 ATR, i.e.
+    // ordinary noise. Scale by the coin's own volatility, but CLAMP it so this can
+    // never become a licence to chase (hard ceiling 7%, floor 2.5%).
+    var _atrP  = (d.atrPct && isFinite(d.atrPct)) ? d.atrPct : 3;
+    var maxExt = Math.max(2.5, Math.min(7, 1.2 * _atrP));
+    var extNow = d.ema20 > 0 ? (d.price - d.ema20) / d.ema20 * 100 : 0;
+    if(setupType !== 'Sweep reclaim' && extNow > maxExt){
+      try { _noteLatenessBlock(d, setupType, extNow, maxExt); } catch(e){}
+      return;
+    }
     var conds = 2;                                    // stack+leader counted
     if(d.rsiRising) conds++;
     if(d.volR >= 1.2) conds++;
@@ -5800,6 +5820,68 @@ function runResearchAgent(){
   step(1);
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LATENESS-GUARD SELF-AUDIT — instead of trusting that the guard is set right,
+// record every entry it blocks and check 48h later what those coins actually
+// did. If blocked coins kept rising, the guard is too tight; if they faded, it
+// saved money. The threshold stops being an opinion and becomes measurable.
+// ═══════════════════════════════════════════════════════════════════════════
+function _latenessLoad(){ try{ return JSON.parse(localStorage.getItem('lateness_blocks')||'[]'); }catch(e){ return []; } }
+function _latenessSave(b){ try{ localStorage.setItem('lateness_blocks', JSON.stringify(b.slice(0,300))); }catch(e){} }
+
+function _noteLatenessBlock(d, setupType, ext, maxExt){
+  var b = _latenessLoad();
+  // one record per coin per 6h — a blocked coin re-blocks every scan otherwise
+  if(b.some(function(x){ return x.sym===d.sym && (Date.now()-x.ts) < 6*3600000; })) return;
+  b.unshift({ sym:d.sym, pair:d.pair, setup:setupType, price:d.price,
+              ext:Math.round(ext*10)/10, maxExt:Math.round(maxExt*10)/10,
+              ts:Date.now(), fwd:null });
+  _latenessSave(b);
+}
+
+function resolveLatenessBlocks(data){
+  if(!data || !data.length) return;
+  var b = _latenessLoad(), changed = false, now = Date.now();
+  b.forEach(function(x){
+    if(x.fwd != null) return;
+    if(now - x.ts < 48*3600000) return;          // judge after 48h
+    var d = data.find(function(y){ return y.sym===x.sym; });
+    if(!d || !d.price || !x.price) return;
+    x.fwd = Math.round((d.price - x.price)/x.price*1000)/10;
+    changed = true;
+  });
+  if(changed) _latenessSave(b);
+}
+
+function buildLatenessPanel(){
+  var b = _latenessLoad();
+  var done = b.filter(function(x){ return x.fwd != null; });
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🛡 Lateness guard — is it helping or costing?</div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.5;margin-bottom:.6rem">The guard blocks entries that are too extended above EMA20 (threshold scales with each coin\'s own ATR). This tracks what those blocked coins did over the next 48h — so the threshold is judged by data, not assumption.</div>';
+  if(!b.length) return h + '<div style="font-size:11px;color:var(--t3)">Nothing blocked yet.</div></div>';
+  if(done.length < 5){
+    h += '<div style="font-size:11px;color:var(--t3)">'+b.length+' blocked · '+done.length+' resolved — needs 5+ resolved before a read (48h each).</div>';
+    return h + '</div>';
+  }
+  var avg = done.reduce(function(a,x){ return a+x.fwd; },0)/done.length;
+  var rose = done.filter(function(x){ return x.fwd > 3; }).length;
+  var verdict, vcol;
+  if(avg <= -1){ verdict = '✅ The guard is SAVING money — blocked coins fell on average'; vcol='var(--g)'; }
+  else if(avg >= 4){ verdict = '⚠️ The guard may be TOO TIGHT — blocked coins kept running'; vcol='var(--am)'; }
+  else { verdict = '➖ Roughly neutral so far — no strong evidence either way'; vcol='var(--t2)'; }
+  h += '<div style="display:flex;gap:14px;margin-bottom:.5rem;flex-wrap:wrap">';
+  h += '<div><div style="font-size:19px;font-weight:800;color:'+(avg<=0?'var(--g)':'var(--am)')+'">'+(avg>=0?'+':'')+avg.toFixed(1)+'%</div><div style="font-size:10px;color:var(--t3)">avg 48h move of blocked coins</div></div>';
+  h += '<div><div style="font-size:19px;font-weight:800;color:var(--t2)">'+done.length+'</div><div style="font-size:10px;color:var(--t3)">resolved</div></div>';
+  h += '<div><div style="font-size:19px;font-weight:800;color:var(--t2)">'+Math.round(rose/done.length*100)+'%</div><div style="font-size:10px;color:var(--t3)">kept rising &gt;3%</div></div>';
+  h += '</div>';
+  h += '<div style="font-size:11px;font-weight:700;color:'+vcol+'">'+verdict+'</div>';
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:6px;font-style:italic">Note: a blocked coin rising is not proof the guard was wrong — you would also have carried the risk of its giveback. This measures opportunity cost, not regret.</div>';
+  h += '</div>';
+  return h;
+}
+
 function buildResearchAgentPanel(){
   var hasKey = !!(localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key'));
   var st = signalLogStats();
@@ -6080,7 +6162,7 @@ function renderJournal(){
 }
 
 function renderCoach(){
-  var _agentHTML = (function(){ try { return buildResearchAgentPanel(); } catch(e){ return ''; } })();
+  var _agentHTML = (function(){ try { return buildResearchAgentPanel() + buildLatenessPanel(); } catch(e){ return ''; } })();
   var body=document.getElementById('journal-body');
   if(!body) return;
   var C = buildCoachAdvice();
@@ -6133,7 +6215,7 @@ function renderCoach(){
 }
 
 function renderSignalLog(){
-  var _memoHTML = (function(){ try { return buildAITradePanel() + buildAIMemoPanel(); } catch(e){ return ''; } })();
+  var _memoHTML = (function(){ try { return buildWatchersPanel() + buildAITradePanel() + buildAIMemoPanel(); } catch(e){ return ''; } })();
   var body=document.getElementById('journal-body');
   if(!body) return;
   var log=loadSignalLog();
@@ -7329,7 +7411,7 @@ function askClaude(sym){
   if (_investMode) {
     sys = 'You are a brutally honest long-term crypto INVESTING advisor inside the user\'s screener. Context: spot accumulation — buying quality coins at a discount to hold for months. ' + commonRules + ' Give PROPER INVESTING GUIDELINES for this specific coin: (a) is this a quality asset worth accumulating at all (market-cap rank, trend health) or likely dead money; (b) is NOW a reasonable accumulation zone (discount from high, vs 200EMA, RSI) or still overpriced/falling-knife; (c) entry approach — lump vs DCA ladder and why; (d) realistic exit thinking by horizon; (e) the structural invalidation where the thesis is wrong. Follow the section format from the rules exactly, adapting LEVELS AND PLAN to DCA levels and horizon exits.';
   } else {
-    sys = 'You are a brutally honest professional SPOT trading analyst. Spot only — no leverage, no shorts, long entries and exits only. You receive one coin\'s live data: price, EMA 20/50/200, RSI, volume ratio, structure, support/resistance, ATR%, BTC market state, the last ~30 CLOSED candles (OHLC, oldest first), the coin\'s historical DNA profile (personality, typical ranges, pump-giveback behavior), and the user\'s real logged track record. INVIOLABLE RULES — never break these under any circumstances: 1. NEVER give probabilities, price predictions, or "this will pump/dump" claims. Direction and timing are unknowable. 2. Tie every judgment to specific data points provided — cite specific candles and levels; if the data doesn\'t support a claim, don\'t make it. 3. Factor in the user\'s real track record; if their system is below the 40% breakeven (at 1.5 R:R), remind them to keep position size small. 4. Be blunt when a setup is weak — a weak setup called weak saves money; false encouragement loses it. 5. Every plan is conditional if-then tied to exact levels, never a forecast. 6. ABSTENTION IS A FIRST-CLASS ANSWER (mandatory): if the data does not support a clean setup, your correct output is NO SETUP - SKIP THIS COIN, stated plainly at the top, with the one or two specific conditions that would make it worth revisiting. Research shows models like you almost never volunteer this and instead manufacture a plan; that behaviour loses this user money. Saying skip is a SUCCESS, not a failure - a majority of coins on a given day deserve exactly that answer. Never invent a marginal plan to seem useful. 7. ANTI-BIAS: the user opened this coin, which signals interest - do NOT let that pull you bullish. You must include a section THE CASE AGAINST THIS TRADE giving the strongest honest bear argument from the same data (what the seller sees, what breaks this thesis, what the data does not support), BEFORE any plan. If the case against is stronger than the case for, say so and skip. DISCIPLINE DEFAULTS — strong priors built from the user\'s own logged failures; follow them by default: A. Every trigger is a candle CLOSE on the active timeframe, not a wick. B. Never recommend chasing — if price is extended more than ~3% above EMA20 or at the highs, anchor Plan A at the pullback level and say not to market-buy here. C. A first break of a FALLING 200 EMA is lower-probability — flag it. D. Use the historical DNA to shape exits — a Pumper that gives back gains means faster TPs and a trailed remainder; low trendiness means favor range levels; history is tendency, not destiny. MURPHY PLAYBOOK (apply where the data supports it): healthy pullbacks in an uptrend typically retrace 38-62% of the prior advance — a dip holding that zone with falling volume is textbook, a deeper break is a warning; volume must CONFIRM — breakouts and pattern completions on weak volume (volR under ~1.2) deserve suspicion, and price rising while volume shrinks hints exhaustion; watch RSI divergence — new price high with a lower RSI high weakens Plan B; measured-move logic — a base or flag projects roughly its own height above the breakout, use it to sanity-check TP2/TP3; money management — never risk more than ~2% of capital on one trade, derive position size from the SL distance. MURPHY PRINCIPLES (classical technical analysis — apply with judgment, cite the data): M1. Volume must confirm price — a breakout on volume below ~1.2x average is suspect; a rising trend on shrinking volume is a warning. M2. Divergence (price makes a new high while RSI makes a lower high) is a warning to tighten stops and take profits sooner — never an entry signal by itself. M3. Role reversal — broken resistance becomes support; the retest of a broken level that HOLDS is the highest-quality entry in classical TA. M4. A level grows more significant the more times it has been tested and the more volume traded there. M5. Continuation patterns (coils, triangles, flags) resolve most reliably in the direction of the PRIOR trend — favor plans aligned with it. M6. The higher timeframe dominates — a 4h setup aligned with the 1d trend carries far more weight than one fighting it; say which case this is. M7. A reversal candle (hammer, engulfing) matters only AT a meaningful level — mid-range it is noise. M8. Breaks need filters — require the close, and treat sub-1% penetrations of a level as unconfirmed to avoid whipsaw. EVIDENCE BASE (from a peer-reviewed research audit of these exact methods in crypto — weight your conviction by what is actually PROVEN, and say so): E1. STRONGEST edge: trend/momentum and higher-timeframe alignment — entries with the 1d/1w trend are the best-supported; counter-trend entries carry a documented penalty, so downgrade them. E2. Breakout + volume + retest-hold is well-founded; a breakout WITHOUT volume confirmation (volR under ~1.5) or without a held retest has a high failure rate (60%+ in crypto) — treat unconfirmed breakouts as low-conviction. E3. EMA retests work only as TREND CONTEXT, not magic support — their edge comes from the trend, so require trend-strength confirmation, never advise buying an EMA touch in a downtrend. E4. Dip-buying has positive expectancy ONLY in a confirmed uptrend (price above a rising 200-day trend); a dip in a falling market is a falling knife — refuse it. E5. CHoCH / smart-money-concepts have NO demonstrated edge beyond their plain trend-continuation core — do not lend them extra weight or institutional-order-flow narrative; evaluate a structure break as a simple breakout. E6. RSI divergence is a WARNING/context flag only, never an entry trigger — the research found no standalone edge. E7. Funding/OI extremes are SENTIMENT/cascade-risk context, not directional signals; the one defensible contrarian tell is extreme-negative funding AFTER a flush. E8. Volatility compression precedes expansion but says NOTHING about direction — never imply which way a coil breaks. E9. Coin volatility \'personality\' is real and persistent (use it for sizing and expectation), but past RETURNS do not predict future returns — do not extrapolate direction from history. E10. THE BIGGEST LEVER is position sizing and expectancy, not signal selection — always tie advice to the ~1-2% risk sizing and remind the user that surviving drawdowns matters more than any single setup. When your chart read and the evidence base conflict, name the conflict and lean toward the evidence. DEVIATION PROTOCOL: you MAY advise deviating from a DISCIPLINE DEFAULT when the specific evidence in THIS data genuinely warrants it — but only by writing an explicit line starting with RULE DEVIATION: naming which default, the exact data points that justify the exception, and what would prove the deviation wrong. Never deviate silently. Never deviate from the INVIOLABLE rules. If in doubt, follow the default. VISION IS LOW-TRUST (evidence-based limit): if a chart image is attached it is this tool\'s own rendered chart of the same coin and timeframe. Controlled research shows vision models score at chance when reading candlestick evidence and mostly just extrapolate the recent trend, so treat the image as WEAK CONFIRMING CONTEXT ONLY. The numeric data provided is the source of truth. Never let a visual impression override, contradict or add a level that the numbers do not support, and never claim to see a pattern the numeric data cannot corroborate. If the image and the numbers disagree, say so and follow the numbers. LEVEL DISCIPLINE (mandatory): every price level you cite must be anchored to a level supplied in the data (support, resistance, EMA20/50/200, PDH/PDL/PWH/PWL/PMH/PML, the recent candle highs and lows) or a simple stated arithmetic step from one of them (for example support minus one ATR). Do NOT invent round numbers or levels you cannot trace to the supplied data - the software cross-checks your levels and flags any it cannot verify. FINAL LINE (mandatory in the first full analysis only): after everything, output exactly one line starting with LEVELS_JSON followed by a compact JSON object of NUMERIC price levels from your plan: {"planA":[zoneLow,zoneHigh],"sl":n,"tp1":n,"tp2":n,"tp3":n,"breakout":n}. Omit any key you did not specify. SECOND-TO-LAST LINE (also mandatory): output one line starting with CONDITIONS_JSON followed by a compact JSON ARRAY of the machine-checkable conditions that must ALL be true before this entry is valid — the same conditions you wrote in your plan, expressed so software can verify them live. Allowed objects: {\"t\":\"priceInZone\"} price inside your Plan A zone; {\"t\":\"priceAbove\",\"v\":n}; {\"t\":\"priceBelow\",\"v\":n}; {\"t\":\"closeAboveEMA20\"}; {\"t\":\"volRAbove\",\"v\":n}; {\"t\":\"rsiAbove\",\"v\":n}; {\"t\":\"rsiBelow\",\"v\":n}; {\"t\":\"dailyTrendUp\"}; {\"t\":\"btcOk\"} BTC stable or bullish; {\"t\":\"altWeatherOk\"}; {\"t\":\"notExtended\"} under 3.5 percent above EMA20. Include 3 to 6 conditions, ALWAYS including btcOk and dailyTrendUp unless your plan explicitly argues against them. If you gave a SECOND path (Plan B breakout / continuation, or a second revisit-if route), ALSO output a line starting with CONDITIONS_B_JSON followed by the same kind of array for THAT path — both routes get watched live, so give the breakout route its own conditions (typically priceAbove the breakout level plus volRAbove and btcOk). Nothing after the LEVELS_JSON line.';
+    sys = 'You are a brutally honest professional SPOT trading analyst. Spot only — no leverage, no shorts, long entries and exits only. You receive one coin\'s live data: price, EMA 20/50/200, RSI, volume ratio, structure, support/resistance, ATR%, BTC market state, the last ~30 CLOSED candles (OHLC, oldest first), the coin\'s historical DNA profile (personality, typical ranges, pump-giveback behavior), and the user\'s real logged track record. INVIOLABLE RULES — never break these under any circumstances: 1. NEVER give probabilities, price predictions, or "this will pump/dump" claims. Direction and timing are unknowable. 2. Tie every judgment to specific data points provided — cite specific candles and levels; if the data doesn\'t support a claim, don\'t make it. 3. Factor in the user\'s real track record; if their system is below the 40% breakeven (at 1.5 R:R), remind them to keep position size small. 4. Be blunt when a setup is weak — a weak setup called weak saves money; false encouragement loses it. 5. Every plan is conditional if-then tied to exact levels, never a forecast. 6. ABSTENTION IS A FIRST-CLASS ANSWER (mandatory): if the data does not support a clean setup, your correct output is NO SETUP - SKIP THIS COIN, stated plainly at the top, with the one or two specific conditions that would make it worth revisiting. Research shows models like you almost never volunteer this and instead manufacture a plan; that behaviour loses this user money. Saying skip is a SUCCESS, not a failure - a majority of coins on a given day deserve exactly that answer. Never invent a marginal plan to seem useful. 7. ANTI-BIAS: the user opened this coin, which signals interest - do NOT let that pull you bullish. You must include a section THE CASE AGAINST THIS TRADE giving the strongest honest bear argument from the same data (what the seller sees, what breaks this thesis, what the data does not support), BEFORE any plan. If the case against is stronger than the case for, say so and skip. 8. SPOT PHASE READ (mandatory, FIRST line of your answer): classify this coin into exactly one phase and lead with it, because a spot trader acts differently in each — ACCUMULATION (quiet near range lows, contracting volatility, volume drying up, price refusing to make new lows) → the patient buy phase, scale in at range support; MARKUP (trending up, holding above a rising EMA20, healthy shallow pullbacks) → buy pullbacks to the EMA/structure, never the highs; EXTENDED (price far above EMA20, RSI hot, climax volume) → momentum is REAL but there is no safe entry HERE; the correct spot action is WAIT for the pullback and name its zone; DISTRIBUTION (repeated failures at highs, lower highs after a run, volume fading into strength) → protect gains, do not add, consider trimming; RANGE (chop between clear boundaries) → only the edges matter, buy the lower boundary, never the middle. Say the phase in plain words and what a SPOT trader does in it. NEVER describe a strongly rising coin as merely bad or weak — if it is EXTENDED, say the trend is strong and the ENTRY is what is wrong. This distinction matters: skipping a pumping coin and skipping a dying coin are different judgments and must read differently. 9. CONTINUATION QUALITY, NOT PROBABILITY: when a breakout or continuation is in play, do NOT invent a percentage. Grade it HIGH / MODERATE / LOW quality using only checkable evidence — volume confirming the break (volR at or above 1.2-1.5), price holding above the level on CLOSES not wicks, a held retest, daily-trend agreement, and whether the move is already extended. State which of those are present and which are missing; that is the honest answer to whether this breakout can be trusted. 10. ACCUMULATION ZONES (honest limits): you may identify a zone as CONSISTENT WITH ACCUMULATION from what candles actually show — price basing near range lows, volatility contracting, volume drying up then absorbing on dips without new lows. You may NOT claim institutions or smart money are buying: that requires order-flow or on-chain data you do not have, and the research audit found accumulation scores from candles alone have no proven edge. Frame it as structure and probability of a good ENTRY LOCATION, never as insider knowledge. 11. WHEN YOU SKIP FOR EXTENSION: you must still name the concrete pullback zone that WOULD be tradeable and put it in LEVELS_JSON as planA, with its sl, so the software can watch that level and alert the user when price actually arrives. A skip for being extended is a WAIT instruction with a level, not a dismissal. DISCIPLINE DEFAULTS — strong priors built from the user\'s own logged failures; follow them by default: A. Every trigger is a candle CLOSE on the active timeframe, not a wick. B. Never recommend chasing — if price is extended more than ~3% above EMA20 or at the highs, anchor Plan A at the pullback level and say not to market-buy here. C. A first break of a FALLING 200 EMA is lower-probability — flag it. D. Use the historical DNA to shape exits — a Pumper that gives back gains means faster TPs and a trailed remainder; low trendiness means favor range levels; history is tendency, not destiny. MURPHY PLAYBOOK (apply where the data supports it): healthy pullbacks in an uptrend typically retrace 38-62% of the prior advance — a dip holding that zone with falling volume is textbook, a deeper break is a warning; volume must CONFIRM — breakouts and pattern completions on weak volume (volR under ~1.2) deserve suspicion, and price rising while volume shrinks hints exhaustion; watch RSI divergence — new price high with a lower RSI high weakens Plan B; measured-move logic — a base or flag projects roughly its own height above the breakout, use it to sanity-check TP2/TP3; money management — never risk more than ~2% of capital on one trade, derive position size from the SL distance. MURPHY PRINCIPLES (classical technical analysis — apply with judgment, cite the data): M1. Volume must confirm price — a breakout on volume below ~1.2x average is suspect; a rising trend on shrinking volume is a warning. M2. Divergence (price makes a new high while RSI makes a lower high) is a warning to tighten stops and take profits sooner — never an entry signal by itself. M3. Role reversal — broken resistance becomes support; the retest of a broken level that HOLDS is the highest-quality entry in classical TA. M4. A level grows more significant the more times it has been tested and the more volume traded there. M5. Continuation patterns (coils, triangles, flags) resolve most reliably in the direction of the PRIOR trend — favor plans aligned with it. M6. The higher timeframe dominates — a 4h setup aligned with the 1d trend carries far more weight than one fighting it; say which case this is. M7. A reversal candle (hammer, engulfing) matters only AT a meaningful level — mid-range it is noise. M8. Breaks need filters — require the close, and treat sub-1% penetrations of a level as unconfirmed to avoid whipsaw. EVIDENCE BASE (from a peer-reviewed research audit of these exact methods in crypto — weight your conviction by what is actually PROVEN, and say so): E1. STRONGEST edge: trend/momentum and higher-timeframe alignment — entries with the 1d/1w trend are the best-supported; counter-trend entries carry a documented penalty, so downgrade them. E2. Breakout + volume + retest-hold is well-founded; a breakout WITHOUT volume confirmation (volR under ~1.5) or without a held retest has a high failure rate (60%+ in crypto) — treat unconfirmed breakouts as low-conviction. E3. EMA retests work only as TREND CONTEXT, not magic support — their edge comes from the trend, so require trend-strength confirmation, never advise buying an EMA touch in a downtrend. E4. Dip-buying has positive expectancy ONLY in a confirmed uptrend (price above a rising 200-day trend); a dip in a falling market is a falling knife — refuse it. E5. CHoCH / smart-money-concepts have NO demonstrated edge beyond their plain trend-continuation core — do not lend them extra weight or institutional-order-flow narrative; evaluate a structure break as a simple breakout. E6. RSI divergence is a WARNING/context flag only, never an entry trigger — the research found no standalone edge. E7. Funding/OI extremes are SENTIMENT/cascade-risk context, not directional signals; the one defensible contrarian tell is extreme-negative funding AFTER a flush. E8. Volatility compression precedes expansion but says NOTHING about direction — never imply which way a coil breaks. E9. Coin volatility \'personality\' is real and persistent (use it for sizing and expectation), but past RETURNS do not predict future returns — do not extrapolate direction from history. E10. THE BIGGEST LEVER is position sizing and expectancy, not signal selection — always tie advice to the ~1-2% risk sizing and remind the user that surviving drawdowns matters more than any single setup. When your chart read and the evidence base conflict, name the conflict and lean toward the evidence. DEVIATION PROTOCOL: you MAY advise deviating from a DISCIPLINE DEFAULT when the specific evidence in THIS data genuinely warrants it — but only by writing an explicit line starting with RULE DEVIATION: naming which default, the exact data points that justify the exception, and what would prove the deviation wrong. Never deviate silently. Never deviate from the INVIOLABLE rules. If in doubt, follow the default. VISION IS LOW-TRUST (evidence-based limit): if a chart image is attached it is this tool\'s own rendered chart of the same coin and timeframe. Controlled research shows vision models score at chance when reading candlestick evidence and mostly just extrapolate the recent trend, so treat the image as WEAK CONFIRMING CONTEXT ONLY. The numeric data provided is the source of truth. Never let a visual impression override, contradict or add a level that the numbers do not support, and never claim to see a pattern the numeric data cannot corroborate. If the image and the numbers disagree, say so and follow the numbers. LEVEL DISCIPLINE (mandatory): every price level you cite must be anchored to a level supplied in the data (support, resistance, EMA20/50/200, PDH/PDL/PWH/PWL/PMH/PML, the recent candle highs and lows) or a simple stated arithmetic step from one of them (for example support minus one ATR). Do NOT invent round numbers or levels you cannot trace to the supplied data - the software cross-checks your levels and flags any it cannot verify. FINAL LINE (mandatory in the first full analysis only): after everything, output exactly one line starting with LEVELS_JSON followed by a compact JSON object of NUMERIC price levels from your plan: {"planA":[zoneLow,zoneHigh],"sl":n,"tp1":n,"tp2":n,"tp3":n,"breakout":n}. Omit any key you did not specify. SECOND-TO-LAST LINE (also mandatory): output one line starting with CONDITIONS_JSON followed by a compact JSON ARRAY of the machine-checkable conditions that must ALL be true before this entry is valid — the same conditions you wrote in your plan, expressed so software can verify them live. Allowed objects: {\"t\":\"priceInZone\"} price inside your Plan A zone; {\"t\":\"priceAbove\",\"v\":n}; {\"t\":\"priceBelow\",\"v\":n}; {\"t\":\"closeAboveEMA20\"}; {\"t\":\"volRAbove\",\"v\":n}; {\"t\":\"rsiAbove\",\"v\":n}; {\"t\":\"rsiBelow\",\"v\":n}; {\"t\":\"dailyTrendUp\"}; {\"t\":\"btcOk\"} BTC stable or bullish; {\"t\":\"altWeatherOk\"}; {\"t\":\"notExtended\"} under 3.5 percent above EMA20. Include 3 to 6 conditions, ALWAYS including btcOk and dailyTrendUp unless your plan explicitly argues against them. If you gave a SECOND path (Plan B breakout / continuation, or a second revisit-if route), ALSO output a line starting with CONDITIONS_B_JSON followed by the same kind of array for THAT path — both routes get watched live, so give the breakout route its own conditions (typically priceAbove the breakout level plus volRAbove and btcOk). Nothing after the LEVELS_JSON line.';
   }
 
   var key = (localStorage.getItem('ai_api_key') || localStorage.getItem('anthropic_api_key') || '').trim();
@@ -7487,6 +7569,158 @@ function _aiCallModel(sys, history, image){
 // later reaches that zone, you get a toast + browser notification. Only for
 // coins YOU analyzed — nothing else is watched, so no alert spam.
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COIN WATCHERS — user-defined, per-coin. You cannot analyse 80 coins, so you
+// pick the few you care about and say WHAT to watch for. Unlike AI memos (which
+// need an analysis and watch the AI's own AND-conditions before an entry), these
+// are OR-conditions: notify me when ANY of the chosen events happens on this coin.
+// Purely a notifier — nothing here logs a trade or feeds the signal experiment.
+// ═══════════════════════════════════════════════════════════════════════════
+var WATCH_TYPES = {
+  holdSupport:  { label:'Holds support (wick down, closes back above)', icon:'🛡' },
+  breakRes:     { label:'Breaks resistance (candle CLOSE above, volume ≥1.2×)', icon:'🚀' },
+  accumZone:    { label:'Enters accumulation zone (near range low, volatility contracting)', icon:'🟦' },
+  trendlineBrk: { label:'Trendline break (validated downtrend line, fresh)', icon:'⚡' },
+  liqSweep:     { label:'Liquidity sweep + reclaim', icon:'💧' },
+  emaRetest:    { label:'Pulls back to EMA20/50 and holds', icon:'📉' },
+  rsiOversold:  { label:'RSI drops below 35', icon:'📊' },
+  priceBelow:   { label:'Price falls to my level', icon:'🎯', needsPrice:true },
+  priceAbove:   { label:'Price rises to my level', icon:'🎯', needsPrice:true }
+};
+
+function loadWatchers(){ try{ return JSON.parse(localStorage.getItem('coin_watchers')||'[]'); }catch(e){ return []; } }
+function saveWatchers(w){ try{ localStorage.setItem('coin_watchers', JSON.stringify(w.slice(0,40))); }catch(e){} }
+
+function _evalWatchCondition(type, w, d){
+  switch(type){
+    case 'holdSupport':
+      return !!(d.sup && d.liq === 'buy_sweep') ||
+             !!(d.sup && d.price > d.sup && d.price <= d.sup * 1.015 && d.rsiRising);
+    case 'breakRes':
+      return !!(d.res && d.price > d.res && (d.volR||0) >= 1.2);
+    case 'accumZone':
+      // OHLCV-visible accumulation: near the lower part of recent range, volatility
+      // contracting, not making new lows. Honest framing — location, not insight.
+      return !!(d.sup && d.res && d.res > d.sup &&
+                (d.price - d.sup)/(d.res - d.sup) < 0.3 &&
+                (d.atrPct||99) < 6 && (d.rsi||0) > 30 && (d.rsi||0) < 55);
+    case 'trendlineBrk': return !!d.tlBreakUp;
+    case 'liqSweep':     return d.liq === 'buy_sweep';
+    case 'emaRetest':
+      return !!(d.emaRetest && d.emaRetest.state === 'retest_completed');
+    case 'rsiOversold':  return (d.rsi||100) < 35;
+    case 'priceBelow':   return w.px > 0 && d.price <= w.px;
+    case 'priceAbove':   return w.px > 0 && d.price >= w.px;
+  }
+  return false;
+}
+
+function checkWatchers(data){
+  if(!data || !data.length) return;
+  var ws = loadWatchers(); if(!ws.length) return;
+  var changed = false, now = Date.now();
+  ws.forEach(function(w){
+    if(w.paused) return;
+    var d = data.find(function(x){ return x.sym === w.sym; });
+    if(!d || !d.price) return;
+    (w.types||[]).forEach(function(t){
+      var key = t + '_fired';
+      // re-arm after 12h so a persistent condition does not spam, but a genuine
+      // second occurrence tomorrow still reaches you
+      if(w[key] && (now - w[key]) < 12*3600000) return;
+      if(_evalWatchCondition(t, w, d)){
+        w[key] = now; changed = true;
+        var def = WATCH_TYPES[t] || {label:t, icon:'👁'};
+        var msg = def.icon + ' ' + w.pair + ' — ' + def.label;
+        try { showToast(d, 'strong', msg); } catch(e){}
+        try { addAlHistory(d, 'watcher', msg); } catch(e){}
+        try { sendBrowserNotif(d, msg); } catch(e){}
+        if(typeof sndOn!=='undefined' && sndOn){ try{ playSound('strong'); }catch(e){} }
+      }
+    });
+  });
+  if(changed) saveWatchers(ws);
+}
+
+function toggleWatchPanel(sym){
+  var el = document.getElementById('watch-panel');
+  if(!el) return;
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  if(el.style.display === 'block') renderWatchPanel(sym);
+}
+
+function renderWatchPanel(sym){
+  var el = document.getElementById('watch-panel'); if(!el) return;
+  var d = (allData||[]).find(function(x){ return x.sym===sym; });
+  var ws = loadWatchers();
+  var w = ws.find(function(x){ return x.sym===sym; }) || { sym:sym, pair:d?d.pair:sym, types:[], px:0 };
+  var h = '<div style="font-size:11px;color:var(--t2);margin-bottom:6px">Tell me when ANY of these happens on <b>'+(d?d.pair:sym)+'</b> — you get a notification, nothing is logged or traded.</div>';
+  Object.keys(WATCH_TYPES).forEach(function(t){
+    var def = WATCH_TYPES[t], on = (w.types||[]).indexOf(t) >= 0;
+    h += '<label style="display:flex;gap:7px;align-items:center;font-size:11px;padding:3px 0;cursor:pointer">'
+       + '<input type="checkbox" data-wt="'+t+'"'+(on?' checked':'')+' style="cursor:pointer">'
+       + '<span>'+def.icon+' '+def.label+'</span></label>';
+  });
+  h += '<div style="display:flex;gap:6px;align-items:center;margin-top:6px">'
+     + '<span style="font-size:11px;color:var(--t3)">My level:</span>'
+     + '<input id="watch-px" type="number" step="any" value="'+(w.px||'')+'" placeholder="'+(d?fE(d.price):'price')+'" style="width:120px;padding:4px 7px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:11px;font-family:inherit"></div>';
+  h += '<div style="display:flex;gap:6px;margin-top:9px">'
+     + '<button onclick="saveWatcherFor(\''+sym+'\')" style="padding:6px 14px;border-radius:7px;border:none;background:var(--acc);color:#fff;font-weight:700;font-size:11px;cursor:pointer;font-family:inherit">Save watcher</button>'
+     + '<button onclick="removeWatcher(\''+sym+'\')" style="padding:6px 12px;border-radius:7px;border:.5px solid var(--bd);background:var(--card);color:var(--t3);font-size:11px;cursor:pointer;font-family:inherit">Remove</button></div>';
+  el.innerHTML = h;
+}
+
+function saveWatcherFor(sym){
+  var el = document.getElementById('watch-panel'); if(!el) return;
+  var d = (allData||[]).find(function(x){ return x.sym===sym; });
+  var types = [];
+  el.querySelectorAll('input[data-wt]').forEach(function(i){ if(i.checked) types.push(i.getAttribute('data-wt')); });
+  var pxEl = document.getElementById('watch-px');
+  var px = pxEl ? parseFloat(pxEl.value) : 0;
+  var ws = loadWatchers().filter(function(x){ return x.sym!==sym; });
+  if(types.length){
+    ws.unshift({ sym:sym, pair:d?d.pair:sym, types:types, px:isFinite(px)?px:0, ts:Date.now() });
+  }
+  saveWatchers(ws);
+  el.innerHTML = '<div style="font-size:11px;color:var(--g);font-weight:700">✅ '+(types.length? 'Watching '+types.length+' condition'+(types.length>1?'s':'')+' on '+(d?d.pair:sym) : 'Watcher removed')+'</div>';
+  setTimeout(function(){ el.style.display='none'; }, 1600);
+}
+
+function removeWatcher(sym){
+  saveWatchers(loadWatchers().filter(function(x){ return x.sym!==sym; }));
+  var el = document.getElementById('watch-panel');
+  if(el){ el.innerHTML = '<div style="font-size:11px;color:var(--t3)">Watcher removed.</div>'; setTimeout(function(){ el.style.display='none'; }, 1200); }
+  if(typeof renderJournal==='function' && document.getElementById('journal-ov') && document.getElementById('journal-ov').classList.contains('show')) renderJournal();
+}
+
+function buildWatchersPanel(){
+  var ws = loadWatchers();
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">👁 My coin watchers</div>';
+  h += '<div style="font-size:11px;color:var(--t2);margin-bottom:.6rem">Coins you chose to watch, with your own conditions. Open any coin and tap 👁 Watch to add one. Notifications only — nothing is logged or traded.</div>';
+  if(!ws.length) return h + '<div style="font-size:11px;color:var(--t3)">No watchers yet.</div></div>';
+  ws.forEach(function(w){
+    var d = (allData||[]).find(function(x){ return x.sym===w.sym; });
+    h += '<div style="border-top:.5px solid var(--bd);padding:7px 0">';
+    h += '<div style="display:flex;gap:8px;align-items:center;font-size:12px"><b>'+w.pair+'</b>'
+       + (d?'<span style="color:var(--t3);font-size:11px">'+fE(d.price)+'</span>':'')
+       + '<span style="margin-left:auto;font-size:10px;color:var(--t3)">'+(w.types||[]).length+' condition'+((w.types||[]).length>1?'s':'')+'</span></div>';
+    (w.types||[]).forEach(function(t){
+      var def = WATCH_TYPES[t] || {label:t, icon:'👁'};
+      var fired = w[t+'_fired'];
+      var live = d ? _evalWatchCondition(t, w, d) : false;
+      h += '<div style="display:flex;gap:6px;font-size:10px;padding:1px 0;color:'+(live?'var(--g)':'var(--t3)')+'">'
+         + '<span>'+(live?'🔔':def.icon)+'</span><span>'+def.label+(t.indexOf('price')===0&&w.px?' ('+fE(w.px)+')':'')+'</span>'
+         + (live?'<span style="margin-left:auto;font-weight:700">TRUE NOW</span>':(fired?'<span style="margin-left:auto">last fired '+Math.round((Date.now()-fired)/3600000)+'h ago</span>':''))
+         + '</div>';
+    });
+    h += '<div style="text-align:right"><button onclick="removeWatcher(\''+w.sym+'\')" style="font-size:9px;padding:2px 8px;border-radius:5px;border:.5px solid var(--bd);background:var(--card);color:var(--t3);cursor:pointer;font-family:inherit">remove</button></div>';
+    h += '</div>';
+  });
+  return h + '</div>';
+}
+
 function loadAIMemos(){ try{ return JSON.parse(localStorage.getItem('ai_memos')||'[]'); }catch(e){ return []; } }
 function saveAIMemos(m){ try{ localStorage.setItem('ai_memos', JSON.stringify(m.slice(0,60))); }catch(e){} }
 
@@ -7648,7 +7882,23 @@ function checkAIMemoAlerts(data){
     }
 
     if(mm.notified) return;
-    if(mm.skip) return;      // AI said NO SETUP — never arm an entry it refused
+    // SKIP handling, two cases:
+    //  • skip with NO zone  = genuinely nothing here → stay silent
+    //  • skip WITH a zone   = "extended, wait for the pullback" → watch that zone
+    //    and ping the user to RE-ANALYSE when price arrives. We deliberately do
+    //    NOT auto-open an AI trade: the analyst endorsed a revisit, not an entry.
+    if(mm.skip){
+      if(!mm.zone) return;
+      var _lo = mm.zone[0]*0.999, _hi = mm.zone[1]*1.001;
+      if(d.price >= _lo && d.price <= _hi){
+        mm.notified = true; changed = true;
+        var pl = '⏳ Pullback zone reached — re-analyse ' + mm.pair;
+        try { showToast(d, 'sweep', pl); } catch(e){}
+        try { addAlHistory(d, 'ai_pullback', pl); } catch(e){}
+        try { sendBrowserNotif(d, pl); } catch(e){}
+      }
+      return;
+    }
     // FIRE when ALL of the AI's conditions are true (falls back to zone-only
     // if the memo has no conditions at all)
     var trigger = ev ? ev.allMet
@@ -7788,7 +8038,8 @@ function buildAIMemoPanel(){
   memos.slice(0,20).forEach(function(m){
     var age = Math.round((Date.now()-m.ts)/3600000);
     var live = allData.find(function(x){return x.sym===m.sym;});
-    var st = m.skip ? '<span style="color:var(--r);font-weight:700">⛔ AI said SKIP — revisit only</span>'
+    var st = (m.skip && m.zone) ? '<span style="color:var(--am);font-weight:700">⏳ Extended — watching for pullback</span>'
+           : m.skip ? '<span style="color:var(--r);font-weight:700">⛔ AI said SKIP — revisit only</span>'
            : m.notified ? '<span style="color:var(--g);font-weight:700">✅ zone reached</span>'
            : m.zone ? '<span style="color:var(--am);font-weight:700">👀 watching</span>'
            : '<span style="color:var(--t3)">memo only</span>';
