@@ -1725,6 +1725,68 @@ function calcSR(h, l, c) {
 // (closes, not wicks — house rule). Used by the chart drawing AND the
 // "Trendline break" entry signal, so what you see is what the scanner sees.
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MANUAL CHART DRAWING — the auto-trendline engine finds what it can validate,
+// but a trader often sees a line the algorithm won't accept. Lines are stored in
+// DATA coordinates (candle time + price) so they survive zoom, pan and reload.
+// ═══════════════════════════════════════════════════════════════════════════
+function _legendEl(){
+  return document.getElementById(chartState.fullscreen ? 'chart-legend-fs' : 'chart-legend')
+      || document.getElementById('chart-legend')
+      || document.getElementById('chart-legend-fs');
+}
+function _drawKey(){ return (curSym||'?') + '_' + (chartState.tf || TF); }
+function loadDrawings(){
+  try { return (JSON.parse(localStorage.getItem('chart_drawings')||'{}'))[_drawKey()] || []; }
+  catch(e){ return []; }
+}
+function saveDrawings(list){
+  try {
+    var all = JSON.parse(localStorage.getItem('chart_drawings')||'{}');
+    if(list && list.length) all[_drawKey()] = list.slice(-30); else delete all[_drawKey()];
+    localStorage.setItem('chart_drawings', JSON.stringify(all));
+  } catch(e){}
+}
+// screen (CSS px) → data coords {t: candle timestamp, p: price}
+function _screenToData(x, y){
+  var m = chartState._map; if(!m) return null;
+  var kl = chartState.klines || []; if(!kl.length) return null;
+  var idx = Math.round((x - m.LEFT_PAD) / Math.max(1e-6, m.candleW) - 0.5) + m.offset;
+  idx = Math.max(0, Math.min(kl.length-1, idx));
+  var p = m.pMin + m.pRange * (1 - (y - m.TOP_PAD) / Math.max(1e-6, m.CANDLE_H));
+  return { t: parseInt(kl[idx][0]), p: p };
+}
+function toggleDrawMode(){
+  chartState.drawMode = !chartState.drawMode;
+  chartState.drawPending = null;
+  var b = document.getElementById('draw-btn');
+  if(b){ b.style.background = chartState.drawMode ? 'var(--acc)' : 'transparent';
+         b.style.color = chartState.drawMode ? '#fff' : 'var(--t2)'; }
+  var cv = document.getElementById(chartState.fullscreen ? 'chart-canvas-fs' : 'chart-canvas');
+  if(cv) cv.style.cursor = chartState.drawMode ? 'crosshair' : 'grab';
+  drawChart();
+}
+function clearDrawings(){
+  if(!loadDrawings().length){ return; }
+  saveDrawings([]); chartState.drawPending = null; drawChart();
+}
+function undoDrawing(){
+  var d = loadDrawings(); d.pop(); saveDrawings(d); drawChart();
+}
+// Called from the canvas click handler while draw mode is on
+function _drawClick(x, y){
+  var pt = _screenToData(x, y); if(!pt) return;
+  if(!chartState.drawPending){ chartState.drawPending = pt; }
+  else {
+    var d = loadDrawings();
+    d.push({ t1:chartState.drawPending.t, p1:chartState.drawPending.p, t2:pt.t, p2:pt.p });
+    saveDrawings(d);
+    chartState.drawPending = null;
+  }
+  drawChart();
+}
+
 function detectTrendlines(h, l, c, s, e) {
   s = Math.max(2, s == null ? 2 : s);
   e = Math.min(h.length - 3, e == null ? h.length - 3 : e);
@@ -10388,6 +10450,8 @@ function buildChartTab(d) {
     '<div style="display:flex;align-items:center;gap:4px;flex:0 0 auto;margin-left:8px">' +
       '<button onclick="chartZoom(1)"  style="font-size:13px;width:24px;height:24px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit;line-height:1">+</button>' +
       '<button onclick="chartZoom(-1)" style="font-size:13px;width:24px;height:24px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit;line-height:1">−</button>' +
+      '<button id="draw-btn" onclick="toggleDrawMode()" title="Draw trendlines" style="font-size:10px;padding:0 6px;height:24px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">✏️</button>' +
+      '<button onclick="undoDrawing()" title="Undo" style="font-size:10px;padding:0 6px;height:24px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">↶</button>' +
       '<button onclick="chartReset()"  style="font-size:10px;padding:0 6px;height:24px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">⊙</button>' +
       // EXPAND BUTTON
       '<button onclick="expandChartFull()" id="chart-expand-btn" title="Expand to full screen" style="font-size:14px;width:28px;height:24px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#d1d4dc;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center" title="Fullscreen">⛶</button>' +
@@ -10450,6 +10514,9 @@ function buildChartTab(d) {
         '<div style="margin-left:auto;display:flex;gap:6px;align-items:center">' +
           '<button onclick="chartZoom(1)"  style="font-size:13px;width:26px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">+</button>' +
           '<button onclick="chartZoom(-1)" style="font-size:13px;width:26px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">−</button>' +
+          '<button id="draw-btn" onclick="toggleDrawMode()" title="Draw your own trendlines — click two points" style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:var(--t2);cursor:pointer;font-family:inherit">✏️ Draw</button>' +
+          '<button onclick="undoDrawing()" title="Undo last drawing" style="font-size:10px;padding:0 8px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">↶</button>' +
+          '<button onclick="clearDrawings()" title="Clear all drawings on this chart" style="font-size:10px;padding:0 8px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">🗑</button>' +
           '<button onclick="chartReset()"  style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">Reset</button>' +
           '<button onclick="toggleFSTable()" id="fs-table-toggle" style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#d1d4dc;cursor:pointer;font-family:inherit">📊 Trade Plan</button>' +
           '<button onclick="collapseChartFull()" style="font-size:12px;padding:0 14px;height:26px;border-radius:3px;border:none;background:#f23645;color:#fff;cursor:pointer;font-family:inherit;font-weight:700">✕ Close</button>' +
@@ -10562,6 +10629,11 @@ function expandChartFull() {
         if (chartState.klines) drawChart();
       });
       canvas.addEventListener('mousedown', function(e) {
+        if (chartState.drawMode) {
+          var _r = canvas.getBoundingClientRect();
+          _drawClick(e.clientX - _r.left, e.clientY - _r.top);
+          return;
+        }
         chartState.dragging = true;
         chartState.dragStartX = e.clientX;
         chartState.dragStartOffset = chartState.offset;
@@ -10803,6 +10875,11 @@ function initChartEvents() {
     if (chartState.klines) drawChart();
   });
   canvas.addEventListener('mousedown', function(e) {
+    if (chartState.drawMode) {                    // drawing: click = place a point
+      var r = canvas.getBoundingClientRect();
+      _drawClick(e.clientX - r.left, e.clientY - r.top);
+      return;
+    }
     chartState.dragging = true;
     chartState.dragStartX = e.clientX;
     chartState.dragStartOffset = chartState.offset;
@@ -11010,6 +11087,9 @@ function _drawChartNow() {
 
   function pY(price) { return TOP_PAD + CANDLE_H * (1 - (price - pMin) / pRange); }
   function cX(i)     { return LEFT_PAD + (i + 0.5) * candleW; }
+  // Publish the mapping so the manual-drawing tool can invert screen→data coords
+  chartState._map = { TOP_PAD:TOP_PAD, CANDLE_H:CANDLE_H, LEFT_PAD:LEFT_PAD,
+                      candleW:candleW, pMin:pMin, pRange:pRange, offset:offset };
 
   // ── EMAs ─────────────────────────────────────────────────────────────────
   var closes  = klines.map(function(k) { return parseFloat(k[4]); });
@@ -11700,6 +11780,38 @@ function _drawChartNow() {
     drawTLv2(TL.down, '#ef5350', '↘ Downtrend line', true);
     drawTLv2(TL.up,   '#26a69a', '↗ Uptrend line', false);
 
+    // ── MANUAL DRAWINGS — stored in data coords, so they track zoom and pan ──
+    (function(){
+      var mine = loadDrawings();
+      if(!mine.length && !chartState.drawPending) return;
+      function tToIdx(t){
+        for(var i=0;i<klines.length;i++){ if(parseInt(klines[i][0]) >= t) return i; }
+        return klines.length-1;
+      }
+      ctx.save();
+      ctx.strokeStyle = '#00bcd4'; ctx.lineWidth = 1.6; ctx.setLineDash([]);
+      mine.forEach(function(L){
+        var x1 = cX(tToIdx(L.t1)-offset), y1 = pY(L.p1);
+        var x2 = cX(tToIdx(L.t2)-offset), y2 = pY(L.p2);
+        // extend the line to the right edge so it stays useful as price advances
+        if(x2 !== x1){
+          var slope = (y2-y1)/(x2-x1);
+          var xe = cR3, ye = y2 + slope*(xe-x2);
+          ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(xe,ye); ctx.stroke();
+        } else { ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); }
+        [[x1,y1],[x2,y2]].forEach(function(pt){
+          ctx.fillStyle='#00bcd4'; ctx.beginPath(); ctx.arc(pt[0],pt[1],3,0,Math.PI*2); ctx.fill();
+        });
+      });
+      // the anchor of a line being drawn right now
+      if(chartState.drawPending){
+        var xp = cX(tToIdx(chartState.drawPending.t)-offset), yp = pY(chartState.drawPending.p);
+        ctx.fillStyle='#00bcd4'; ctx.beginPath(); ctx.arc(xp,yp,4,0,Math.PI*2); ctx.fill();
+        ctx.font='10px -apple-system,sans-serif'; ctx.fillText('click 2nd point', xp+7, yp-6);
+      }
+      ctx.restore();
+    })();
+
     // LAYER C: Horizontal lines + right-axis pills (TV style, guaranteed no overlap)
     var tvLevels = [
       {price: aTP3,   col:'#089981', name:'TP3 +'  + ((aTP3-aEntry)/aEntry*100).toFixed(1)+'%', dash:[3,3], lw:1},
@@ -11971,7 +12083,7 @@ function _drawChartNow() {
       var cchg3=((cc3-co3)/co3*100), ccol3=cc3>=co3?C.bull:C.bear;
       var cdt4=new Date(parseInt(ck3[0]));
       var cdtStr3=cdt4.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'2-digit'})+' '+cdt4.getHours().toString().padStart(2,'0')+':'+cdt4.getMinutes().toString().padStart(2,'0');
-      var legEl=document.getElementById(chartState.legendId||'chart-legend');
+      var legEl=_legendEl();
       if(legEl) legEl.innerHTML='<span style="color:#50535e">'+cdtStr3+'&nbsp; </span>O&thinsp;<span style="color:'+ccol3+'">'+fmtPrice(co3)+'</span>&emsp;H&thinsp;<span style="color:'+ccol3+'">'+fmtPrice(ch3)+'</span>&emsp;L&thinsp;<span style="color:'+ccol3+'">'+fmtPrice(cl3b)+'</span>&emsp;C&thinsp;<span style="color:'+ccol3+'">'+fmtPrice(cc3)+'</span>&emsp;<span style="color:'+ccol3+'">'+(cchg3>=0?'+':'')+cchg3.toFixed(2)+'%</span>';
     }
   } else {
@@ -11979,7 +12091,7 @@ function _drawChartNow() {
     if(lk3){
       var lo3=parseFloat(lk3[1]),lh3=parseFloat(lk3[2]),ll3=parseFloat(lk3[3]),lc3=parseFloat(lk3[4]);
       var lchg3=((lc3-lo3)/lo3*100),lcol3=lc3>=lo3?C.bull:C.bear;
-      var leg4=document.getElementById(chartState.legendId||'chart-legend');
+      var leg4=_legendEl();
       if(leg4) leg4.innerHTML='O&thinsp;<span style="color:'+lcol3+'">'+fmtPrice(lo3)+'</span>&emsp;H&thinsp;<span style="color:'+lcol3+'">'+fmtPrice(lh3)+'</span>&emsp;L&thinsp;<span style="color:'+lcol3+'">'+fmtPrice(ll3)+'</span>&emsp;C&thinsp;<span style="color:'+lcol3+'">'+fmtPrice(lc3)+'</span>&emsp;<span style="color:'+lcol3+'">'+(lchg3>=0?'+':'')+lchg3.toFixed(2)+'%</span>';
     }
   }
