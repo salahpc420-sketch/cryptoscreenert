@@ -12037,6 +12037,11 @@ function _drawChartNow() {
     var _cr  = chartState.crosshair;
     var cxp  = _cr.x * (W / (_cr.cssW || W));
     var cyp  = _cr.y * (TOTAL_H / (_cr.cssH || TOTAL_H));
+    // FIX: the crosshair used an outer `chartW` computed as canvas.width-70 —
+    // that is DEVICE pixels, while this context is DPR-scaled to CSS pixels.
+    // The price/date tags were therefore drawn far off the right edge (invisible).
+    // Compute the plot width in the same units everything else here uses.
+    var chartW = W - RIGHT_PAD;
     ctx.save();
     ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
