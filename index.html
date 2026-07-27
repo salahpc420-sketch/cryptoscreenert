@@ -2306,47 +2306,84 @@ function processSymbol(ticker) {
     var _pools = calcPeriodPools(klines);
     var liq = calcLiq(h, l, c, sr.sup, sr.res, atr, _pools);
 
-    // ── EARLY-WATCH RAW FEATURES (research Stage 1) ────────────────────────────
-    // Cross-sectional z-scoring happens later, once every coin is scanned.
-    // Lookbacks adapt to whatever history is loaded so this works on any TF.
+    // ── EARLY-WATCH FEATURES v2 — read like a trader, not like an indicator ──
+    // v1 flaw (found by testing): a coin bleeding out ALSO has contracting
+    // volatility and dead volume, so a 45% decline scored as a "tight base".
+    // v2 finds the ACTUAL consolidation window and asks the questions a spot
+    // trader asks: how long has it based, how deep, where in the base is price,
+    // are the lows rising, and did it get here by advancing or by dying?
     var _ew = (function(){
       var n = c.length;
-      if(n < 40) return null;
-      var momLB = Math.min(30, Math.floor(n*0.25));
-      var hiLB  = Math.min(90, Math.floor(n*0.60));
-      var px = c[n-1];
-      // 1. momentum (log return over momLB bars)
-      var mom = c[n-1-momLB] > 0 ? Math.log(px / c[n-1-momLB]) : 0;
-      // 2. distance to high-water mark (nearer the high = stronger)
-      var hiWin = h.slice(-hiLB), hiMax = Math.max.apply(null, hiWin);
-      var distHigh = hiMax > 0 ? px / hiMax : 0;
-      // 3. Bollinger BandWidth percentile — the compression measure
-      function bw(i){
+      if(n < 60) return null;
+      var px = c[n-1], aPct = atrPct || 3;
+
+      // 1. FIND THE BASE — walk back while price stays inside an adaptive band.
+      var band = Math.max(8, Math.min(30, aPct * 4));
+      var bHi = h[n-1], bLo = l[n-1], bars = 1;
+      for(var i = n-2; i >= Math.max(0, n-70); i--){
+        var nh = Math.max(bHi, h[i]), nl = Math.min(bLo, l[i]);
+        if(nl <= 0 || (nh-nl)/nl*100 > band) break;
+        bHi = nh; bLo = nl; bars++;
+      }
+      var baseDepth = bLo > 0 ? (bHi-bLo)/bLo*100 : 99;
+      var posInBase = (bHi > bLo) ? (px-bLo)/(bHi-bLo) : 0.5;   // 0 = at lows, 1 = at highs
+
+      // 2. CONTRACTION SIGNATURE — are the lows INSIDE the base rising?
+      //    This is what separates sellers exhausting from price simply drifting.
+      var higherLows = false;
+      if(bars >= 8){
+        var half = Math.floor(bars/2);
+        var lo1 = Math.min.apply(null, l.slice(n-bars, n-bars+half));
+        var lo2 = Math.min.apply(null, l.slice(n-half));
+        higherLows = lo2 > lo1 * 1.002;
+      }
+
+      // 3. BASE OR DECLINE? — the v1 bug. A base holds its level; a decline
+      //    keeps grinding to new lows. Reject the grind.
+      var lb = Math.min(90, n-1);
+      var lowN  = Math.min.apply(null, l.slice(-lb));
+      var highN = Math.max.apply(null, h.slice(-lb));
+      var offLow = lowN > 0 ? (px-lowN)/lowN*100 : 0;          // % above the 90-bar low
+      var isDecline = (e200 > 0 && px < e200 && !higherLows && offLow < 8);
+
+      // 4. HOW DID IT GET HERE? advance into the base = continuation setup,
+      //    decline into the base = bottoming attempt (needs more proof).
+      var preIdx = Math.max(0, n - bars - 20);
+      var priorLeg = c[preIdx] > 0 ? (bHi - c[preIdx])/c[preIdx]*100 : 0;
+      var aboveLTMA = (e200 > 0) ? px > e200 : (e50 > 0 ? px > e50 : true);
+      var baseType = (aboveLTMA && priorLeg > 5) ? 'continuation'
+                   : (higherLows && offLow > 5) ? 'bottoming' : 'none';
+
+      // 5. Classic compression inputs (kept — they measure magnitude potential)
+      function bwAt(i){
         var w = c.slice(Math.max(0,i-19), i+1); if(w.length < 20) return null;
         var m = w.reduce(function(a,b){return a+b;},0)/w.length;
         var sd = Math.sqrt(w.reduce(function(a,b){return a+(b-m)*(b-m);},0)/w.length);
-        return m > 0 ? (4*sd)/m : null;              // (upper-lower)/middle
+        return m > 0 ? (4*sd)/m : null;
       }
-      var bwNow = bw(n-1), bwHist = [];
-      for(var i = Math.max(20, n-120); i < n; i++){ var b = bw(i); if(b!=null) bwHist.push(b); }
+      var bwNow = bwAt(n-1), bwHist = [];
+      for(var j = Math.max(20, n-120); j < n; j++){ var b = bwAt(j); if(b!=null) bwHist.push(b); }
       var squeeze = 0;
-      if(bwNow != null && bwHist.length > 20){
-        var below = bwHist.filter(function(x){ return x < bwNow; }).length;
-        squeeze = -(below / bwHist.length);           // low percentile → high score
-      }
-      // 4. ATR contraction (recent vol below longer-run vol)
+      if(bwNow != null && bwHist.length > 20)
+        squeeze = -(bwHist.filter(function(x){ return x < bwNow; }).length / bwHist.length);
       var atr14 = calcATR(h, l, c, 14), atr50 = calcATR(h, l, c, 50);
       var atrC = (atr50 > 0) ? -(atr14/atr50) : 0;
-      // 5. volume dry-up (recent volume below its longer average)
       function avg(a){ return a.length ? a.reduce(function(x,y){return x+y;},0)/a.length : 0; }
       var v5 = avg(v.slice(-5)), v50 = avg(v.slice(-50));
       var volDry = v50 > 0 ? -(v5/v50) : 0;
-      // 6. volume EXPANSION flag — the confirmation gate, not a rank input
-      var vMean = avg(v.slice(-50,-1)), vSd = 0;
-      var vw = v.slice(-50,-1);
-      if(vw.length > 5){ vSd = Math.sqrt(vw.reduce(function(a,b){return a+(b-vMean)*(b-vMean);},0)/vw.length); }
+      var vw = v.slice(-50,-1), vMean = avg(vw), vSd = 0;
+      if(vw.length > 5) vSd = Math.sqrt(vw.reduce(function(a,b){return a+(b-vMean)*(b-vMean);},0)/vw.length);
       var volExp = (vSd > 0) ? ((v[n-1]-vMean)/vSd) >= 2 : false;
-      return { mom:mom, distHigh:distHigh, squeeze:squeeze, atrC:atrC, volDry:volDry, volExp:volExp };
+
+      // 6. Direction inputs
+      var momLB = Math.min(30, Math.floor(n*0.25));
+      var mom = c[n-1-momLB] > 0 ? Math.log(px / c[n-1-momLB]) : 0;
+      var distHigh = highN > 0 ? px / highN : 0;
+
+      return { mom:mom, distHigh:distHigh, squeeze:squeeze, atrC:atrC, volDry:volDry, volExp:volExp,
+               bars:bars, baseDepth:baseDepth, posInBase:posInBase, higherLows:higherLows,
+               isDecline:isDecline, baseType:baseType, priorLeg:priorLeg, offLow:offLow,
+               aboveLTMA:aboveLTMA };
     })();
 
     // NEW: Breakout confirmation, EMA retest, pump/dump detection
@@ -13118,44 +13155,65 @@ function _residualize(y, x){
 }
 
 function computeEarlyWatch(data){
-  var rows = data.filter(function(d){ return d._ew && !d._stale; });
-  if(rows.length < 10){ data.forEach(function(d){ d.earlyScore=null; d.earlyState=null; }); return; }
-  var zMom  = _zAcross(rows.map(function(d){ return d._ew.mom; }));
-  var zHigh = _zAcross(rows.map(function(d){ return d._ew.distHigh; }));
+  // Only coins that are genuinely BASING are eligible. This is the v2 fix: a
+  // decline has the same volatility/volume signature as a coil, so it must be
+  // excluded structurally, not scored away. Also require real tradability —
+  // a perfect base on an illiquid coin is not a spot opportunity.
+  var rows = data.filter(function(d){
+    if(!d._ew || d._stale) return false;
+    if(d._ew.isDecline) return false;                     // grinding lower ≠ basing
+    if(d._ew.baseType === 'none') return false;           // no recognisable base
+    if((d.vol24 || 0) < 3000000) return false;            // <$3M/day = slippage risk
+    return true;
+  });
+  data.forEach(function(d){ d.earlyScore=null; d.earlyState=null; });
+  if(rows.length < 5) return;
+
   var zSqz  = _zAcross(rows.map(function(d){ return d._ew.squeeze; }));
   var zAtr  = _zAcross(rows.map(function(d){ return d._ew.atrC; }));
   var zVol  = _zAcross(rows.map(function(d){ return d._ew.volDry; }));
-  // relative strength measured against THIS board's median move
-  var chgs = rows.map(function(d){ return d.chg||0; }).slice().sort(function(a,b){return a-b;});
-  var medChg = chgs[Math.floor(chgs.length/2)] || 0;
-  var zRs   = _zAcross(rows.map(function(d){ return (d.chg||0) - medChg; }));
-  // orthogonalize: distHigh carries momentum information, strip it
+  var zMom  = _zAcross(rows.map(function(d){ return d._ew.mom; }));
+  var zHigh = _zAcross(rows.map(function(d){ return d._ew.distHigh; }));
+  var zBars = _zAcross(rows.map(function(d){ return d._ew.bars; }));   // longer base = more stored energy
+  // Relative strength measured against BTC, and weighted DOUBLE when the market
+  // is weak — holding up in a bad tape is the real tell (research: rs_down).
+  var btc = data.find(function(x){ return x.sym==='BTCUSDT'||x.sym==='BTCJPY'; });
+  var btcChg = btc ? (btc.chg||0) : 0;
+  var wDown = (btcChg < 0) ? 2 : 1;
+  var zRs   = _zAcross(rows.map(function(d){ return (d.chg||0) - btcChg; }));
   var hResid = _zAcross(_residualize(zHigh, zMom));
 
   rows.forEach(function(d, i){
-    // READINESS = is this coin coiled? (magnitude only — direction unknown)
-    var readiness = (zSqz[i] + zAtr[i] + zVol[i]) / 3;
-    // TILT = weak directional lean from validated cross-sectional factors
-    var tilt      = (zMom[i] + hResid[i] + zRs[i]) / 3;
+    var e = d._ew;
+    // READINESS — coiled AND structurally sound (duration + rising lows count)
+    var readiness = (zSqz[i] + zAtr[i] + zVol[i] + zBars[i]) / 4
+                  + (e.higherLows ? 0.4 : 0);
+    // TILT — weak directional lean, RS double-weighted in a weak tape
+    var tilt = (zMom[i] + hResid[i] + zRs[i]*wDown) / (2 + wDown);
+    // POSITION PENALTY — buying the top of a base is the same mistake as chasing
+    var posPen = e.posInBase > 0.8 ? -0.5 : (e.posInBase < 0.35 ? 0.25 : 0);
+
     d.earlyReadiness = Math.round(readiness*100)/100;
     d.earlyTilt      = Math.round(tilt*100)/100;
-    d.earlyScore     = Math.round(((readiness + tilt)/2)*100)/100;
-    // Honest state machine — never "will pump"
-    var brokeOut = d._ew.volExp && (d.res ? d.price > d.res : false);
-    if(brokeOut && readiness > 0)      d.earlyState = 'triggered';
-    else if(readiness > 0.6 && tilt > 0.3) d.earlyState = 'coiled_lean';
-    else if(readiness > 0.6)           d.earlyState = 'coiled';
-    else if(tilt > 0.8)                d.earlyState = 'leading';
-    else                                d.earlyState = null;
+    d.earlyScore     = Math.round(((readiness + tilt)/2 + posPen)*100)/100;
+    d.earlyBars      = e.bars;
+    d.earlyPos       = Math.round(e.posInBase*100);
+    d.earlyType      = e.baseType;
+
+    var brokeOut = e.volExp && (d.res ? d.price > d.res : e.posInBase > 0.95);
+    if(brokeOut)                                        d.earlyState = 'triggered';
+    else if(e.baseType==='continuation' && readiness > 0.3) d.earlyState = 'continuation';
+    else if(e.baseType==='bottoming' && e.higherLows && readiness > 0.3) d.earlyState = 'bottoming';
+    else if(readiness > 0.7)                            d.earlyState = 'coiled';
+    else                                                d.earlyState = null;
   });
-  data.forEach(function(d){ if(d.earlyScore===undefined) d.earlyScore = null; });
 }
 
 var EARLY_STATES = {
-  triggered:   { icon:'🚀', label:'Base breakout triggered', note:'volume expansion confirmed the break', col:'var(--g)' },
-  coiled_lean: { icon:'🟢', label:'Coiling base + relative strength', note:'compressed, and outperforming the board — weak upward lean', col:'var(--g)' },
-  coiled:      { icon:'🟦', label:'Coiling base', note:'compression high, volume drying up — DIRECTION UNKNOWN', col:'var(--am)' },
-  leading:     { icon:'💪', label:'Leading the board', note:'relative strength, but not coiled — already moving', col:'var(--t2)' }
+  triggered:    { icon:'🚀', label:'Base breakout triggered', note:'volume expansion confirmed the break — the wait is over, but check you are not already extended', col:'var(--g)' },
+  continuation: { icon:'🟢', label:'Continuation base', note:'consolidating ABOVE long-term MA after an advance — the highest-quality spot base', col:'var(--g)' },
+  bottoming:    { icon:'🟡', label:'Bottoming base', note:'higher lows forming off the low — real but unconfirmed; needs a breakout on volume', col:'var(--am)' },
+  coiled:       { icon:'🟦', label:'Coiled (type unclear)', note:'heavy compression, direction unknown — watch, do not anticipate', col:'var(--t2)' }
 };
 
 function buildEarlyWatchPanel(){
@@ -13165,8 +13223,15 @@ function buildEarlyWatchPanel(){
   h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.3rem"><span style="font-size:15px">🌱</span>'
      + '<span style="font-size:13px;font-weight:700">Early Watch — bases before expansion</span>'
      + '<span style="margin-left:auto;font-size:9px;color:var(--t3)">cross-sectional · equal-weighted · unvalidated</span></div>';
-  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">Ranks all scanned coins by <b>readiness</b> (volatility compression + ATR contraction + volume dry-up) and a weak <b>directional tilt</b> (momentum + distance-to-high + relative strength), each z-scored across the board and orthogonalized. Compression predicts the SIZE of the next move, not its direction — so nothing is called a pump.</div>';
-  if(!rows.length){ return h + '<div style="font-size:11px;color:var(--t3)">No coins currently meet the readiness or leadership thresholds.</div></div>'; }
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">Finds coins that are genuinely <b>basing</b> — it locates the actual consolidation window, then scores its duration, tightness, position, and whether the lows are rising. Declines are excluded structurally (a dying coin has the same low-volatility, dead-volume signature as a coil), illiquid coins are filtered out, and relative strength counts double when BTC is weak. Compression predicts the SIZE of the next move, never its direction — so nothing here is called a pump.</div>';
+  // Bases resolve with the market: alt returns are ~0.9 correlated, so a good
+  // base in a dumping tape usually breaks DOWN. Say so instead of implying edge.
+  var regimeBad = (btcState==='dumping' || btcState==='falling' || _breadthWeak);
+  if(regimeBad){
+    h += '<div style="background:rgba(239,83,80,.10);border-left:3px solid var(--r);border-radius:6px;padding:7px 9px;margin-bottom:.6rem;font-size:11px;color:var(--t2)">'
+       + '⚠️ <b>Weak tape</b> (BTC '+btcState+', breadth '+_breadth+'%). Bases mostly resolve DOWNWARD when the market is falling — treat everything below as watchlist only, not entries.</div>';
+  }
+  if(!rows.length){ return h + '<div style="font-size:11px;color:var(--t3)">No coins are currently basing with enough quality and liquidity. On a weak or trending-down board that is the correct answer, not a failure.</div></div>'; }
   rows.slice(0,10).forEach(function(d){
     var st = EARLY_STATES[d.earlyState] || {icon:'•',label:d.earlyState,note:'',col:'var(--t2)'};
     h += '<div style="border-top:.5px solid var(--bd);padding:7px 0">';
@@ -13174,10 +13239,14 @@ function buildEarlyWatchPanel(){
        + '<b style="min-width:88px">'+d.pair+'</b>'
        + '<span style="color:'+st.col+';font-weight:700;font-size:11px">'+st.icon+' '+st.label+'</span>'
        + '<span style="margin-left:auto;font-size:10px;color:var(--t3)">score '+(d.earlyScore>=0?'+':'')+d.earlyScore+'</span></div>';
-    h += '<div style="font-size:10px;color:var(--t3);margin-top:2px">'+st.note
+    var posTxt = d.earlyPos<=35 ? 'lower third of base (good entry area)'
+               : d.earlyPos>=80 ? 'upper edge of base — late within the range'
+               : 'mid-base';
+    h += '<div style="font-size:10px;color:var(--t3);margin-top:2px;line-height:1.5">'+st.note+'</div>';
+    h += '<div style="font-size:10px;color:var(--t3);margin-top:1px">'
+       + '📏 based '+d.earlyBars+' bars · '+posTxt
        + ' · readiness '+(d.earlyReadiness>=0?'+':'')+d.earlyReadiness
-       + ' · tilt '+(d.earlyTilt>=0?'+':'')+d.earlyTilt
-       + ' · '+fE(d.price)+'</div>';
+       + ' · tilt '+(d.earlyTilt>=0?'+':'')+d.earlyTilt+'</div>';
     h += '</div>';
   });
   h += '<div style="font-size:9px;color:var(--t3);margin-top:9px;font-style:italic;line-height:1.5">⚠️ UNVALIDATED. The research found no method that reliably predicts which specific liquid coin will pump; the only literature that does concerns coordinated fraud on illiquid coins. This list is a ranking hypothesis — its honest test is whether the IC Lab eventually shows a positive cross-sectional information coefficient. Treat it as a watchlist, not a buy list.</div>';
