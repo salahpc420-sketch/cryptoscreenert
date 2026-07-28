@@ -2442,7 +2442,54 @@ function processSymbol(ticker) {
       var mom = c[n-1-momLB] > 0 ? Math.log(px / c[n-1-momLB]) : 0;
       var distHigh = highN > 0 ? px / highN : 0;
 
-      return { mom:mom, distHigh:distHigh, squeeze:squeeze, atrC:atrC, volDry:volDry, volExp:volExp,
+      // ── LIGHTWEIGHT DNA — the coin's PERSONALITY, computed here so Early Watch
+      //    can use it. Same thresholds as the DNA tab; a coiled Bleeder and a
+      //    coiled Trender look identical on the chart but are not the same bet.
+      var _dna = (function(){
+        var m = Math.min(n-1, 120);
+        var rngs = [], rets = [], up = 0;
+        for(var k = n-m; k < n; k++){
+          if(c[k-1] > 0){
+            rngs.push((h[k]-l[k])/c[k-1]*100);
+            var r = (c[k]-c[k-1])/c[k-1]*100; rets.push(r); if(r > 0) up++;
+          }
+        }
+        if(rets.length < 30) return null;
+        var avgRange = rngs.reduce(function(a,b){return a+b;},0)/rngs.length;
+        var avgRet   = rets.reduce(function(a,b){return a+b;},0)/rets.length;
+        var upPct    = up/rets.length*100;
+        // trendiness = R² of price vs time over rolling windows
+        var r2s = [], win = 20;
+        for(var s0 = n-m; s0 + win < n; s0 += win){
+          var xs=[], ys=[];
+          for(var q=0;q<win;q++){ xs.push(q); ys.push(c[s0+q]); }
+          var mx=xs.reduce(function(a,b){return a+b;},0)/win, my=ys.reduce(function(a,b){return a+b;},0)/win;
+          var sxy=0,sxx=0,syy=0;
+          for(var q=0;q<win;q++){ sxy+=(xs[q]-mx)*(ys[q]-my); sxx+=(xs[q]-mx)*(xs[q]-mx); syy+=(ys[q]-my)*(ys[q]-my); }
+          if(sxx>0&&syy>0) r2s.push((sxy*sxy)/(sxx*syy));
+        }
+        var trendiness = r2s.length ? Math.round(r2s.reduce(function(a,b){return a+b;},0)/r2s.length*100) : 0;
+        // pump giveback: how much of a >8% spike is handed back within 5 bars
+        var gb = [];
+        for(var k = n-m; k < n-6; k++){
+          if(c[k-1] > 0 && (c[k]-c[k-1])/c[k-1]*100 >= 8){
+            var pk = Math.max.apply(null, c.slice(k, k+6));
+            var tr = Math.min.apply(null, c.slice(k, k+6));
+            if(pk > c[k-1]) gb.push(Math.min(100, (pk-tr)/(pk-c[k-1])*100));
+          }
+        }
+        var giveback = gb.length ? gb.reduce(function(a,b){return a+b;},0)/gb.length : null;
+        var behavior;
+        if(trendiness >= 55 && avgRange < 7) behavior = 'Trender';
+        else if(giveback !== null && giveback >= 70 && avgRange >= 6) behavior = 'Pumper';
+        else if(trendiness < 35) behavior = 'Chopper';
+        else if(avgRet < -0.1 && upPct < 47) behavior = 'Bleeder';
+        else behavior = 'Balanced';
+        return { behavior:behavior, trendiness:trendiness, avgRange:Math.round(avgRange*10)/10,
+                 giveback: giveback!=null?Math.round(giveback):null };
+      })();
+
+      return { mom:mom, distHigh:distHigh, squeeze:squeeze, atrC:atrC, volDry:volDry, volExp:volExp, dna:_dna,
                bars:bars, baseDepth:baseDepth, posInBase:posInBase, higherLows:higherLows,
                isDecline:isDecline, baseType:baseType, priorLeg:priorLeg, offLow:offLow,
                aboveLTMA:aboveLTMA };
@@ -3124,6 +3171,7 @@ function loadAll() {
 
     // EARLY WATCH — cross-sectional base/expansion ranking
     try { computeEarlyWatch(allData); } catch(e){}
+    try { snapshotEarlyWatch(allData); resolveEarlyWatch(allData); } catch(e){}
 
     // CROSS-SECTIONAL IC ENGINE — snapshot scores + evaluate pending forward returns
     try { icMaybeSnapshot(allData); icEvaluatePending(allData); } catch(e){}
@@ -6307,7 +6355,7 @@ function renderJournal(){
 }
 
 function renderCoach(){
-  var _agentHTML = (function(){ try { return buildResearchAgentPanel() + buildLatenessPanel(); } catch(e){ return ''; } })();
+  var _agentHTML = (function(){ try { return buildResearchAgentPanel() + buildEarlyAuditPanel() + buildLatenessPanel(); } catch(e){ return ''; } })();
   var body=document.getElementById('journal-body');
   if(!body) return;
   var C = buildCoachAdvice();
@@ -13309,10 +13357,23 @@ function computeEarlyWatch(data){
     var tilt = (zMom[i] + hResid[i] + zRs[i]*wDown) / (2 + wDown);
     // POSITION PENALTY — buying the top of a base is the same mistake as chasing
     var posPen = e.posInBase > 0.8 ? -0.5 : (e.posInBase < 0.35 ? 0.25 : 0);
+    // DNA ADJUSTMENT — same base, different odds depending on the coin's history.
+    // A Trender that coils tends to resolve into a real move; a Bleeder that
+    // coils has historically faded its rallies. This is a HYPOTHESIS: the audit
+    // below measures whether the adjustment actually helps.
+    var dnaAdj = 0, beh = e.dna ? e.dna.behavior : null;
+    if(beh === 'Trender')      dnaAdj =  0.35;
+    else if(beh === 'Balanced') dnaAdj =  0.10;
+    else if(beh === 'Chopper')  dnaAdj = -0.15;   // ranges: breakouts fail more
+    else if(beh === 'Pumper')   dnaAdj = -0.30;   // spikes then gives it back
+    else if(beh === 'Bleeder')  dnaAdj = -0.45;   // rallies historically faded
+    d.earlyDna = beh; d.earlyDnaAdj = dnaAdj;
+    d.earlyGiveback = e.dna ? e.dna.giveback : null;
 
     d.earlyReadiness = Math.round(readiness*100)/100;
     d.earlyTilt      = Math.round(tilt*100)/100;
-    d.earlyScore     = Math.round(((readiness + tilt)/2 + posPen)*100)/100;
+    d.earlyScoreRaw  = Math.round(((readiness + tilt)/2 + posPen)*100)/100;   // without DNA
+    d.earlyScore     = Math.round(((readiness + tilt)/2 + posPen + dnaAdj)*100)/100;
     d.earlyBars      = e.bars;
     d.earlyPos       = Math.round(e.posInBase*100);
     d.earlyType      = e.baseType;
@@ -13332,6 +13393,115 @@ var EARLY_STATES = {
   bottoming:    { icon:'🟡', label:'Bottoming base', note:'higher lows forming off the low — real but unconfirmed; needs a breakout on volume', col:'var(--am)' },
   coiled:       { icon:'🟦', label:'Coiled (type unclear)', note:'heavy compression, direction unknown — watch, do not anticipate', col:'var(--t2)' }
 };
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EARLY-WATCH AUDIT — the honest test the research demanded. Every listed
+// candidate is recorded with its state and DNA class, then checked 48h later.
+// Crucially it also records the BOARD AVERAGE at the same moment, because
+// "listed coins went up 3%" is meaningless if the whole market went up 4%.
+// The benchmark is beating the board, not beating zero.
+// ═══════════════════════════════════════════════════════════════════════════
+function _ewLoad(){ try{ return JSON.parse(localStorage.getItem('ew_audit')||'[]'); }catch(e){ return []; } }
+function _ewSave(a){ try{ localStorage.setItem('ew_audit', JSON.stringify(a.slice(0,600))); }catch(e){} }
+
+function snapshotEarlyWatch(data){
+  var picks = data.filter(function(d){ return d.earlyState; });
+  if(!picks.length) return;
+  var a = _ewLoad(), now = Date.now();
+  // one snapshot per 12h keeps samples non-overlapping
+  if(a.length && (now - a[0].ts) < 12*3600000) return;
+  // the benchmark: what the whole scanned board did from here
+  var board = data.filter(function(d){ return d.price && !d._stale; });
+  var boardPx = {};
+  board.forEach(function(d){ boardPx[d.sym] = d.price; });
+  picks.slice(0, 12).forEach(function(d){
+    a.unshift({ sym:d.sym, pair:d.pair, state:d.earlyState, dna:d.earlyDna||null,
+                score:d.earlyScore, scoreRaw:d.earlyScoreRaw, price:d.price,
+                ts:now, fwd:null, boardFwd:null, _board:boardPx });
+  });
+  _ewSave(a);
+}
+
+function resolveEarlyWatch(data){
+  var a = _ewLoad(); if(!a.length) return;
+  var now = Date.now(), changed = false;
+  var px = {}; data.forEach(function(d){ if(d.price && !d._stale) px[d.sym] = d.price; });
+  a.forEach(function(r){
+    if(r.fwd != null) return;
+    if(now - r.ts < 48*3600000) return;
+    if(!px[r.sym] || !r.price) return;
+    r.fwd = Math.round((px[r.sym]-r.price)/r.price*1000)/10;
+    // board benchmark over the same window
+    if(r._board){
+      var moves = [];
+      Object.keys(r._board).forEach(function(s){
+        if(px[s] && r._board[s] > 0) moves.push((px[s]-r._board[s])/r._board[s]*100);
+      });
+      if(moves.length > 10){
+        moves.sort(function(x,y){ return x-y; });
+        r.boardFwd = Math.round(moves[Math.floor(moves.length/2)]*10)/10;   // median coin
+      }
+    }
+    delete r._board;             // free the space once resolved
+    changed = true;
+  });
+  if(changed) _ewSave(a);
+}
+
+function buildEarlyAuditPanel(){
+  var a = _ewLoad(), done = a.filter(function(r){ return r.fwd != null; });
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🌱 Early Watch — does it actually work?</div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.5;margin-bottom:.6rem">Every listed candidate is recorded and checked 48h later, against the <b>median coin on the board</b> at the same moment. Beating zero is meaningless; beating the board is the real test. Also splits results by DNA personality, to show whether the DNA adjustment earns its place.</div>';
+  if(done.length < 8){
+    return h + '<div style="font-size:11px;color:var(--t3)">⏳ '+a.length+' recorded · '+done.length+' resolved — needs 8+ (each takes 48h). Verdicts need far more; treat early numbers as noise.</div></div>';
+  }
+  function stat(rows){
+    if(!rows.length) return null;
+    var f = rows.reduce(function(s,r){return s+r.fwd;},0)/rows.length;
+    var b = rows.filter(function(r){return r.boardFwd!=null;});
+    var bm = b.length ? b.reduce(function(s,r){return s+r.boardFwd;},0)/b.length : null;
+    var win = rows.filter(function(r){ return r.fwd > 0; }).length;
+    return { n:rows.length, avg:f, board:bm, edge: bm!=null ? f-bm : null,
+             hit: Math.round(win/rows.length*100) };
+  }
+  var all = stat(done);
+  var edgeCol = (all.edge!=null && all.edge > 0.5) ? 'var(--g)' : (all.edge!=null && all.edge < -0.5) ? 'var(--r)' : 'var(--am)';
+  h += '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:.6rem">';
+  h += '<div><div style="font-size:19px;font-weight:800;color:var(--text)">'+(all.avg>=0?'+':'')+all.avg.toFixed(1)+'%</div><div style="font-size:10px;color:var(--t3)">listed coins, 48h</div></div>';
+  if(all.board!=null) h += '<div><div style="font-size:19px;font-weight:800;color:var(--t3)">'+(all.board>=0?'+':'')+all.board.toFixed(1)+'%</div><div style="font-size:10px;color:var(--t3)">median coin (benchmark)</div></div>';
+  if(all.edge!=null) h += '<div><div style="font-size:19px;font-weight:800;color:'+edgeCol+'">'+(all.edge>=0?'+':'')+all.edge.toFixed(1)+'%</div><div style="font-size:10px;color:var(--t3)">EDGE vs board</div></div>';
+  h += '<div><div style="font-size:19px;font-weight:800;color:var(--t2)">'+all.n+'</div><div style="font-size:10px;color:var(--t3)">resolved</div></div>';
+  h += '</div>';
+  var verdict = all.edge == null ? 'No benchmark yet.'
+    : all.n < 30 ? '⏳ '+all.n+' resolved — directionally '+(all.edge>0?'positive':'negative')+', but far too few to trust.'
+    : all.edge > 0.5 ? '🟢 Listed coins are beating the board — the ranking is showing edge.'
+    : all.edge < -0.5 ? '🔴 Listed coins are UNDERPERFORMING the board — the ranking is not working as built.'
+    : '⚠️ No edge over simply picking the median coin — the ranking is not adding value.';
+  h += '<div style="font-size:11px;font-weight:700;color:'+edgeCol+';margin-bottom:.6rem">'+verdict+'</div>';
+
+  // by state
+  h += '<div style="font-size:11px;font-weight:700;color:var(--t2);margin-bottom:3px">By base type</div>';
+  ['continuation','bottoming','coiled','triggered'].forEach(function(s){
+    var st = stat(done.filter(function(r){ return r.state===s; }));
+    if(!st) return;
+    h += '<div style="display:flex;gap:8px;font-size:10px;padding:2px 0;color:var(--t3)"><span style="min-width:96px">'+s+'</span>'
+       + '<span style="color:'+(st.avg>=0?'var(--g)':'var(--r)')+';font-weight:700">'+(st.avg>=0?'+':'')+st.avg.toFixed(1)+'%</span>'
+       + '<span>hit '+st.hit+'%</span><span style="margin-left:auto">n='+st.n+'</span></div>';
+  });
+  // by DNA — the direct test of whether the DNA adjustment is justified
+  h += '<div style="font-size:11px;font-weight:700;color:var(--t2);margin:7px 0 3px">By DNA personality — is the adjustment justified?</div>';
+  ['Trender','Balanced','Chopper','Pumper','Bleeder'].forEach(function(b){
+    var st = stat(done.filter(function(r){ return r.dna===b; }));
+    if(!st) return;
+    h += '<div style="display:flex;gap:8px;font-size:10px;padding:2px 0;color:var(--t3)"><span style="min-width:96px">'+b+'</span>'
+       + '<span style="color:'+(st.avg>=0?'var(--g)':'var(--r)')+';font-weight:700">'+(st.avg>=0?'+':'')+st.avg.toFixed(1)+'%</span>'
+       + '<span>hit '+st.hit+'%</span><span style="margin-left:auto">n='+st.n+'</span></div>';
+  });
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:8px;font-style:italic">If Trenders do not outperform Bleeders here once n is meaningful, the DNA adjustment is unjustified and should be removed. That is the point of measuring it.</div>';
+  return h + '</div>';
+}
 
 function buildEarlyWatchPanel(){
   var rows = (allData||[]).filter(function(d){ return d.earlyState; })
@@ -13360,7 +13530,9 @@ function buildEarlyWatchPanel(){
                : d.earlyPos>=80 ? 'upper edge of base — late within the range'
                : 'mid-base';
     h += '<div style="font-size:10px;color:var(--t3);margin-top:2px;line-height:1.5">'+st.note+'</div>';
+    var dnaTxt = d.earlyDna ? ('🧬 '+d.earlyDna+(d.earlyGiveback!=null?' ('+d.earlyGiveback+'% giveback)':'')) : '';
     h += '<div style="font-size:10px;color:var(--t3);margin-top:1px">'
+       + (dnaTxt ? dnaTxt+' · ' : '')
        + '📏 based '+d.earlyBars+' bars · '+posTxt
        + ' · readiness '+(d.earlyReadiness>=0?'+':'')+d.earlyReadiness
        + ' · tilt '+(d.earlyTilt>=0?'+':'')+d.earlyTilt+'</div>';
