@@ -2702,45 +2702,64 @@ function processSymbol(ticker) {
     // Smart Money Concepts — BOS / CHoCH structure markers
     var smc = calcSMC(h, l, c);
 
-    // ── INVESTING / ACCUMULATION SCORE (0-100) ───────────────────────────────
-    // Different goal than trading: reward buying QUALITY coins at a DISCOUNT for a
-    // long hold. Rewards: large-cap survival, discount from highs, oversold, near
-    // long-term support. Does NOT need momentum or BTC bullish (downturns are good).
-    var invScore = 0;
+    // ── INVESTING / ACCUMULATION SCORE v2 — rebuilt from the research ────────
+    // v1 problems the evidence exposed:
+    //   1. It summed drawdown + oversold RSI + distance-below-200EMA. A coin
+    //      that fell 40% scores on all three — one fact counted three times.
+    //   2. It rewarded being 5-20% BELOW the 200 EMA (+18) MORE than being at
+    //      it (+12). The evidence treats the 200-day MA as a REGIME FILTER
+    //      (hold above a rising MA, stand aside below) — v1 had it backwards.
+    //   3. Rank was worth points, so a rank-90 coin could still score well.
+    //      5-year survival is ~17% overall and rises steeply with rank, so
+    //      survivorship belongs as a HARD GATE, not a few points.
+    //   4. "Discount" used 90 bars (~15 days on 4h) for a months-to-years hold.
+    // v2: hard survivability gate → ONE cheapness factor → regime multiplier.
     var coinRank = RANK[sym] || 999;
-    // 1. Survival likelihood — market-cap rank (top coins far more likely to recover)
-    if (coinRank <= 10)      invScore += 30;
-    else if (coinRank <= 25) invScore += 22;
-    else if (coinRank <= 50) invScore += 12;
-    else if (coinRank <= 100) invScore += 5;
-    // (low-cap coins get little — most don't survive a cycle; honest weighting)
-    // 2. Discount from recent high — bigger pullback = better accumulation price
-    var hi90 = Math.max.apply(null, c.slice(-90));
-    var ddHigh = hi90>0 ? (price-hi90)/hi90*100 : 0;
-    if (ddHigh <= -40)      invScore += 28;
-    else if (ddHigh <= -25) invScore += 22;
-    else if (ddHigh <= -12) invScore += 14;
-    else if (ddHigh <= -5)  invScore += 6;
-    // (near highs = no discount = poor accumulation entry)
-    // 3. Oversold — lower RSI = better long-term entry (opposite of trading!)
-    if (rsi <= 30)      invScore += 22;
-    else if (rsi <= 40) invScore += 15;
-    else if (rsi <= 50) invScore += 8;
-    // 4. Near long-term support (200 EMA) — value zone for accumulation
-    var distE200pct = e200>0 ? (price-e200)/e200*100 : 0;
-    if (distE200pct >= -5 && distE200pct <= 8)      invScore += 12; // right at the 200 EMA
-    else if (distE200pct < -5 && distE200pct >= -20) invScore += 18; // below it = deeper value
-    else if (distE200pct < -20)                      invScore += 8;  // very deep (riskier)
-    // 5. Not in freefall — some basing/stabilization is healthier than a knife
-    var falling5 = c.length>=6 ? (price-c[c.length-6])/c[c.length-6]*100 : 0;
-    if (falling5 < -15) invScore -= 8; // still crashing — wait for stabilization
-    // QUALITY GATE (fix: don't just reward things that fell). A coin in a severe
-    // long-term downtrend (price far below a falling 200 EMA) is more likely dying
-    // than discounted — cap its Value score so deep-downtrend junk can't rank high.
-    var e200Falling = c.length>=10 ? e200 < calcEMA(c.slice(0,-5), Math.min(200,c.length-5)) : false;
-    var farBelow200 = distE200pct < -25;
-    if (e200Falling && farBelow200 && coinRank > 25) invScore = Math.min(invScore, 45); // cap non-bluechip falling knives
+    var invScore = 0, invEligible = false, invReason = '';
+
+    // 1. SURVIVORSHIP GATE — even the top-25 is not safe (LUNA was top-10 and
+    //    went to zero), but below it permanent impairment is the base case.
+    invEligible = (coinRank <= 25) && (vol24 > 20000000);
+    if(!invEligible){
+      invReason = coinRank > 25 ? 'outside top-25 — survivorship risk too high for a multi-year hold'
+                                : 'liquidity too thin for accumulation';
+    }
+
+    // long-horizon drawdown (not 90 bars) — matches the holding period
+    var hiLong = Math.max.apply(null, c.slice(-Math.min(c.length, 400)));
+    var ddLong = hiLong > 0 ? (price - hiLong)/hiLong*100 : 0;
+    var distE200pct = e200 > 0 ? (price - e200)/e200*100 : 0;
+    var e200Rising = c.length >= 15
+      ? e200 > calcEMA(c.slice(0, -10), Math.min(200, c.length-10)) : false;
+
+    if(invEligible){
+      // 2. CHEAPNESS — a SINGLE factor. Drawdown carries most of the weight and
+      //    RSI is a light confirmation, instead of three correlated bonuses.
+      var cheapDD  = Math.max(0, Math.min(1, -ddLong / 60));      // -60% = fully cheap
+      var cheapRSI = Math.max(0, Math.min(1, (55 - rsi) / 30));   // RSI 25 = fully cheap
+      var cheapness = cheapDD * 0.75 + cheapRSI * 0.25;
+
+      // 3. REGIME MULTIPLIER — the corrected 200 EMA logic. Cheap AND trend
+      //    intact is the prize; cheap below a FALLING 200 EMA is a falling knife.
+      var regime;
+      if(price > e200 && e200Rising)      regime = 1.00;   // discount inside an intact uptrend
+      else if(price > e200)               regime = 0.75;   // above, but MA flat/rolling
+      else if(e200Rising)                 regime = 0.45;   // dip beneath a still-rising MA
+      else                                regime = 0.12;   // below a falling MA — was +18 in v1
+      // 4. Rank credit — top-10 has materially better survival odds than 11-25
+      var rankMult = coinRank <= 10 ? 1.0 : 0.75;
+      // 5. Still crashing? wait for it to stop.
+      var falling5 = c.length>=6 ? (price-c[c.length-6])/c[c.length-6]*100 : 0;
+      var freefall = falling5 < -15 ? 0.6 : 1.0;
+
+      invScore = Math.round(100 * cheapness * regime * rankMult * freefall);
+      invReason = (cheapness < 0.15) ? 'no meaningful discount yet'
+                : (regime <= 0.12)   ? 'discounted, but below a falling 200 EMA — knife risk'
+                : (regime >= 1.0)    ? 'discounted while the long-term trend is still intact'
+                : 'discounted, trend weakening — size accordingly';
+    }
     invScore = Math.max(0, Math.min(100, Math.round(invScore)));
+    var ddHigh = ddLong;
 
     return {
       sym:sym, pair:pair, price:price, chg:chg, vol24:vol24,
@@ -2750,6 +2769,7 @@ function processSymbol(ticker) {
       trend:trend, volR:volR, atrPct:atrPct,
       fromHigh: (function(){ var hi=Math.max.apply(null,c.slice(-30)); return hi>0?(price-hi)/hi*100:0; })(),
       invScore:invScore, ddHigh:Math.round(ddHigh), distE200:Math.round(distE200pct),
+      invEligible:invEligible, invReason:invReason, e200Rising:e200Rising, coinRank:coinRank,
       struct:st, liq:liq, sup:sr.sup, res:sr.res, sDist:sr.sDist, rDist:sr.rDist,
       score:sc, bp:bp, pp:pp,
       buySignal:signalBuyActive, strongBuy:signalStrongActive, highConviction:highConviction,
@@ -3173,6 +3193,9 @@ function loadAll() {
     // PHASE 9: Opportunity Score — master rank (needs rsRank + accum + bp)
     allData.forEach(function(d){ d.opportunity = calcOpportunity(d); });
 
+    // TURNOVER — usage-vs-price proxy, then fold it into the investing score
+    try { applyTurnover(allData); applyTurnoverToInvScore(allData); } catch(e){}
+
     // EARLY WATCH — cross-sectional base/expansion ranking
     try { computeEarlyWatch(allData); } catch(e){}
     try { snapshotEarlyWatch(allData); resolveEarlyWatch(allData); } catch(e){}
@@ -3203,6 +3226,7 @@ function loadAll() {
     render();
     checkAlerts(allData);
     try { fetchDominance(); } catch(e){}             // live BTC.D / USDT.D
+    try { fetchMarketCaps(); } catch(e){}            // market caps → turnover
     try { checkWatchers(allData); } catch(e){}       // user-defined coin watchers
     try { checkAIMemoAlerts(allData); } catch(e){}   // AI entry-zone watches
     try { resolveLatenessBlocks(allData); } catch(e){}   // grade the lateness guard
@@ -3303,7 +3327,7 @@ function applyTradeMode(){
   var mHint = document.getElementById('m-mode-hint');
   if(mHint){
     mHint.innerHTML = _investMode
-      ? '💎 Ranking quality coins by <strong>accumulation value</strong> (discounted, oversold, large-cap). A falling market is an opportunity here. Tap a coin → 🧬 DNA tab for its DCA ladder + exit plan.'
+      ? '💎 Ranking top-25 coins by <strong>discount inside an intact long-term trend</strong>. Cheap below a falling 200 EMA now scores near zero — that is knife risk, not value. Tap a coin → 🧬 DNA tab for its DCA ladder'
       : '🎯 Short-term setups needing momentum + supportive BTC. Quiet in downturns (that\'s correct — switch to 💎 Investing to accumulate the dip).';
   }
   document.body.classList.toggle('invest-mode', _investMode);
@@ -3328,7 +3352,7 @@ function renderModeBanner(){
     banner.style.cssText='background:rgba(124,77,255,.08);border:.5px solid rgba(124,77,255,.3);border-radius:var(--rad);padding:8px 14px;margin:0 0 8px;font-size:12px;color:#7c4dff;line-height:1.5';
     var bz = (typeof detectMarketBuyZone==='function') ? detectMarketBuyZone() : null;
     var bzNote = bz ? ' Market buy-zone score: <strong>'+bz.score+'/100</strong> ('+bz.verdict.replace(/[🟢🟡⚪🔴]/g,'').trim()+').' : '';
-    banner.innerHTML='💎 <strong>Investing mode</strong> — ranking quality coins by accumulation value (large-cap, discounted, oversold, near long-term support). A falling market is an <em>opportunity</em> here, not a warning. Use DCA ladders (🧬 DNA tab) and respect each coin\'s invalidation.'+bzNote+' <span style="color:var(--t3)">Buy coins you\'d hold for months — not quick trades.</span>';
+    banner.innerHTML='💎 <strong>Investing mode</strong> — top-25 coins only (5-year survival is ~17% overall and rises steeply with rank), scored on a single discount factor with the 200 EMA used as a <em>trend filter</em> rather than a value bonus.'+bzNote+' <span style="color:var(--am)">⚠️ Benchmark: only 10-20% of top-150 tokens beat BTC in any 365-day window since 2021, and alts have lost to BTC four calendar years running. DCA-ing into BTC is the bar any selection here must clear.</span>';
   } else {
     banner.style.cssText='background:rgba(38,166,154,.07);border:.5px solid rgba(38,166,154,.25);border-radius:var(--rad);padding:8px 14px;margin:0 0 8px;font-size:12px;color:var(--g);line-height:1.5';
     banner.innerHTML='🎯 <strong>Trading mode</strong> — short-term setups needing momentum + BTC stable/bullish + good R:R. In a downturn this correctly goes quiet (few signals = not a good time to trade). Switch to 💎 Investing to accumulate the dip instead.';
@@ -5615,7 +5639,9 @@ function runHealthCheck(){
 // ═══════════════════════════════════════════════════════════════════════════
 var IC_SCORE_FIELDS = { opportunity:'Opportunity Score', score:'Signal Score', bp:'Breakout Probability',
                         rsRank:'RS Rank', momRank:'Momentum Rank', trendQ:'Trend Quality',
-                        accum:'Accumulation Score', volR:'Volume Ratio' };
+                        accum:'Accumulation Score', volR:'Volume Ratio',
+                        invScore:'Investment Score (investing mode)',
+                        turnover:'Turnover (volume/mktcap)' };
 
 function _icLoad(k){ try{ return JSON.parse(localStorage.getItem(k)||'[]'); }catch(e){ return []; } }
 function _icSave(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
@@ -13450,6 +13476,88 @@ function buildRegimePanel(){
   if(r.provisional) h += '<div style="font-size:9px;color:var(--t3);margin-top:6px;font-style:italic">Dominance direction needs ~24h of readings before it can be trusted — until then this falls back to the older breadth-based proxy. Open the app daily and it fills in.</div>';
   h += '<div style="font-size:9px;color:var(--t3);margin-top:6px;font-style:italic">Regime is recorded with every logged signal, so the Coach can eventually grade whether these modes actually predicted anything.</div>';
   return h + '</div>';
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TURNOVER — a free stand-in for "network usage relative to price"
+// The research's best-evidenced value factor (Liebi 2022) is active-addresses-
+// to-network-value: cheap relative to real usage. That needs on-chain data that
+// is paid for 80 coins. The closest FREE analogue is TURNOVER = 24h volume /
+// market cap, from one CoinGecko /coins/markets call.
+// Be clear about what this is and is NOT:
+//   • it measures MARKET activity (trading) relative to valuation
+//   • it does NOT measure on-chain usage or adoption
+//   • the SIGN is genuinely uncertain — in equities high turnover predicts
+//     LOWER returns (attention/overvaluation), while Liebi's usage ratio
+//     predicts HIGHER. So this ships with a small weight and is fed to the IC
+//     Lab, letting the data decide rather than assuming a direction.
+// ═══════════════════════════════════════════════════════════════════════════
+var _mktCap = {}, _turnover = {}, _capFresh = false;
+
+function fetchMarketCaps(){
+  var cached = null;
+  try { cached = JSON.parse(localStorage.getItem('cg_markets')||'null'); } catch(e){}
+  if(cached && (Date.now() - cached.ts) < 1800000){ _applyCaps(cached.rows); return Promise.resolve(); }
+  return fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false')
+    .then(function(r){ return r.json(); })
+    .then(function(rows){
+      if(!Array.isArray(rows) || !rows.length) throw new Error('no market data');
+      var slim = rows.map(function(x){
+        return { s:(x.symbol||'').toUpperCase(), cap:x.market_cap, vol:x.total_volume };
+      });
+      try { localStorage.setItem('cg_markets', JSON.stringify({ ts:Date.now(), rows:slim })); } catch(e){}
+      _applyCaps(slim); _capFresh = true;
+    })
+    .catch(function(){ if(cached) _applyCaps(cached.rows); _capFresh = false; });
+}
+
+function _applyCaps(rows){
+  _mktCap = {}; _turnover = {};
+  (rows||[]).forEach(function(x){
+    if(!x.s || !x.cap || x.cap <= 0) return;
+    _mktCap[x.s] = x.cap;
+    _turnover[x.s] = (x.vol || 0) / x.cap;    // 24h volume ÷ market cap
+  });
+}
+
+// Attach turnover to each coin, then z-score it across the eligible universe.
+
+// Fold turnover into invScore. SMALL weight on purpose: the direction of this
+// factor is not established for crypto (equities say high turnover → lower
+// returns; Liebi's usage ratio says the opposite). It can move the score by at
+// most about a fifth, and it is logged to the IC Lab so its true sign gets
+// measured instead of assumed.
+function applyTurnoverToInvScore(data){
+  data.forEach(function(d){
+    d.invScoreBase = d.invScore;                 // keep the pre-turnover value
+    if(!d.invEligible || d.turnoverZ == null) return;
+    var mult = 1 + Math.max(-0.20, Math.min(0.20, d.turnoverZ * 0.09));
+    d.invScore = Math.max(0, Math.min(100, Math.round(d.invScore * mult)));
+    d.invTurnNote = d.turnoverZ > 0.5 ? 'high activity for its size'
+                  : d.turnoverZ < -0.5 ? 'quiet relative to its size' : null;
+  });
+}
+
+function applyTurnover(data){
+  if(!data || !data.length) return;
+  var vals = [];
+  data.forEach(function(d){
+    var base = (d.sym||'').replace('USDT','').replace('JPY','').toUpperCase();
+    var t = _turnover[base];
+    d.turnover = (t != null && isFinite(t)) ? t : null;
+    d.mktCap   = _mktCap[base] || null;
+    if(d.turnover != null && d.invEligible) vals.push(d.turnover);
+  });
+  if(vals.length < 6){ data.forEach(function(d){ d.turnoverZ = null; }); return; }
+  // log-transform: turnover is heavily right-skewed
+  var logs = vals.map(function(v){ return Math.log(Math.max(1e-6, v)); });
+  var m = logs.reduce(function(a,b){return a+b;},0)/logs.length;
+  var sd = Math.sqrt(logs.reduce(function(a,b){return a+(b-m)*(b-m);},0)/logs.length);
+  data.forEach(function(d){
+    if(d.turnover == null || !(sd > 0)){ d.turnoverZ = null; return; }
+    d.turnoverZ = Math.max(-2.5, Math.min(2.5, (Math.log(Math.max(1e-6,d.turnover)) - m)/sd));
+  });
 }
 
 function computeEarlyWatch(data){
