@@ -3142,7 +3142,11 @@ function loadAll() {
       _breadthWeak = _breadth < 35;  // fewer than 35% of coins in uptrends
       // BTC dominance proxy: BTC strongly up while breadth weak = money fleeing
       // alts into BTC (rising dominance) — the classic alt-unfriendly regime.
-      _btcDominanceRising = btc && btc.chg > 1.5 && _breadth < 45;
+      // Real BTC.D when we have 24h of history, proxy otherwise
+      _btcDominanceRising = (_btcDomChg != null)
+        ? (_btcDomChg > 0.05)
+        : (btc && btc.chg > 1.5 && _breadth < 45);
+      _regime = classifyRegime();
     })();
 
     // PHASE 7: Rank Relative Strength 1-99 across all coins (percentile)
@@ -3198,6 +3202,7 @@ function loadAll() {
     renderMacroRegime();
     render();
     checkAlerts(allData);
+    try { fetchDominance(); } catch(e){}             // live BTC.D / USDT.D
     try { checkWatchers(allData); } catch(e){}       // user-defined coin watchers
     try { checkAIMemoAlerts(allData); } catch(e){}   // AI entry-zone watches
     try { resolveLatenessBlocks(allData); } catch(e){}   // grade the lateness guard
@@ -5024,6 +5029,10 @@ function autoLogSignals(){
       if(_ethWeak) return;              // ETH underperforming BTC → alts bleed
       if(_btcDominanceRising) return;   // money rotating into BTC → alt-unfriendly
       if(_breadthWeak) return;          // <35% of coins in uptrends → broad risk-off
+      // REGIME GATE — a hard gate, deliberately not a score multiplier. In
+      // risk-off, capital is leaving; in BTC season it is arriving but going to
+      // BTC, and this trader's own log showed alt entries then won 18% vs 32%.
+      if(_regime && (_regime.mode==='risk_off' || _regime.mode==='btc_season')) return;
     }
 
     // ── ANALYST GATE — only log trades the analyst grades A or B ──────────────
@@ -5164,7 +5173,9 @@ function autoLogSignals(){
       btcState: btcState,   // record BTC backdrop at log time for later analysis
       btcStateAtEntry: btcState, // snapshot for exit comparison
       htfAligned: (TF==='1d'||TF==='1w') ? null : ((window._dailyTrend && window._dailyTrend[d.sym] != null) ? window._dailyTrend[d.sym] : null), // was the DAILY trend up at entry? (Murphy M6, recorded for the Coach to grade)
-      mktContext: { ethVsBtc: Math.round(_ethVsBtc*10)/10, breadth: _breadth, domRising: _btcDominanceRising }, // alt-weather at entry, for grading
+      mktContext: { ethVsBtc: Math.round(_ethVsBtc*10)/10, breadth: _breadth, domRising: _btcDominanceRising,
+                    regime: _regime ? _regime.mode : null, btcD: _btcDom, usdtD: _usdtDom,
+                    btcDChg: _btcDomChg, usdtDChg: _usdtDomChg }, // alt-weather + regime at entry, for grading
       momQuintile: d.momQuintile || null, momRank: d.momRank || null, // cross-sectional momentum at entry (audit item 2, for grading)
       analystGrade: analystGrade, // A/B — the analyst-gate grade this entry passed
       entryReason: entryReason,  // detailed why-it-fired record
@@ -5854,6 +5865,10 @@ function _agentContext(){
     btcState: btcState, breadthPctAbove200: _breadth,
     ethVsBtc24h: Math.round(_ethVsBtc*10)/10,
     altWeather: (_ethWeak||_btcDominanceRising||_breadthWeak) ? 'alt-unfriendly' : 'ok',
+    regime: _regime ? { mode:_regime.mode, why:_regime.why, provisional:_regime.provisional } : null,
+    btcDominance: _btcDom!=null ? { pct:_btcDom, chg24h:_btcDomChg } : null,
+    usdtDominance: _usdtDom!=null ? { pct:_usdtDom, chg24h:_usdtDomChg,
+      meaning:'rising USDT.D = capital parking in stablecoins = risk-off' } : null,
     suppressionReasons: [ _ethWeak?'ETH weakening vs BTC':null,
       _btcDominanceRising?'BTC dominance rising':null,
       _breadthWeak?'breadth under 35%':null ].filter(Boolean),
@@ -13319,6 +13334,124 @@ function _residualize(y, x){
   return y.map(function(yi,i){ return yi - (my + b*(x[i]-mx)); });
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LIVE DOMINANCE (BTC.D / USDT.D) + REGIME CLASSIFIER
+// Real dominance from CoinGecko's free /global endpoint — no key needed. The
+// old BTC.D was a proxy (BTC up + breadth weak); this is the actual number.
+// USDT.D is the genuinely new signal: capital sitting in stablecoins is capital
+// NOT deployed. Rising USDT.D is the cleanest risk-off tell available for free.
+// Direction is derived from our own stored history (the free API gives no
+// dominance time series), so it needs ~a day of readings before it can call a
+// trend — until then it reports "collecting" rather than guessing.
+// ═══════════════════════════════════════════════════════════════════════════
+var _btcDom = null, _usdtDom = null, _btcDomChg = null, _usdtDomChg = null;
+var _regime = null, _domFresh = false;
+
+function _domHist(){ try{ return JSON.parse(localStorage.getItem('dom_history')||'[]'); }catch(e){ return []; } }
+function _domSave(h){ try{ localStorage.setItem('dom_history', JSON.stringify(h.slice(-400))); }catch(e){} }
+
+function fetchDominance(){
+  var h = _domHist(), now = Date.now();
+  // cache 10 minutes — dominance moves slowly and the free tier is rate-limited
+  if(h.length && (now - h[h.length-1].ts) < 600000){ _applyDominance(h); return Promise.resolve(); }
+  return fetch('https://api.coingecko.com/api/v3/global')
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      var mc = j && j.data && j.data.market_cap_percentage;
+      if(!mc || mc.btc == null) throw new Error('no dominance data');
+      h.push({ ts: now, btc: mc.btc, usdt: mc.usdt || 0,
+               stables: (mc.usdt||0) + (mc.usdc||0) + (mc.dai||0) });
+      _domSave(h); _applyDominance(h); _domFresh = true;
+    })
+    .catch(function(){ _domFresh = false; _applyDominance(h); });   // keep last known
+}
+
+function _applyDominance(h){
+  if(!h.length){ _btcDom = _usdtDom = null; return; }
+  var last = h[h.length-1];
+  _btcDom = last.btc; _usdtDom = last.usdt;
+  // compare against the reading closest to 24h ago
+  var target = Date.now() - 24*3600000, ref = null, best = Infinity;
+  h.forEach(function(r){ var d = Math.abs(r.ts - target); if(d < best){ best = d; ref = r; } });
+  if(ref && ref !== last && best < 18*3600000){
+    _btcDomChg  = Math.round((last.btc  - ref.btc )*100)/100;
+    _usdtDomChg = Math.round((last.usdt - ref.usdt)*100)/100;
+  } else { _btcDomChg = null; _usdtDomChg = null; }   // not enough history yet
+}
+
+// The four modes. Deliberately a GATE, not a score multiplier — an arbitrary
+// "+15% confidence" is unfalsifiable, whereas "this regime allowed/blocked the
+// entry" produces a clean record the Coach can grade later.
+function classifyRegime(){
+  var up   = btcState === 'bullish';
+  var flat = btcState === 'stable';
+  var down = btcState === 'falling' || btcState === 'dumping';
+  var bd = _btcDomChg, ud = _usdtDomChg;
+  var known = (bd != null && ud != null);
+  var mode, why;
+  if(!known){
+    // fall back to the old proxy logic until dominance history exists
+    if(down) { mode='risk_off'; why='BTC '+btcState+' (dominance history still building)'; }
+    else if(_btcDominanceRising) { mode='btc_season'; why='BTC strong while breadth weak (proxy)'; }
+    else if(_breadthWeak) { mode='risk_off'; why='breadth '+_breadth+'% — most coins in downtrends'; }
+    else { mode='neutral'; why='mixed signals (dominance history still building)'; }
+    return { mode:mode, why:why, provisional:true };
+  }
+  if(down && ud > 0.05){
+    mode='risk_off'; why='BTC '+btcState+' and USDT.D rising '+(ud>0?'+':'')+ud+'pt — capital moving to the sidelines';
+  } else if(up && bd > 0.05 && ud < -0.02){
+    mode='btc_season'; why='BTC up, dominance +'+bd+'pt, USDT.D '+ud+'pt — money entering, but into BTC not alts';
+  } else if((up || flat) && bd < -0.05 && ud < -0.02){
+    mode='altseason'; why='BTC '+(up?'up':'stable')+', dominance '+bd+'pt, USDT.D '+ud+'pt — capital rotating out of BTC into alts';
+  } else if(ud > 0.10){
+    mode='risk_off'; why='USDT.D rising +'+ud+'pt — capital parking in stablecoins';
+  } else {
+    mode='neutral'; why='mixed: BTC '+btcState+', dominance '+(bd>=0?'+':'')+bd+'pt, USDT.D '+(ud>=0?'+':'')+ud+'pt';
+  }
+  return { mode:mode, why:why, provisional:false };
+}
+
+var REGIME_MODES = {
+  btc_season: { icon:'₿',  label:'BTC season', col:'var(--am)',
+                action:'Money is entering, but into BTC and large caps. Alt setups underperform here — your own log showed BTC-bullish entries winning 18% vs 32% when BTC was merely stable.' },
+  altseason:  { icon:'🚀', label:'Alt season', col:'var(--g)',
+                action:'Capital is rotating out of BTC into alts with stablecoins deploying. This is the regime alt breakouts and coiled bases actually pay in.' },
+  risk_off:   { icon:'🛡', label:'Risk-off', col:'var(--r)',
+                action:'Capital is heading to the sidelines. Bases mostly resolve downward here. Watchlist only — the backtest showed coils LOSE in absolute terms in a falling tape.' },
+  neutral:    { icon:'⚖️', label:'Neutral', col:'var(--t2)',
+                action:'Mixed flows. Only the highest-quality setups justify action; everything marginal is a pass.' }
+};
+
+function buildRegimePanel(){
+  var r = _regime || classifyRegime();
+  var m = REGIME_MODES[r.mode] || REGIME_MODES.neutral;
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.4rem">'
+     + '<span style="font-size:16px">'+m.icon+'</span>'
+     + '<span style="font-size:13px;font-weight:800;color:'+m.col+'">'+m.label+'</span>'
+     + (r.provisional ? '<span style="font-size:9px;color:var(--am);background:rgba(245,158,11,.15);padding:2px 7px;border-radius:99px">provisional</span>' : '')
+     + '<span style="margin-left:auto;font-size:9px;color:var(--t3)">'+(_domFresh?'live':'cached')+' · CoinGecko</span></div>';
+  h += '<div style="font-size:11px;color:var(--t2);margin-bottom:.5rem">'+r.why+'</div>';
+  // the two dominance numbers
+  h += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:.5rem">';
+  function dom(lbl, val, chg, invert){
+    if(val == null) return '<div><div style="font-size:16px;font-weight:800;color:var(--t3)">—</div><div style="font-size:10px;color:var(--t3)">'+lbl+'</div></div>';
+    var good = invert ? (chg != null && chg < 0) : (chg != null && chg > 0);
+    var col = chg == null ? 'var(--t3)' : (good ? 'var(--g)' : 'var(--r)');
+    return '<div><div style="font-size:16px;font-weight:800;color:var(--text)">'+val.toFixed(2)+'%</div>'
+         + '<div style="font-size:10px;color:'+col+'">'+lbl+(chg!=null?' '+(chg>=0?'+':'')+chg+'pt/24h':' (collecting)')+'</div></div>';
+  }
+  h += dom('BTC.D', _btcDom, _btcDomChg, false);
+  h += dom('USDT.D', _usdtDom, _usdtDomChg, true);
+  h += '<div><div style="font-size:16px;font-weight:800;color:var(--text)">'+_breadth+'%</div><div style="font-size:10px;color:var(--t3)">breadth</div></div>';
+  h += '</div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;background:var(--card3);border-radius:7px;padding:8px 10px">'+m.action+'</div>';
+  if(r.provisional) h += '<div style="font-size:9px;color:var(--t3);margin-top:6px;font-style:italic">Dominance direction needs ~24h of readings before it can be trusted — until then this falls back to the older breadth-based proxy. Open the app daily and it fills in.</div>';
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:6px;font-style:italic">Regime is recorded with every logged signal, so the Coach can eventually grade whether these modes actually predicted anything.</div>';
+  return h + '</div>';
+}
+
 function computeEarlyWatch(data){
   // Only coins that are genuinely BASING are eligible. This is the v2 fix: a
   // decline has the same volatility/volume signature as a coil, so it must be
@@ -13449,13 +13582,175 @@ function resolveEarlyWatch(data){
   if(changed) _ewSave(a);
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COIL BACKTEST — the forward audit is honest but slow (48h per sample). This
+// answers the same question from HISTORY in about a minute: did compressed
+// coins actually outperform the board afterwards? Same feature logic as the
+// live detector, applied at every historical bar, benchmarked against the
+// MEDIAN coin over the identical window.
+// ═══════════════════════════════════════════════════════════════════════════
+function runCoilBacktest(){
+  var out = document.getElementById('coil-bt-out');
+  if(!out) return;
+  var universe = (allData||[]).filter(function(d){ return d.vol24 > 3000000; })
+                 .sort(function(a,b){ return (b.vol24||0)-(a.vol24||0); }).slice(0, 45);
+  // BTC must be included — it defines the regime the results are split by
+  var btcD = (allData||[]).find(function(d){ return d.sym==='BTCUSDT' || d.sym==='BTCJPY'; });
+  if(btcD && !universe.some(function(d){ return d.sym===btcD.sym; })) universe.push(btcD);
+  if(universe.length < 15){ out.innerHTML = '<div style="font-size:11px;color:var(--t3)">Need a loaded board first.</div>'; return; }
+  out.innerHTML = '<div style="font-size:11px;color:var(--t3)">⏮ Fetching history for '+universe.length+' coins…</div>';
+
+  var FWD = 12;              // forward window in bars (on 4h ≈ 2 days)
+  Promise.all(universe.map(function(d){
+    return bybitKlines(d.sym, TF, 200).then(function(kl){ return {sym:d.sym, kl:kl}; })
+                                      .catch(function(){ return null; });
+  })).then(function(res){
+    var coins = res.filter(function(x){ return x && x.kl && x.kl.length > 90; });
+    if(coins.length < 15){ out.innerHTML = '<div style="font-size:11px;color:var(--r)">Not enough history returned.</div>'; return; }
+    var minLen = Math.min.apply(null, coins.map(function(x){ return x.kl.length; }));
+
+    // per-coin arrays
+    coins.forEach(function(x){
+      var k = x.kl.slice(-minLen);
+      x.h = k.map(function(r){return parseFloat(r[2]);});
+      x.l = k.map(function(r){return parseFloat(r[3]);});
+      x.c = k.map(function(r){return parseFloat(r[4]);});
+      x.v = k.map(function(r){return parseFloat(r[5]);});
+    });
+
+    // compression at bar i, measured against that coin's own prior history
+    function compressionAt(x, i){
+      function bwAt(j){
+        var w = x.c.slice(Math.max(0,j-19), j+1); if(w.length < 20) return null;
+        var m = w.reduce(function(a,b){return a+b;},0)/w.length;
+        var sd = Math.sqrt(w.reduce(function(a,b){return a+(b-m)*(b-m);},0)/w.length);
+        return m > 0 ? (4*sd)/m : null;
+      }
+      var now = bwAt(i); if(now == null) return null;
+      var hist = [];
+      for(var j = Math.max(20, i-80); j < i; j++){ var b = bwAt(j); if(b!=null) hist.push(b); }
+      if(hist.length < 25) return null;
+      var pct = hist.filter(function(z){ return z < now; }).length / hist.length;
+      // volume dry-up over the same moment
+      function avg(a){ return a.length ? a.reduce(function(p,q){return p+q;},0)/a.length : 0; }
+      var vd = avg(x.v.slice(Math.max(0,i-49), i+1)) > 0
+             ? avg(x.v.slice(Math.max(0,i-4), i+1)) / avg(x.v.slice(Math.max(0,i-49), i+1)) : 1;
+      // decline filter — same idea as the live detector
+      var lo90 = Math.min.apply(null, x.l.slice(Math.max(0,i-89), i+1));
+      var offLow = lo90 > 0 ? (x.c[i]-lo90)/lo90*100 : 0;
+      return { pct: pct, volRatio: vd, offLow: offLow };
+    }
+
+    // BTC REGIME per historical bar — a coil in a falling tape is a different
+    // animal from a coil in a rising one, and for SPOT (no shorting) only the
+    // absolute return is tradable. Split the results so this cannot hide.
+    var btcCoin = coins.find(function(x){ return x.sym==='BTCUSDT' || x.sym==='BTCJPY'; });
+    var btcUp = null;
+    if(btcCoin){
+      var bc = btcCoin.c, ema = [], k = 2/21, prev = null;
+      for(var q=0;q<bc.length;q++){ prev = (prev==null) ? bc[q] : bc[q]*k + prev*(1-k); ema.push(prev); }
+      btcUp = bc.map(function(p,q){ return q>0 ? (p > ema[q] && ema[q] >= ema[q-1]) : true; });
+    }
+    var coiled = [], board = [], byOffLow = {near:[], clear:[]};
+    var byRegime = { up:[], down:[] };
+    for(var i = 100; i < minLen - FWD; i++){
+      var snap = [];
+      coins.forEach(function(x){
+        var cm = compressionAt(x, i); if(!cm) return;
+        if(!(x.c[i] > 0)) return;
+        var fwd = (x.c[i+FWD] - x.c[i]) / x.c[i] * 100;
+        snap.push({ sym:x.sym, pct:cm.pct, vol:cm.volRatio, offLow:cm.offLow, fwd:fwd });
+      });
+      if(snap.length < 12) continue;
+      var med = snap.map(function(s){return s.fwd;}).sort(function(a,b){return a-b;})[Math.floor(snap.length/2)];
+      board.push(med);
+      // "coiled" = bottom quintile of its own bandwidth history + volume dried up
+      var regUp = btcUp ? btcUp[i] : null;
+      snap.filter(function(s){ return s.pct <= 0.20 && s.vol < 1.0; }).forEach(function(s){
+        var rec = { fwd:s.fwd, edge:s.fwd - med };
+        coiled.push(rec);
+        (s.offLow < 8 ? byOffLow.near : byOffLow.clear).push(s.fwd - med);
+        if(regUp === true) byRegime.up.push(rec);
+        else if(regUp === false) byRegime.down.push(rec);
+      });
+    }
+
+    if(coiled.length < 30){ out.innerHTML = '<div style="font-size:11px;color:var(--t3)">Only '+coiled.length+' coil instances in the available history — too few to say anything.</div>'; return; }
+    function m(a){ return a.length ? a.reduce(function(p,q){return p+q;},0)/a.length : 0; }
+    var avgFwd = m(coiled.map(function(x){return x.fwd;}));
+    var avgEdge = m(coiled.map(function(x){return x.edge;}));
+    var avgBoard = m(board);
+    var winRate = Math.round(coiled.filter(function(x){return x.edge > 0;}).length / coiled.length * 100);
+    var col = avgEdge > 0.3 ? 'var(--g)' : avgEdge < -0.3 ? 'var(--r)' : 'var(--am)';
+    var verdict = avgEdge > 0.3 ? '🟢 Compressed coins DID outperform the board in this history'
+                : avgEdge < -0.3 ? '🔴 Compressed coins UNDERPERFORMED — compression alone is not an edge here'
+                : '⚠️ No meaningful edge — compressed coins matched the board';
+
+    var h = '<div style="background:var(--card);border-radius:8px;padding:.75rem .875rem">';
+    h += '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:.5rem">';
+    h += '<div><div style="font-size:18px;font-weight:800;color:var(--text)">'+(avgFwd>=0?'+':'')+avgFwd.toFixed(2)+'%</div><div style="font-size:10px;color:var(--t3)">coiled, next '+FWD+' bars</div></div>';
+    h += '<div><div style="font-size:18px;font-weight:800;color:var(--t3)">'+(avgBoard>=0?'+':'')+avgBoard.toFixed(2)+'%</div><div style="font-size:10px;color:var(--t3)">median coin</div></div>';
+    h += '<div><div style="font-size:18px;font-weight:800;color:'+col+'">'+(avgEdge>=0?'+':'')+avgEdge.toFixed(2)+'%</div><div style="font-size:10px;color:var(--t3)">EDGE</div></div>';
+    h += '<div><div style="font-size:18px;font-weight:800;color:var(--t2)">'+coiled.length+'</div><div style="font-size:10px;color:var(--t3)">instances</div></div>';
+    h += '<div><div style="font-size:18px;font-weight:800;color:var(--t2)">'+winRate+'%</div><div style="font-size:10px;color:var(--t3)">beat the board</div></div>';
+    h += '</div>';
+    h += '<div style="font-size:11px;font-weight:700;color:'+col+';margin-bottom:6px">'+verdict+'</div>';
+    // ── THE REGIME SPLIT — the question that actually matters for spot ──
+    function regRow(label, rows){
+      if(rows.length < 10) return '<div style="font-size:10px;color:var(--t3);padding:2px 0">'+label+': only '+rows.length+' instances — too few</div>';
+      var af = m(rows.map(function(x){return x.fwd;})), ae = m(rows.map(function(x){return x.edge;}));
+      var win = Math.round(rows.filter(function(x){return x.fwd > 0;}).length/rows.length*100);
+      var acol = af >= 0 ? 'var(--g)' : 'var(--r)';
+      return '<div style="display:flex;gap:10px;font-size:10px;padding:3px 0;align-items:baseline">'
+        + '<span style="min-width:118px;color:var(--t2)">'+label+'</span>'
+        + '<span style="color:'+acol+';font-weight:800">'+(af>=0?'+':'')+af.toFixed(2)+'%</span>'
+        + '<span style="color:var(--t3)">absolute</span>'
+        + '<span style="color:var(--t3)">· edge '+(ae>=0?'+':'')+ae.toFixed(2)+'%</span>'
+        + '<span style="margin-left:auto;color:var(--t3)">'+win+'% up · n='+rows.length+'</span></div>';
+    }
+    if(btcUp){
+      h += '<div style="font-size:11px;font-weight:700;color:var(--t2);margin:8px 0 2px">Split by BTC regime — the question that decides tradability</div>';
+      h += regRow('BTC rising', byRegime.up);
+      h += regRow('BTC falling', byRegime.down);
+      var dn = byRegime.down, up = byRegime.up;
+      if(dn.length >= 10 && up.length >= 10){
+        var dAbs = m(dn.map(function(x){return x.fwd;})), dEdge = m(dn.map(function(x){return x.edge;}));
+        var note = dAbs < 0
+          ? '⚠️ In a falling BTC tape these coils lost money in absolute terms ('+dAbs.toFixed(2)+'%)'
+            + (dEdge > 0 ? ', even though they still beat the board by '+dEdge.toFixed(2)+'%. For SPOT that is not tradable — outperforming a decline is still a loss.' : '.')
+            + ' Treat coils as a BULL-TAPE tool and stand aside when BTC is falling.'
+          : '✅ These coils held up even with BTC falling — unusual and worth noting, but check the sample size before trusting it.';
+        h += '<div style="font-size:10px;color:var(--am);margin-top:5px;line-height:1.55">'+note+'</div>';
+      }
+    } else {
+      h += '<div style="font-size:10px;color:var(--t3);margin-top:6px">BTC not in the sampled universe — regime split unavailable.</div>';
+    }
+    h += '<div style="font-size:11px;font-weight:700;color:var(--t2);margin:8px 0 2px">Split by location</div>';
+    h += '<div style="font-size:10px;color:var(--t3);line-height:1.6">'
+       + 'Coils near their 90-bar low: '+(m(byOffLow.near)>=0?'+':'')+m(byOffLow.near).toFixed(2)+'% edge (n='+byOffLow.near.length+')<br>'
+       + 'Coils clear of the low: '+(m(byOffLow.clear)>=0?'+':'')+m(byOffLow.clear).toFixed(2)+'% edge (n='+byOffLow.clear.length+')'
+       + '</div>';
+    h += '<div style="font-size:9px;color:var(--t3);margin-top:8px;font-style:italic;line-height:1.5">⚠️ Read this cautiously: it uses only the ~200 bars currently available, covers one market period, includes only coins on your list today (survivorship), and is in-sample — the same data that shaped the design. It is a sanity check, not proof. The forward audit above is the honest test.</div>';
+    out.innerHTML = h + '</div>';
+  }).catch(function(e){
+    out.innerHTML = '<div style="font-size:11px;color:var(--r)">Backtest failed: '+(e.message||e)+'</div>';
+  });
+}
+
 function buildEarlyAuditPanel(){
   var a = _ewLoad(), done = a.filter(function(r){ return r.fwd != null; });
   var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
   h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🌱 Early Watch — does it actually work?</div>';
   h += '<div style="font-size:11px;color:var(--t2);line-height:1.5;margin-bottom:.6rem">Every listed candidate is recorded and checked 48h later, against the <b>median coin on the board</b> at the same moment. Beating zero is meaningless; beating the board is the real test. Also splits results by DNA personality, to show whether the DNA adjustment earns its place.</div>';
+  var btBtn = '<div style="margin-top:.7rem;border-top:.5px solid var(--bd);padding-top:.7rem">'
+    + '<div style="font-size:11px;font-weight:700;color:var(--t2);margin-bottom:3px">Do not want to wait weeks?</div>'
+    + '<div style="font-size:10px;color:var(--t3);margin-bottom:6px">Run the same test on the history already available — an answer in about a minute instead of a month.</div>'
+    + '<button onclick="runCoilBacktest()" style="padding:6px 14px;border-radius:7px;border:.5px solid var(--acc);background:transparent;color:var(--acc);font-weight:700;font-size:11px;cursor:pointer;font-family:inherit">⏮ Backtest coils on history</button>'
+    + '<div id="coil-bt-out" style="margin-top:.6rem"></div></div>';
   if(done.length < 8){
-    return h + '<div style="font-size:11px;color:var(--t3)">⏳ '+a.length+' recorded · '+done.length+' resolved — needs 8+ (each takes 48h). Verdicts need far more; treat early numbers as noise.</div></div>';
+    return h + '<div style="font-size:11px;color:var(--t3)">⏳ '+a.length+' recorded · '+done.length+' resolved — needs 8+ (each takes 48h). Verdicts need far more; treat early numbers as noise.</div>'
+             + btBtn + '</div>';
   }
   function stat(rows){
     if(!rows.length) return null;
@@ -13500,7 +13795,7 @@ function buildEarlyAuditPanel(){
        + '<span>hit '+st.hit+'%</span><span style="margin-left:auto">n='+st.n+'</span></div>';
   });
   h += '<div style="font-size:9px;color:var(--t3);margin-top:8px;font-style:italic">If Trenders do not outperform Bleeders here once n is meaningful, the DNA adjustment is unjustified and should be removed. That is the point of measuring it.</div>';
-  return h + '</div>';
+  return h + btBtn + '</div>';
 }
 
 function buildEarlyWatchPanel(){
@@ -13609,6 +13904,7 @@ function renderMarketRead(){
 
   var btcIcon = {bullish:'🟢',stable:'🟢',falling:'🟡',dumping:'🔴'}[m.btcState]||'⚪';
   var h='';
+  try { h += buildRegimePanel(); } catch(e){}
   try { h += buildEarlyWatchPanel(); } catch(e){}
   // ── AI MARKET BRIEFING — one AI call summarizing the whole board on demand ──
   var hasKey = !!(localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key'));
