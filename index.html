@@ -13823,13 +13823,33 @@ function runCoilBacktest(){
       h += regRow('BTC falling', byRegime.down);
       var dn = byRegime.down, up = byRegime.up;
       if(dn.length >= 10 && up.length >= 10){
-        var dAbs = m(dn.map(function(x){return x.fwd;})), dEdge = m(dn.map(function(x){return x.edge;}));
-        var note = dAbs < 0
-          ? '⚠️ In a falling BTC tape these coils lost money in absolute terms ('+dAbs.toFixed(2)+'%)'
-            + (dEdge > 0 ? ', even though they still beat the board by '+dEdge.toFixed(2)+'%. For SPOT that is not tradable — outperforming a decline is still a loss.' : '.')
-            + ' Treat coils as a BULL-TAPE tool and stand aside when BTC is falling.'
-          : '✅ These coils held up even with BTC falling — unusual and worth noting, but check the sample size before trusting it.';
-        h += '<div style="font-size:10px;color:var(--am);margin-top:5px;line-height:1.55">'+note+'</div>';
+        // FIX: the old note branched ONLY on the absolute return, so a small
+        // positive absolute in a falling tape printed "✅ held up" even when the
+        // edge was clearly negative. Both numbers have to be read together, and
+        // the decisive comparison is where the edge actually came from.
+        var dAbs  = m(dn.map(function(x){return x.fwd;})),  dEdge = m(dn.map(function(x){return x.edge;}));
+        var uAbs  = m(up.map(function(x){return x.fwd;})),  uEdge = m(up.map(function(x){return x.edge;}));
+        var note, ncol = 'var(--am)';
+        if(dAbs < 0){
+          note = '⚠️ With BTC falling these coils LOST money in absolute terms ('+dAbs.toFixed(2)+'%)'
+               + (dEdge > 0 ? ', even though they beat the board by '+dEdge.toFixed(2)+'%. For SPOT that is not tradable — outperforming a decline is still a loss.' : '.')
+               + ' Treat coils as a bull-tape tool and stand aside when BTC falls.';
+          ncol = 'var(--r)';
+        } else if(dEdge < 0 && uEdge > 0){
+          note = '⚠️ Read the EDGE, not the absolute. With BTC falling these coils returned '+dAbs.toFixed(2)+'% but UNDERPERFORMED the board by '+Math.abs(dEdge).toFixed(2)+'%; with BTC rising they beat it by '+uEdge.toFixed(2)+'%. '
+               + 'All of the edge came from the BTC-rising half — compression is a bull-tape tool here, not an all-weather one.';
+          ncol = 'var(--am)';
+        } else if(dEdge < 0){
+          note = '⚠️ With BTC falling these coils underperformed the board by '+Math.abs(dEdge).toFixed(2)+'% despite a '+dAbs.toFixed(2)+'% absolute return. Being up while lagging the market is not an edge.';
+          ncol = 'var(--am)';
+        } else if(dAbs >= 0 && dEdge >= 0.3){
+          note = '✅ These coils beat the board by '+dEdge.toFixed(2)+'% even with BTC falling ('+dAbs.toFixed(2)+'% absolute) — genuinely unusual. Check the sample ('+dn.length+') before trusting it.';
+          ncol = 'var(--g)';
+        } else {
+          note = '➖ With BTC falling: '+dAbs.toFixed(2)+'% absolute, '+(dEdge>=0?'+':'')+dEdge.toFixed(2)+'% edge — essentially no signal either way in this regime.';
+          ncol = 'var(--t2)';
+        }
+        h += '<div style="font-size:10px;color:'+ncol+';margin-top:5px;line-height:1.55">'+note+'</div>';
       }
     } else {
       h += '<div style="font-size:10px;color:var(--t3);margin-top:6px">BTC not in the sampled universe — regime split unavailable.</div>';
