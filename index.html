@@ -370,6 +370,11 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
   /* Mobile fullscreen chart: maximize usable area + a rotate hint in portrait */
   #chart-fs-table{display:none !important}   /* hide side trade-table on phones — chart gets full width */
   #chart-fs-bar{flex-wrap:wrap !important;height:auto !important;min-height:44px !important;padding:6px 10px !important}
+  /* Close must never be off-screen on a phone — pull it to the front of the bar */
+  #chart-fs-bar>div:last-child{order:-1 !important;width:100% !important;justify-content:flex-end !important;margin-left:0 !important}
+  #chart-fs-pair{order:-2 !important}
+  /* compact legend so it stops covering the candles */
+  #chart-legend-fs,#chart-legend{font-size:9px !important;line-height:1.35 !important;top:3px !important;left:5px !important;max-width:70% !important}
   #chart-rotate-hint{display:block}
   @media (orientation:landscape){ #chart-rotate-hint{display:none !important} }
   /* Mobile: big-screen chart option — thumb-sized expand button, true fullscreen */
@@ -1790,6 +1795,21 @@ function _drawClick(x, y){
 function detectTrendlines(h, l, c, s, e) {
   s = Math.max(2, s == null ? 2 : s);
   e = Math.min(h.length - 3, e == null ? h.length - 3 : e);
+  // VOLATILITY-SCALED TOLERANCES (fix): the old code used a fixed 0.3% "touch"
+  // window and a 0.2% pierce threshold for every coin. On anything with real
+  // volatility a single normal wick invalidated the line — which is why uptrend
+  // lines almost never appeared. Scale both by the coin's own average range,
+  // exactly as the sweep detector and lateness guard now do.
+  var _rng = 0, _n = 0;
+  for (var q = Math.max(1, h.length-60); q < h.length; q++){
+    if (c[q-1] > 0){ _rng += (h[q]-l[q])/c[q-1]*100; _n++; }
+  }
+  var avgRangePct = _n ? _rng/_n : 2;
+  // Tuned: a "touch" must be genuinely close (≈0.2 ATR), while a "pierce" needs
+  // to be a real break rather than a wick (≈0.3 ATR). Too loose and every bar
+  // counts as a touch, which makes the best-line choice meaningless.
+  var TOUCH_TOL  = Math.max(0.0025, Math.min(0.010, avgRangePct/100 * 0.20));
+  var PIERCE_TOL = Math.max(0.0020, Math.min(0.012, avgRangePct/100 * 0.30));
   var sH = [], sLo = [];
   for (var i = s; i <= e; i++) {
     if (h[i]>h[i-1] && h[i]>h[i-2] && h[i]>h[i+1] && h[i]>h[i+2]) sH.push({i:i, v:h[i]});
@@ -1808,11 +1828,11 @@ function detectTrendlines(h, l, c, s, e) {
       for (var j = anchor.i; j <= Math.min(e + 2, h.length - 1); j++) {
         var lv = anchor.v + slope * (j - anchor.i);
         var x = dir < 0 ? h[j] : l[j];
-        if (dir < 0 ? x > lv * 1.002 : x < lv * 0.998) {
+        if (dir < 0 ? x > lv * (1+PIERCE_TOL) : x < lv * (1-PIERCE_TOL)) {
           if (j <= p.i) { ok = false; }    // pierced between the pivots → invalid line
           break;                            // pierced after → line ends there, still usable
         }
-        if (Math.abs(x - lv) / lv < 0.003) touches++;
+        if (Math.abs(x - lv) / lv < TOUCH_TOL) touches++;
       }
       if (!ok || touches < 2) return;
       if (!best || touches > best.touches || (touches === best.touches && p.i > best.i2))
@@ -4639,8 +4659,104 @@ function buildSetupDetector(d) {
   return h;
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MULTI-TIMEFRAME CHART READ — the honest answer to "is this real or a bounce?"
+// One timeframe in isolation lies: a 4h can look perfect while the daily and
+// weekly are falling apart. This fetches 1h/4h/1d/1w for ONE coin on demand and
+// reads each with the same classifier, then names the RELATIONSHIP between them
+// — which is what actually decides whether a move is a trend or a counter-move.
+// ═══════════════════════════════════════════════════════════════════════════
+var MTF_LIST = ['1h','4h','1d','1w'];
+
+function _stateFromKlines(kl, sym){
+  if(!kl || kl.length < 60) return null;
+  var h = kl.map(function(k){return parseFloat(k[2]);});
+  var l = kl.map(function(k){return parseFloat(k[3]);});
+  var cl= kl.map(function(k){return parseFloat(k[4]);});
+  var e20 = calcEMA(cl,20), e50 = calcEMA(cl,50), e200 = calcEMA(cl, Math.min(200, cl.length));
+  var sr = calcSR(h,l,cl);
+  var d = { sym:sym, price:cl[cl.length-1], ema20:e20, ema50:e50, ema200:e200,
+            rsi:calcRSI(cl,14), struct:calcStructure(h,l,cl), sup:sr.sup, res:sr.res };
+  // classify WITHOUT the daily veto — each timeframe speaks for itself here,
+  // because the whole point is to SEE the disagreement rather than hide it.
+  var pts = 0;
+  if(d.ema20>0)             pts += d.price>d.ema20  ? 2 : -2;
+  if(d.ema20>0&&d.ema50>0)  pts += d.ema20>d.ema50  ? 2 : -2;
+  if(d.ema200>0)            pts += d.price>d.ema200 ? 1 : -1;
+  if(d.struct==='HH/HL')    pts += 2; else if(d.struct==='LH/LL') pts -= 2;
+  else if(d.struct==='breakout') pts += 1;
+  if(d.rsi>=55) pts += 1; else if(d.rsi<=45) pts -= 1;
+  var st = pts >= 5 ? 'bullish' : pts >= 2 ? 'lean_bullish'
+         : pts <= -5 ? 'bearish' : pts <= -2 ? 'lean_bearish' : 'neutral';
+  return { state:st, pts:pts, price:d.price, rsi:Math.round(d.rsi) };
+}
+
+function _mtfScore(s){ return {bullish:2, lean_bullish:1, neutral:0, lean_bearish:-1, bearish:-2}[s] || 0; }
+
+// Names the RELATIONSHIP between low and high timeframes — the part that matters
+function _mtfVerdict(res){
+  var lo = [], hi = [];
+  MTF_LIST.forEach(function(tf){
+    if(!res[tf]) return;
+    (tf==='1h'||tf==='4h' ? lo : hi).push(_mtfScore(res[tf].state));
+  });
+  if(!lo.length || !hi.length) return null;
+  function avg(a){ return a.reduce(function(x,y){return x+y;},0)/a.length; }
+  var L = avg(lo), H = avg(hi);
+  if(L >= 1 && H >= 1)   return { t:'aligned_bull', col:'var(--g)', icon:'🟢',
+    txt:'Aligned bullish across timeframes — the strongest backdrop a spot entry gets.' };
+  if(L <= -1 && H <= -1) return { t:'aligned_bear', col:'var(--r)', icon:'🔴',
+    txt:'Aligned bearish across timeframes — no spot entry belongs here. Stand aside.' };
+  if(L >= 1 && H <= -1)  return { t:'bounce', col:'var(--r)', icon:'⚠️',
+    txt:'Lower timeframes bullish while the daily/weekly are bearish — this is a BOUNCE inside a downtrend, not a trend. Counter-trend entries were the worst performers in your own log (14% vs 39%).' };
+  if(L <= -1 && H >= 1)  return { t:'pullback', col:'var(--g)', icon:'🎯',
+    txt:'Lower timeframes weak while the daily/weekly stay bullish — this is a PULLBACK in an uptrend, the buyable kind. Wait for the lower timeframe to turn back up.' };
+  if(H >= 1)             return { t:'htf_bull', col:'var(--am)', icon:'🟩',
+    txt:'Higher timeframes constructive, lower ones undecided — the backdrop is fine, the timing is not there yet.' };
+  if(H <= -1)            return { t:'htf_bear', col:'var(--am)', icon:'🟧',
+    txt:'Higher timeframes weak — whatever the lower timeframes do, the tide is against you.' };
+  return { t:'mixed', col:'var(--t2)', icon:'⚪', txt:'No clear agreement between timeframes. Nothing to act on.' };
+}
+
+function loadMTF(sym){
+  var box = document.getElementById('mtf-box');
+  if(!box) return;
+  box.innerHTML = '<div style="font-size:11px;color:var(--t3)">Reading 1h · 4h · 1d · 1w…</div>';
+  Promise.all(MTF_LIST.map(function(tf){
+    return bybitKlines(sym, tf, 220).then(function(kl){ return {tf:tf, r:_stateFromKlines(kl, sym)}; })
+                                     .catch(function(){ return {tf:tf, r:null}; });
+  })).then(function(arr){
+    var res = {}; arr.forEach(function(x){ if(x.r) res[x.tf] = x.r; });
+    if(!Object.keys(res).length){ box.innerHTML = '<div style="font-size:11px;color:var(--t3)">Could not load timeframes.</div>'; return; }
+    var h = '<div style="font-size:11px;font-weight:800;margin-bottom:5px">🕐 Same chart, four timeframes</div>';
+    MTF_LIST.forEach(function(tf){
+      var r = res[tf];
+      if(!r){ h += '<div style="font-size:10px;color:var(--t3);padding:2px 0">'+tf+' — no data</div>'; return; }
+      var st = CHART_STATES[r.state];
+      var col = r.state==='bullish'?'var(--g)':r.state==='lean_bullish'?'var(--g)'
+              : r.state==='bearish'?'var(--r)':r.state==='lean_bearish'?'var(--am)':'var(--t3)';
+      var bars = Math.round((_mtfScore(r.state)+2)/4*5);
+      h += '<div style="display:flex;gap:8px;align-items:center;font-size:11px;padding:3px 0;border-bottom:.5px solid var(--bd)">'
+         + '<b style="min-width:28px;color:var(--t2)">'+tf+'</b>'
+         + '<span>'+st.icon+'</span>'
+         + '<span style="color:'+col+';font-weight:700;min-width:118px">'+st.label+'</span>'
+         + '<span style="color:var(--t3);font-size:10px">RSI '+r.rsi+'</span>'
+         + '<span style="margin-left:auto;letter-spacing:1px;color:'+col+'">'+'▮'.repeat(Math.max(1,bars))+'</span></div>';
+    });
+    var v = _mtfVerdict(res);
+    if(v){
+      h += '<div style="margin-top:7px;padding:8px 10px;border-radius:7px;background:var(--card3);border-left:3px solid '+v.col+'">'
+         + '<div style="font-size:11px;color:'+v.col+';font-weight:700;line-height:1.5">'+v.icon+' '+v.txt+'</div></div>';
+    }
+    h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;font-style:italic">Describes each chart as it is now — not a forecast. The relationship between timeframes is the useful part.</div>';
+    box.innerHTML = h;
+  });
+}
+
 function buildEntryTab(d){
   var p=d.price,sc=0,factors=[];
+  setTimeout(function(){ try{ loadMTF(d.sym); }catch(e){} }, 60);   // fetch after render
   // 1. EMA stack (25pts)
   if(d.ema20>d.ema50&&d.ema50>d.ema200){sc+=25;factors.push({s:25,m:25,ok:true,l:'EMA Stack',t:'EMA20>50>200 — full bull alignment ✅'});}
   else if(d.ema20>d.ema50){sc+=14;factors.push({s:14,m:25,ok:true,l:'EMA Stack',t:'EMA20>EMA50 partial alignment ⚠'});}
@@ -4742,6 +4858,8 @@ function buildEntryTab(d){
   html+='</div>';
   // ── NEW: Setup Detector (breakout confirm / EMA retest / pump-dump) ──────────
   html = buildWhyRanked(d) + buildSetupDetector(d) + html;
+  // Multi-timeframe read sits at the very top — it frames everything below it
+  html = '<div id="mtf-box" style="background:var(--card2);border-radius:var(--rad);padding:.85rem;margin-bottom:1rem"></div>' + html;
   document.getElementById('msec').innerHTML=html;
 }
 
@@ -11217,10 +11335,26 @@ function _drawChartNow() {
   var LEFT_PAD  = 0;    // no left pad — candles go edge to edge
   var TOP_PAD   = 4;
   var BOTTOM_PAD = 28;  // time labels
-  var CANDLE_H  = Math.max(300, Math.min(520, W * 0.62));
+  var CANDLE_H  = Math.max(300, Math.min(520, W * 0.62));   // (overridden in fullscreen, below)
   var VOL_H     = showVol ? 56 : 0;
   var RSI_H     = showRSI ? 68 : 0;
   var SEP       = 6;    // separator between panels
+  // FULLSCREEN HEIGHT FIX: CANDLE_H was derived from WIDTH, so on a phone
+  // (≈390px wide) the chart came out ~300px tall inside a ~750px container,
+  // leaving a large dead black area below. In fullscreen, fill the container.
+  if (chartState.fullscreen && wrap && wrap.clientHeight > 200) {
+    var _availH = wrap.clientHeight;
+    // In tight space (phone in landscape) shrink the volume/RSI panels first —
+    // candles matter more than sub-panels when there are only ~330px to work with.
+    if (_availH < 520) {
+      VOL_H = Math.max(32, Math.round(VOL_H * 0.5));
+      RSI_H = Math.max(32, Math.round(RSI_H * 0.5));
+    }
+    var _fixed = TOP_PAD + BOTTOM_PAD
+               + (showVol ? SEP + VOL_H : 0)
+               + (showRSI ? SEP + RSI_H : 0);
+    CANDLE_H = Math.max(110, _availH - _fixed);
+  }
   var TOTAL_H   = TOP_PAD + CANDLE_H
                 + (showVol ? SEP + VOL_H : 0)
                 + (showRSI ? SEP + RSI_H : 0)
@@ -11960,8 +12094,10 @@ function _drawChartNow() {
         else        aArrow(L.breakIdx, highs3[L.breakIdx], false, '#7c4dff', '⚡TL BREAKDOWN');
       }
     }
-    drawTLv2(TL.down, '#ef5350', '↘ Downtrend line', true);
-    drawTLv2(TL.up,   '#26a69a', '↗ Uptrend line', false);
+    // Label what each line actually IS for a trader: the descending line is
+    // overhead RESISTANCE, the ascending line is dynamic SUPPORT.
+    drawTLv2(TL.down, '#ef5350', '↘ TL Resistance', true);
+    drawTLv2(TL.up,   '#26a69a', '↗ TL Support', false);
 
     // ── MANUAL DRAWINGS — stored in data coords, so they track zoom and pan ──
     (function(){
