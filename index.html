@@ -3227,6 +3227,7 @@ function loadAll() {
     checkAlerts(allData);
     try { fetchDominance(); } catch(e){}             // live BTC.D / USDT.D
     try { fetchMarketCaps(); } catch(e){}            // market caps → turnover
+    try { checkChartStates(allData); } catch(e){}    // chart-state reads + BTC flip alert
     try { checkWatchers(allData); } catch(e){}       // user-defined coin watchers
     try { checkAIMemoAlerts(allData); } catch(e){}   // AI entry-zone watches
     try { resolveLatenessBlocks(allData); } catch(e){}   // grade the lateness guard
@@ -6449,7 +6450,7 @@ function renderCoach(){
 }
 
 function renderSignalLog(){
-  var _memoHTML = (function(){ try { return buildWatchersPanel() + buildAITradePanel() + buildAIMemoPanel(); } catch(e){ return ''; } })();
+  var _memoHTML = (function(){ try { return buildTelegramPanel() + buildWatchersPanel() + buildAITradePanel() + buildAIMemoPanel(); } catch(e){ return ''; } })();
   var body=document.getElementById('journal-body');
   if(!body) return;
   var log=loadSignalLog();
@@ -7811,7 +7812,90 @@ function _aiCallModel(sys, history, image){
 // are OR-conditions: notify me when ANY of the chosen events happens on this coin.
 // Purely a notifier — nothing here logs a trade or feeds the signal experiment.
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CHART STATE — reads the chart and says what it IS, in one word. Deliberately
+// DESCRIPTIVE, not predictive: "bullish" means the chart is aligned bullish
+// RIGHT NOW (price above EMAs, EMAs stacked, structure rising, daily agreeing)
+// — it is not a claim about what happens next. The value is the FLIP: you get
+// called when a chart you watch turns bullish or breaks down, without staring.
+// Free and deterministic — no AI calls, same verdict every time.
+// ═══════════════════════════════════════════════════════════════════════════
+var CHART_STATES = {
+  bullish:      { icon:'🟢', label:'Bullish — full alignment' },
+  lean_bullish: { icon:'🟩', label:'Leaning bullish' },
+  neutral:      { icon:'⚪', label:'Neutral / mixed' },
+  lean_bearish: { icon:'🟧', label:'Leaning bearish' },
+  bearish:      { icon:'🔴', label:'Bearish — full alignment' }
+};
+
+function classifyChartState(d){
+  if(!d || !d.price) return null;
+  var pts = 0;
+  if(d.ema20 > 0)               pts += d.price > d.ema20  ?  2 : -2;   // price vs fast MA
+  if(d.ema20 > 0 && d.ema50 > 0) pts += d.ema20 > d.ema50 ?  2 : -2;   // MA stack
+  if(d.ema200 > 0)              pts += d.price > d.ema200 ?  1 : -1;   // long-term side
+  if(d.struct === 'HH/HL')      pts += 2;                              // rising structure
+  else if(d.struct === 'LH/LL') pts -= 2;
+  else if(d.struct === 'breakout') pts += 1;
+  if((d.rsi||50) >= 55)         pts += 1;
+  else if((d.rsi||50) <= 45)    pts -= 1;
+  var dt = window._dailyTrend && window._dailyTrend[d.sym];
+  if(dt === true) pts += 2; else if(dt === false) pts -= 1;            // higher TF vote
+  var state = pts >= 6 ? 'bullish' : pts >= 2 ? 'lean_bullish'
+            : pts <= -6 ? 'bearish' : pts <= -2 ? 'lean_bearish' : 'neutral';
+  // HARD GATE (evidence rule E1: the higher timeframe dominates): on intraday
+  // charts, FULL bullish requires the daily trend to actually be up — a perfect
+  // 4h chart against the daily is a bounce, not alignment. Points are not
+  // enough; the daily has a veto. Mirrored for bearish: a 4h breakdown while
+  // the daily is still up is a dip, not full breakdown.
+  var intraday = (typeof TF === 'undefined') || (TF !== '1d' && TF !== '1w');
+  if(intraday){
+    if(state === 'bullish' && dt !== true) state = 'lean_bullish';
+    if(state === 'bearish' && dt === true) state = 'lean_bearish';
+  }
+  return { state: state, pts: pts };
+}
+
+function _csLoad(){ try{ return JSON.parse(localStorage.getItem('chart_state_prev')||'{}'); }catch(e){ return {}; } }
+function _csSave(m){ try{ localStorage.setItem('chart_state_prev', JSON.stringify(m)); }catch(e){} }
+
+// Runs every scan BEFORE the watchers, so watcher conditions can see both the
+// current state (d._cs) and the previous one (window._csPrev).
+function checkChartStates(data){
+  if(!data || !data.length) return;
+  window._csPrev = _csLoad();
+  var next = {};
+  data.forEach(function(d){
+    var r = classifyChartState(d);
+    d._cs = r ? r.state : null;
+    d._csPts = r ? r.pts : null;
+    if(d._cs) next[d.sym + '_' + TF] = d._cs;
+  });
+  // BTC flips always notify — BTC gates every other decision in this tool
+  var btc = data.find(function(x){ return x.sym==='BTCUSDT' || x.sym==='BTCJPY'; });
+  if(btc && btc._cs){
+    var key = btc.sym + '_' + TF;
+    var prev = window._csPrev[key];
+    var big = (btc._cs === 'bullish' || btc._cs === 'bearish');
+    if(prev && prev !== btc._cs && big){
+      var lastN = parseInt(localStorage.getItem('cs_btc_notif')||'0');
+      if(Date.now() - lastN > 6*3600000){
+        try { localStorage.setItem('cs_btc_notif', String(Date.now())); } catch(e){}
+        var st = CHART_STATES[btc._cs];
+        var msg = st.icon + ' BTC ' + TF + ' chart flipped: ' + st.label;
+        try { showToast(btc, btc._cs==='bullish'?'strong':'sweep', msg); } catch(e){}
+        try { addAlHistory(btc, 'chart_state', msg); } catch(e){}
+        try { sendBrowserNotif(btc, msg); } catch(e){}
+      }
+    }
+  }
+  _csSave(next);
+}
+
 var WATCH_TYPES = {
+  chartBullish: { label:'Chart TURNS bullish (EMAs, structure, daily trend align)', icon:'🟢' },
+  chartBearish: { label:'Chart TURNS bearish (alignment breaks down)', icon:'🔴' },
   holdSupport:  { label:'Holds support (wick down, closes back above)', icon:'🛡' },
   breakRes:     { label:'Breaks resistance (candle CLOSE above, volume ≥1.2×)', icon:'🚀' },
   accumZone:    { label:'Enters accumulation zone (near range low, volatility contracting)', icon:'🟦' },
@@ -7828,6 +7912,14 @@ function saveWatchers(w){ try{ localStorage.setItem('coin_watchers', JSON.string
 
 function _evalWatchCondition(type, w, d){
   switch(type){
+    case 'chartBullish': {
+      var prevB = (window._csPrev||{})[d.sym + '_' + TF];
+      return d._cs === 'bullish' && !!prevB && prevB !== 'bullish';
+    }
+    case 'chartBearish': {
+      var prevS = (window._csPrev||{})[d.sym + '_' + TF];
+      return d._cs === 'bearish' && !!prevS && prevS !== 'bearish';
+    }
     case 'holdSupport':
       return !!(d.sup && d.liq === 'buy_sweep') ||
              !!(d.sup && d.price > d.sup && d.price <= d.sup * 1.015 && d.rsiRising);
@@ -7889,7 +7981,9 @@ function renderWatchPanel(sym){
   var d = (allData||[]).find(function(x){ return x.sym===sym; });
   var ws = loadWatchers();
   var w = ws.find(function(x){ return x.sym===sym; }) || { sym:sym, pair:d?d.pair:sym, types:[], px:0 };
-  var h = '<div style="font-size:11px;color:var(--t2);margin-bottom:6px">Tell me when ANY of these happens on <b>'+(d?d.pair:sym)+'</b> — you get a notification, nothing is logged or traded.</div>';
+  var _st = d && d._cs ? CHART_STATES[d._cs] : null;
+  var h = _st ? '<div style="font-size:11px;font-weight:800;margin-bottom:4px">'+_st.icon+' Chart right now: '+_st.label+' <span style="font-weight:400;color:var(--t3)">(describes the present — not a prediction)</span></div>' : '';
+  h += '<div style="font-size:11px;color:var(--t2);margin-bottom:6px">Tell me when ANY of these happens on <b>'+(d?d.pair:sym)+'</b> — you get a notification, nothing is logged or traded.</div>';
   Object.keys(WATCH_TYPES).forEach(function(t){
     var def = WATCH_TYPES[t], on = (w.types||[]).indexOf(t) >= 0;
     h += '<label style="display:flex;gap:7px;align-items:center;font-size:11px;padding:3px 0;cursor:pointer">'
@@ -12629,7 +12723,91 @@ function clearAlHistory(){
 function askNotifPerm(){
   if('Notification' in window&&Notification.permission==='default')Notification.requestPermission().then(function(){if(alDrawerTab==='tf')renderAlDrawerTab('tf');});
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TELEGRAM — push alerts to your phone instead of only to this browser.
+// SECURITY: the token lives in localStorage on THIS device only. It is never
+// written into the deployed file (this page is public on GitHub Pages, so a
+// hardcoded token would be readable by anyone).
+// NOTE: this is plumbing, not logic — it changes no signal, score or gate, so
+// it does not reset any of the measurement clocks.
+// ═══════════════════════════════════════════════════════════════════════════
+function _tg(){ return { token: (localStorage.getItem('tg_token')||'').trim(),
+                         chat:  (localStorage.getItem('tg_chat')||'').trim(),
+                         on:    localStorage.getItem('tg_on') !== '0' }; }
+
+function sendTelegram(text){
+  var t = _tg();
+  if(!t.on || !t.token || !t.chat) return Promise.resolve(false);
+  return fetch('https://api.telegram.org/bot'+t.token+'/sendMessage', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ chat_id:t.chat, text:text, parse_mode:'HTML',
+                           disable_web_page_preview:true })
+  }).then(function(r){ return r.ok; }).catch(function(){ return false; });
+}
+
+// Finds your chat ID automatically — you just message the bot once first.
+function tgFindChatId(){
+  var out = document.getElementById('tg-status'); var t = _tg();
+  if(!t.token){ if(out) out.innerHTML = '<span style="color:var(--r)">Paste your bot token first.</span>'; return; }
+  if(out) out.innerHTML = '<span style="color:var(--t3)">Looking for your chat…</span>';
+  fetch('https://api.telegram.org/bot'+t.token+'/getUpdates')
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      var res = (j && j.result) || [];
+      for(var i = res.length-1; i >= 0; i--){
+        var m = res[i].message || res[i].channel_post;
+        if(m && m.chat && m.chat.id){
+          localStorage.setItem('tg_chat', String(m.chat.id));
+          var el = document.getElementById('tg-chat'); if(el) el.value = m.chat.id;
+          if(out) out.innerHTML = '<span style="color:var(--g)">✅ Found chat '+m.chat.id+' — saved. Now send a test.</span>';
+          return;
+        }
+      }
+      if(out) out.innerHTML = '<span style="color:var(--am)">No messages yet. Open Telegram, send your bot any message (e.g. "hi"), then tap this again.</span>';
+    })
+    .catch(function(){ if(out) out.innerHTML = '<span style="color:var(--r)">Could not reach Telegram — check the token.</span>'; });
+}
+
+function tgSaveAndTest(){
+  var tk = document.getElementById('tg-token'), ch = document.getElementById('tg-chat');
+  var out = document.getElementById('tg-status');
+  if(tk) localStorage.setItem('tg_token', tk.value.trim());
+  if(ch) localStorage.setItem('tg_chat', ch.value.trim());
+  if(out) out.innerHTML = '<span style="color:var(--t3)">Sending test…</span>';
+  sendTelegram('🔔 <b>Crypto Screener connected.</b>\nYou will get alerts here when your watched conditions fire.').then(function(ok){
+    if(out) out.innerHTML = ok ? '<span style="color:var(--g)">✅ Sent — check Telegram.</span>'
+                               : '<span style="color:var(--r)">Failed. Check the token and chat ID.</span>';
+  });
+}
+
+function tgToggle(on){ localStorage.setItem('tg_on', on ? '1' : '0'); }
+
+function buildTelegramPanel(){
+  var t = _tg();
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">📲 Telegram alerts</div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.5;margin-bottom:.6rem">Sends your alerts to your phone instead of only this browser. The tab still has to stay open — this changes where alerts <em>go</em>, not what runs. Your token is stored on this device only and never leaves it except to Telegram.</div>';
+  h += '<div style="display:flex;flex-direction:column;gap:6px">';
+  h += '<input id="tg-token" placeholder="Bot token from @BotFather" value="'+(t.token?t.token.replace(/./g,'•').slice(0,18)+'…':'')+'" onfocus="this.value=\'\'" style="padding:7px 9px;border-radius:7px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:11px;font-family:inherit">';
+  h += '<div style="display:flex;gap:6px"><input id="tg-chat" placeholder="Chat ID" value="'+t.chat+'" style="flex:1;padding:7px 9px;border-radius:7px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:11px;font-family:inherit">';
+  h += '<button onclick="tgFindChatId()" style="padding:7px 12px;border-radius:7px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:11px;cursor:pointer;font-family:inherit">Find it</button></div>';
+  h += '<div style="display:flex;gap:6px;align-items:center"><button onclick="tgSaveAndTest()" style="padding:7px 16px;border-radius:7px;border:none;background:var(--acc);color:#fff;font-weight:700;font-size:11px;cursor:pointer;font-family:inherit">Save &amp; send test</button>';
+  h += '<label style="display:flex;gap:5px;align-items:center;font-size:11px;color:var(--t2);cursor:pointer"><input type="checkbox" '+(t.on?'checked':'')+' onchange="tgToggle(this.checked)" style="cursor:pointer">Enabled</label></div>';
+  h += '<div id="tg-status" style="font-size:11px;min-height:14px"></div>';
+  h += '</div>';
+  h += '<div style="font-size:10px;color:var(--t3);margin-top:8px;line-height:1.55">Setup: message <b>@BotFather</b> → <code>/newbot</code> → copy the token → paste above → send your new bot any message in Telegram → tap <b>Find it</b> → <b>Save &amp; send test</b>.</div>';
+  h += '<div style="font-size:9px;color:var(--am);margin-top:6px">⚠️ Never paste this token into a chat, a screenshot, or the source file — anyone holding it can post as your bot. Revoke via @BotFather → /revoke.</div>';
+  return h + '</div>';
+}
+
 function sendBrowserNotif(d,label){
+  // mirror every alert to Telegram (no-op unless configured)
+  try {
+    sendTelegram('<b>'+label+'</b>\n'+d.pair+'  '+fE(d.price)
+      + '\nRSI '+(d.rsi||0).toFixed(0)+' · vol '+((d.volR||0).toFixed(2))+'× · '+(d.struct||'')
+      + (d._cs ? '\nChart: '+(CHART_STATES[d._cs]?CHART_STATES[d._cs].label:d._cs) : ''));
+  } catch(e){}
   if(!('Notification' in window)||Notification.permission!=='granted')return;
   try{var n=new Notification(label+' — '+d.pair,{body:'Price: '+fP(d.price)+' | RSI: '+d.rsi.toFixed(1)+' | Score: '+d.score+'/97',tag:'al_'+d.sym,renotify:true});n.onclick=function(){window.focus();openModal(d.sym);};}catch(e){}
 }
