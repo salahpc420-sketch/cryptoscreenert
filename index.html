@@ -214,14 +214,20 @@ td{padding:7px 8px;white-space:nowrap}
 .news-htitle{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--t2);flex:1}
 .news-cnt{font-size:11px;color:var(--t3)}
 .news-tog{font-size:10px;color:var(--t3);margin-left:4px}
-.ticker-wrap{overflow:hidden;height:34px;position:relative}
-/* Readability: moving text is hard to read, so this is deliberately slow (400s
-   for a full loop) and rendered a little larger with tighter letter-spacing.
-   Hovering, or touching on mobile, freezes it completely. */
-.ticker-track{display:flex;white-space:nowrap;position:absolute;animation:ticker 400s linear infinite;will-change:transform}
-.ticker-track:hover,.ticker-track:active,.ticker-wrap:hover .ticker-track{animation-play-state:paused}
-@keyframes ticker{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
-.ticker-item{display:inline-flex;align-items:center;gap:7px;padding:0 26px;height:34px;font-size:13px;font-weight:500;letter-spacing:.1px;color:var(--text);cursor:pointer;text-decoration:none;flex:0 0 auto;transition:color .12s}
+/* Headlines no longer slide. A very slow translateX moves a fractional number
+   of pixels per frame, so the browser re-rasterizes the glyphs between
+   sub-pixel positions and the text visibly shimmers. Stationary text cannot
+   vibrate, so this now fades one headline to the next — easier to read at any
+   speed, and it fits a narrow phone screen properly. */
+.ticker-wrap{overflow:hidden;height:36px;position:relative;display:flex;align-items:center;gap:4px}
+.ticker-track{flex:1;min-width:0;position:relative;height:36px;display:flex;align-items:center}
+.ticker-item{display:flex;align-items:center;gap:8px;height:36px;font-size:13px;font-weight:500;color:var(--text);cursor:pointer;text-decoration:none;width:100%;min-width:0;
+  opacity:1;transition:opacity .35s ease}
+.ticker-item.fading{opacity:0}
+.ticker-item>.tk-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.tk-nav{flex:0 0 auto;width:22px;height:24px;border:none;background:transparent;color:var(--t3);cursor:pointer;font-size:14px;line-height:1;font-family:inherit;border-radius:5px}
+.tk-nav:hover{color:var(--text);background:var(--card)}
+.tk-count{flex:0 0 auto;font-size:9px;color:var(--t3);min-width:34px;text-align:right}
 .ticker-item:hover{color:var(--g)}
 .ticker-sep{display:inline-block;color:var(--t3);line-height:32px;padding:0 4px;font-size:14px;flex:0 0 auto}
 .ticker-cat{font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px;background:rgba(226,75,74,.14);color:var(--r);flex:0 0 auto}
@@ -613,7 +619,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
     <span class="news-cnt" id="news-cnt"></span>
     <span class="news-tog" id="news-tog">▼ expand</span>
   </div>
-  <div class="ticker-wrap" id="ticker-wrap" ontouchstart="var t=document.getElementById('ticker-track');if(t)t.style.animationPlayState='paused'" ontouchend="var t=document.getElementById('ticker-track');if(t)setTimeout(function(){t.style.animationPlayState='running'},4000)">
+  <div class="ticker-wrap" id="ticker-wrap" onmouseenter="tkPause(1)" onmouseleave="tkPause(0)" ontouchstart="tkPause(1)" ontouchend="setTimeout(function(){tkPause(0)},8000)">
     <div class="ticker-track" id="ticker-track">
       <span style="padding:0 20px;line-height:32px;font-size:12px;color:var(--t3)">Loading CoinTelegraph headlines…</span>
     </div>
@@ -9636,6 +9642,10 @@ function loadNews(){
   var FEEDS = [
     { name:'CoinTelegraph', url:'https://cointelegraph.com/rss' },
     { name:'CoinDesk',      url:'https://www.coindesk.com/arc/outboundfeeds/rss/' },
+    { name:'The Block',     url:'https://www.theblock.co/rss.xml' },
+    { name:'Decrypt',       url:'https://decrypt.co/feed' },
+    { name:'Blockworks',    url:'https://blockworks.co/feed' },
+    { name:'CryptoSlate',   url:'https://cryptoslate.com/feed/' },
     { name:'Yahoo Finance', url:'https://finance.yahoo.com/news/rssindex' }
   ];
   function fetchFeed(feed){
@@ -9695,7 +9705,7 @@ function loadNews(){
 }
 
 function processNewsItems(items){
-  return items.slice(0,30).map(function(item){
+  return items.slice(0,60).map(function(item){
     return{
       title: item.title||'',
       link:  item.link||item.url||'#',
@@ -9713,7 +9723,7 @@ function processNewsFromXML(xml){
     var imgEl=node.querySelector('enclosure');
     items.push({title:g('title'),link:g('link')||g('guid'),date:g('pubDate'),cat:g('category')||'News',img:imgEl?imgEl.getAttribute('url')||'':''});
   });
-  return items.slice(0,30);
+  return items.slice(0,60);
 }
 
 function timeAgo(dateStr){
@@ -9728,27 +9738,63 @@ function timeAgo(dateStr){
 }
 // (duplicate timeAgo removed during review — kept single definition above)
 
+var _tkItems = [], _tkIdx = 0, _tkTimer = null, _tkPaused = false;
+var TK_DWELL = 7000;                  // ms each headline stays on screen
+
 function renderTicker(items){
-  var html=items.map(function(it){
-    var cat=(it.cat||'News').toString().substring(0,12);
-    var age=timeAgo(it.date);
-    return '<a class="ticker-item" href="'+it.link+'" target="_blank" rel="noopener">'+
-      '<span class="ticker-cat">'+cat+'</span>'+
-      '<span>'+it.title+'</span>'+
-      (age?'<span class="ticker-age">'+age+'</span>':'')+
-      '</a><span class="ticker-sep">·</span>';
-  }).join('');
-  var track=document.getElementById('ticker-track');
-  if(track){
-    // Reset animation by cloning the element
-    var newTrack=track.cloneNode(false);
-    newTrack.innerHTML=html+html; // duplicate for seamless loop
-    var totalChars=items.reduce(function(s,i){return s+i.title.length;},0);
-    var dur=Math.max(50,Math.min(120,totalChars*0.10));
-    newTrack.style.animationDuration=dur+'s';
-    track.parentNode.replaceChild(newTrack,track);
+  _tkItems = (items||[]).filter(function(i){ return i && i.title; });
+  _tkIdx = 0;
+  if(_tkTimer){ clearInterval(_tkTimer); _tkTimer = null; }
+  var wrap = document.getElementById('ticker-wrap');
+  if(wrap && !document.getElementById('tk-prev')){
+    // add manual controls once
+    var prev = document.createElement('button');
+    prev.id='tk-prev'; prev.className='tk-nav'; prev.innerHTML='‹';
+    prev.title='Previous headline';
+    prev.onclick=function(e){ e.stopPropagation(); tkStep(-1); };
+    var next = document.createElement('button');
+    next.id='tk-next'; next.className='tk-nav'; next.innerHTML='›';
+    next.title='Next headline';
+    next.onclick=function(e){ e.stopPropagation(); tkStep(1); };
+    var cnt = document.createElement('span');
+    cnt.id='tk-count'; cnt.className='tk-count';
+    wrap.insertBefore(prev, wrap.firstChild);
+    wrap.appendChild(next); wrap.appendChild(cnt);
+  }
+  _tkShow();
+  if(_tkItems.length > 1){
+    _tkTimer = setInterval(function(){ if(!_tkPaused) tkStep(1); }, TK_DWELL);
   }
 }
+
+function _tkShow(){
+  var track = document.getElementById('ticker-track');
+  if(!track) return;
+  if(!_tkItems.length){ track.innerHTML = '<span style="font-size:12px;color:var(--t3)">No headlines loaded</span>'; return; }
+  var it = _tkItems[_tkIdx % _tkItems.length];
+  var cat = (it.cat||'News').toString().substring(0,12);
+  var age = timeAgo(it.date);
+  track.innerHTML = '<a class="ticker-item" href="'+it.link+'" target="_blank" rel="noopener">'
+    + '<span class="ticker-cat">'+cat+'</span>'
+    + '<span class="tk-title">'+it.title+'</span>'
+    + (age?'<span class="ticker-age">'+age+'</span>':'')
+    + '</a>';
+  var cnt = document.getElementById('tk-count');
+  if(cnt) cnt.textContent = (_tkIdx % _tkItems.length + 1)+'/'+_tkItems.length;
+}
+
+// Fade out, swap, fade in — opacity only, so no glyph re-rasterization jitter.
+function tkStep(dir){
+  if(!_tkItems.length) return;
+  var el = document.querySelector('#ticker-track .ticker-item');
+  var go = function(){
+    _tkIdx = (_tkIdx + dir + _tkItems.length) % _tkItems.length;
+    _tkShow();
+  };
+  if(el){ el.classList.add('fading'); setTimeout(go, 300); } else go();
+}
+
+function tkPause(p){ _tkPaused = !!p; }
 
 function renderNewsList(items){
   var html='';
@@ -10431,6 +10477,36 @@ function reloadNewsAndShow() {
   loadNews();
 }
 
+
+// Project names for headline matching. Full names are matched loosely; tickers
+// are matched only on word boundaries (see renderNewsTabContent).
+var COIN_ALIASES = {
+  BTC:['BITCOIN'], ETH:['ETHEREUM','ETHER'], SOL:['SOLANA'], BNB:['BINANCE COIN','BNB CHAIN'],
+  XRP:['RIPPLE'], DOGE:['DOGECOIN'], ADA:['CARDANO'], AVAX:['AVALANCHE'], LINK:['CHAINLINK'],
+  DOT:['POLKADOT'], POL:['POLYGON'], MATIC:['POLYGON'], LTC:['LITECOIN'], SHIB:['SHIBA INU','SHIBA'],
+  TRX:['TRON'], UNI:['UNISWAP'], ATOM:['COSMOS'], ETC:['ETHEREUM CLASSIC'], XLM:['STELLAR'],
+  NEAR:['NEAR PROTOCOL'], APT:['APTOS'], ARB:['ARBITRUM'], OP:['OPTIMISM'], INJ:['INJECTIVE'],
+  SUI:['SUI NETWORK','SUI BLOCKCHAIN'], SEI:['SEI NETWORK'], TIA:['CELESTIA'], RUNE:['THORCHAIN'],
+  AAVE:['AAVE'], MKR:['MAKERDAO','MAKER'], LDO:['LIDO'], FIL:['FILECOIN'], ICP:['INTERNET COMPUTER'],
+  HBAR:['HEDERA'], VET:['VECHAIN'], ALGO:['ALGORAND'], GRT:['THE GRAPH'], SAND:['THE SANDBOX'],
+  MANA:['DECENTRALAND'], AXS:['AXIE INFINITY','AXIE'], IMX:['IMMUTABLE'], FTM:['FANTOM'],
+  S:['SONIC'], PEPE:['PEPE COIN','PEPECOIN'], WIF:['DOGWIFHAT'], BONK:['BONK'],
+  ONDO:['ONDO FINANCE','ONDO'], ENA:['ETHENA'], JUP:['JUPITER EXCHANGE','JUPITER'],
+  PYTH:['PYTH NETWORK'], STRK:['STARKNET'], TON:['TONCOIN','TON BLOCKCHAIN'], KAS:['KASPA'],
+  RENDER:['RENDER NETWORK'], RNDR:['RENDER'], FET:['FETCH.AI','FETCH AI','ARTIFICIAL SUPERINTELLIGENCE'],
+  TAO:['BITTENSOR'], WLD:['WORLDCOIN','WORLD NETWORK'], JASMY:['JASMYCOIN','JASMY'],
+  GALA:['GALA GAMES'], CHZ:['CHILIZ'], EOS:['EOS'], XTZ:['TEZOS'], THETA:['THETA NETWORK'],
+  EGLD:['MULTIVERSX','ELROND'], FLOW:['FLOW BLOCKCHAIN'], CRV:['CURVE FINANCE','CURVE DAO'],
+  COMP:['COMPOUND FINANCE'], SNX:['SYNTHETIX'], ENS:['ETHEREUM NAME SERVICE'], DYDX:['DYDX'],
+  GMX:['GMX'], CAKE:['PANCAKESWAP'], ORDI:['ORDINALS'], STX:['STACKS'], MNT:['MANTLE'],
+  ZK:['ZKSYNC'], BLUR:['BLUR'], APE:['APECOIN'], LRC:['LOOPRING'], ZRX:['0X PROTOCOL'],
+  BAT:['BASIC ATTENTION'], QNT:['QUANT NETWORK'], KAVA:['KAVA'], ROSE:['OASIS NETWORK'],
+  CFX:['CONFLUX'], IOTA:['IOTA'], NEO:['NEO'], DASH:['DASH'], ZEC:['ZCASH'], XMR:['MONERO'],
+  BCH:['BITCOIN CASH'], BSV:['BITCOIN SV'], CRO:['CRONOS','CRYPTO.COM'], OKB:['OKB'],
+  LEO:['UNUS SED LEO'], TWT:['TRUST WALLET'], VIRTUAL:['VIRTUALS PROTOCOL'], AI16Z:['AI16Z'],
+  HYPE:['HYPERLIQUID'], MOVE:['MOVEMENT'], BERA:['BERACHAIN'], SPX:['SPX6900'], PENGU:['PUDGY PENGUINS']
+};
+
 function renderNewsTabContent(d) {
   var sec = document.getElementById('msec');
   if (!sec) return;
@@ -10442,24 +10518,26 @@ function renderNewsTabContent(d) {
   }
 
   // Find all relevant articles
+  // Coin-name matching, rebuilt. Two real defects in the old version:
+  //   1. Naive substring search — "SUI" matched purSUIt, "INJ" matched INJury,
+  //      "ARB" matched ARBitrage, "ENA" matched sENAte. Word boundaries fix it.
+  //   2. The alias table only covered ~12 majors, so the other ~65 coins on the
+  //      board relied on their bare ticker and missed articles that used the
+  //      project's actual name ("Injective", "Sui Network", "Ondo Finance").
   var matched = newsCache.filter(function(n) {
     if (!n.title) return false;
-    var t = n.title.toUpperCase();
-    // Match by coin name or symbol
-    return t.indexOf(sym) !== -1 ||
-           (sym === 'BTC'  && (t.indexOf('BITCOIN') !== -1)) ||
-           (sym === 'ETH'  && (t.indexOf('ETHEREUM') !== -1)) ||
-           (sym === 'SOL'  && (t.indexOf('SOLANA') !== -1)) ||
-           (sym === 'BNB'  && (t.indexOf('BINANCE') !== -1)) ||
-           (sym === 'XRP'  && (t.indexOf('RIPPLE') !== -1)) ||
-           (sym === 'DOGE' && (t.indexOf('DOGECOIN') !== -1)) ||
-           (sym === 'ADA'  && (t.indexOf('CARDANO') !== -1)) ||
-           (sym === 'AVAX' && (t.indexOf('AVALANCHE') !== -1)) ||
-           (sym === 'LINK' && (t.indexOf('CHAINLINK') !== -1)) ||
-           (sym === 'DOT'  && (t.indexOf('POLKADOT') !== -1)) ||
-           (sym === 'MATIC'&& (t.indexOf('POLYGON') !== -1)) ||
-           (sym === 'ATOM' && (t.indexOf('COSMOS') !== -1)) ||
-           (sym === 'LTC'  && (t.indexOf('LITECOIN') !== -1));
+    var t = ' ' + n.title.toUpperCase() + ' ';
+    var names = COIN_ALIASES[sym] || [];
+    // full project names are safe to match loosely
+    for (var i = 0; i < names.length; i++) {
+      if (t.indexOf(names[i]) !== -1) return true;
+    }
+    // tickers only with word boundaries, and only when long enough to be
+    // meaningful — 2-letter tickers produce far more noise than signal.
+    if (sym.length >= 3) {
+      try { if (new RegExp('\\b' + sym + '\\b').test(t)) return true; } catch(e){}
+    }
+    return false;
   });
 
   // Score each article
