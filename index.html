@@ -214,11 +214,14 @@ td{padding:7px 8px;white-space:nowrap}
 .news-htitle{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--t2);flex:1}
 .news-cnt{font-size:11px;color:var(--t3)}
 .news-tog{font-size:10px;color:var(--t3);margin-left:4px}
-.ticker-wrap{overflow:hidden;height:32px;position:relative}
-.ticker-track{display:flex;white-space:nowrap;position:absolute;animation:ticker 240s linear infinite;will-change:transform}
-.ticker-track:hover{animation-play-state:paused}
+.ticker-wrap{overflow:hidden;height:34px;position:relative}
+/* Readability: moving text is hard to read, so this is deliberately slow (400s
+   for a full loop) and rendered a little larger with tighter letter-spacing.
+   Hovering, or touching on mobile, freezes it completely. */
+.ticker-track{display:flex;white-space:nowrap;position:absolute;animation:ticker 400s linear infinite;will-change:transform}
+.ticker-track:hover,.ticker-track:active,.ticker-wrap:hover .ticker-track{animation-play-state:paused}
 @keyframes ticker{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
-.ticker-item{display:inline-flex;align-items:center;gap:6px;padding:0 22px;height:32px;font-size:12px;color:var(--text);cursor:pointer;text-decoration:none;flex:0 0 auto;transition:color .12s}
+.ticker-item{display:inline-flex;align-items:center;gap:7px;padding:0 26px;height:34px;font-size:13px;font-weight:500;letter-spacing:.1px;color:var(--text);cursor:pointer;text-decoration:none;flex:0 0 auto;transition:color .12s}
 .ticker-item:hover{color:var(--g)}
 .ticker-sep{display:inline-block;color:var(--t3);line-height:32px;padding:0 4px;font-size:14px;flex:0 0 auto}
 .ticker-cat{font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px;background:rgba(226,75,74,.14);color:var(--r);flex:0 0 auto}
@@ -610,7 +613,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
     <span class="news-cnt" id="news-cnt"></span>
     <span class="news-tog" id="news-tog">▼ expand</span>
   </div>
-  <div class="ticker-wrap" id="ticker-wrap">
+  <div class="ticker-wrap" id="ticker-wrap" ontouchstart="var t=document.getElementById('ticker-track');if(t)t.style.animationPlayState='paused'" ontouchend="var t=document.getElementById('ticker-track');if(t)setTimeout(function(){t.style.animationPlayState='running'},4000)">
     <div class="ticker-track" id="ticker-track">
       <span style="padding:0 20px;line-height:32px;font-size:12px;color:var(--t3)">Loading CoinTelegraph headlines…</span>
     </div>
@@ -3247,6 +3250,7 @@ function loadAll() {
     checkAlerts(allData);
     try { fetchDominance(); } catch(e){}             // live BTC.D / USDT.D
     try { fetchMarketCaps(); } catch(e){}            // market caps → turnover
+    try { refreshExternalData(); } catch(e){}        // macro tape, derivatives, stables, on-chain
     try { checkChartStates(allData); } catch(e){}    // chart-state reads + BTC flip alert
     try { checkWatchers(allData); } catch(e){}       // user-defined coin watchers
     try { checkAIMemoAlerts(allData); } catch(e){}   // AI entry-zone watches
@@ -13763,6 +13767,191 @@ var REGIME_MODES = {
                 action:'Mixed flows. Only the highest-quality setups justify action; everything marginal is a pass.' }
 };
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SOURCES + DAILY BRIEF. The panel shows what the tool ACTUALLY fetched (real
+// numbers, verifiable) and LINKS what it cannot reach. The briefing agent is
+// given only fetched data + real headlines, and is explicitly told to name its
+// blind spots rather than fill them — the failure mode of a "news AI" is a
+// confident summary of things it never read.
+// ═══════════════════════════════════════════════════════════════════════════
+var NEWS_SOURCES = [
+  { layer:'Macro & rates', free:true, items:[
+    { n:'CME FedWatch', u:'https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html', d:'market-implied Fed odds' },
+    { n:'Forex Factory calendar', u:'https://www.forexfactory.com/calendar', d:'high-impact releases' },
+    { n:'Federal Reserve', u:'https://www.federalreserve.gov/newsevents.htm', d:'FOMC, primary source' },
+    { n:'BLS (CPI, jobs)', u:'https://www.bls.gov/', d:'primary release, not a summary' },
+    { n:'BEA (GDP, PCE)', u:'https://www.bea.gov/', d:'primary release' },
+    { n:'Reuters Business', u:'https://www.reuters.com/business/', d:'breaking global' }
+  ]},
+  { layer:'Crypto news', free:true, items:[
+    { n:'CoinDesk', u:'https://www.coindesk.com/', d:'fetched below ✓' },
+    { n:'The Block', u:'https://www.theblock.co/', d:'institutional research' },
+    { n:'Blockworks', u:'https://blockworks.co/', d:'ETFs, market structure' },
+    { n:'Decrypt', u:'https://decrypt.co/', d:'readable market news' },
+    { n:'Cointelegraph', u:'https://cointelegraph.com/', d:'fetched below ✓' }
+  ]},
+  { layer:'ETF & institutional flow', free:true, items:[
+    { n:'Farside ETF flows', u:'https://farside.co.uk/btc/', d:'daily BTC/ETH ETF flows' },
+    { n:'SoSoValue', u:'https://sosovalue.com/', d:'ETF dashboard' }
+  ]},
+  { layer:'On-chain', free:false, items:[
+    { n:'Glassnode', u:'https://glassnode.com/', d:'PAID — proprietary metrics' },
+    { n:'CryptoQuant', u:'https://cryptoquant.com/', d:'PAID — exchange flows' },
+    { n:'Arkham', u:'https://intel.arkm.com/', d:'free tier — whale wallets' },
+    { n:'blockchain.com charts', u:'https://www.blockchain.com/charts', d:'FREE — fetched below ✓' }
+  ]},
+  { layer:'Derivatives', free:true, items:[
+    { n:'CoinGlass', u:'https://www.coinglass.com/', d:'aggregator — basics fetched free below ✓' },
+    { n:'Binance futures data', u:'https://www.binance.com/en/futures/funding-history/perpetual/real-time-funding-rate', d:'FREE primary source' }
+  ]},
+  { layer:'Traditional markets', free:true, items:[
+    { n:'TradingView', u:'https://www.tradingview.com/', d:'SPX, DXY, gold, yields' },
+    { n:'Yahoo Finance', u:'https://finance.yahoo.com/', d:'fetched below ✓' },
+    { n:'CNBC Markets', u:'https://www.cnbc.com/markets/', d:'US market news' }
+  ]}
+];
+
+function buildSourcesPanel(){
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🌐 Live external data</div>';
+  h += '<div style="font-size:11px;color:var(--t2);margin-bottom:.7rem">Real numbers fetched from primary free sources — the same underlying data most paid aggregators repackage.</div>';
+
+  // MACRO TAPE
+  if(Object.keys(_macro).length){
+    h += '<div style="font-size:11px;font-weight:700;color:var(--t2);margin-bottom:4px">Macro tape <span style="font-weight:400;color:var(--t3)">— BTC trades as a liquidity asset, so this often explains moves the crypto charts cannot</span></div>';
+    h += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:.7rem">';
+    MACRO_TICKERS.forEach(function(t){
+      var m = _macro[t.key]; if(!m) return;
+      // for DXY/VIX/yields a RISE is a headwind for crypto — colour by effect, not sign
+      var goodForCrypto = m.inverse ? m.chg < 0 : m.chg > 0;
+      var col = Math.abs(m.chg) < 0.15 ? 'var(--t3)' : (goodForCrypto ? 'var(--g)' : 'var(--r)');
+      h += '<div><div style="font-size:14px;font-weight:800;color:var(--text)">'+(m.price>1000?Math.round(m.price).toLocaleString():m.price.toFixed(2))+'</div>'
+         + '<div style="font-size:10px;color:'+col+'">'+m.label+' '+(m.chg>=0?'+':'')+m.chg.toFixed(2)+'%</div></div>';
+    });
+    h += '</div>';
+  }
+  // DERIVATIVES
+  if(Object.keys(_derivs).length){
+    h += '<div style="font-size:11px;font-weight:700;color:var(--t2);margin-bottom:4px">BTC derivatives <span style="font-weight:400;color:var(--t3)">— read as CROWDING, not direction. You trade spot; this is squeeze risk.</span></div>';
+    h += '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:.7rem">';
+    if(_derivs.funding != null){
+      var f = _derivs.funding;
+      var fcol = Math.abs(f) > 0.03 ? 'var(--r)' : Math.abs(f) > 0.015 ? 'var(--am)' : 'var(--g)';
+      h += '<div><div style="font-size:14px;font-weight:800;color:'+fcol+'">'+(f>=0?'+':'')+f.toFixed(4)+'%</div><div style="font-size:10px;color:var(--t3)">funding '+(f>0.03?'· longs crowded':f<-0.03?'· shorts crowded':'· normal')+'</div></div>';
+    }
+    if(_derivs.lsRatio != null)
+      h += '<div><div style="font-size:14px;font-weight:800;color:var(--text)">'+_derivs.lsRatio.toFixed(2)+'</div><div style="font-size:10px;color:var(--t3)">long/short accounts</div></div>';
+    if(_derivs.oi != null)
+      h += '<div><div style="font-size:14px;font-weight:800;color:var(--text)">'+Math.round(_derivs.oi).toLocaleString()+'</div><div style="font-size:10px;color:var(--t3)">open interest (BTC)</div></div>';
+    h += '</div>';
+  }
+  // STABLES + ON-CHAIN
+  if(_stables || Object.keys(_onchain).length){
+    h += '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:.7rem">';
+    if(_stables && _stables.chg7d != null){
+      var scol = _stables.chg7d > 0.2 ? 'var(--g)' : _stables.chg7d < -0.2 ? 'var(--r)' : 'var(--t3)';
+      h += '<div><div style="font-size:14px;font-weight:800;color:'+scol+'">'+(_stables.chg7d>=0?'+':'')+_stables.chg7d.toFixed(2)+'%</div>'
+         + '<div style="font-size:10px;color:var(--t3)">stablecoin supply 7d ($'+(_stables.total/1e9).toFixed(1)+'B) — dry powder</div></div>';
+    }
+    if(_onchain.chg7d != null){
+      var ocol = _onchain.chg7d > 0 ? 'var(--g)' : 'var(--t3)';
+      h += '<div><div style="font-size:14px;font-weight:800;color:'+ocol+'">'+(_onchain.chg7d>=0?'+':'')+_onchain.chg7d.toFixed(1)+'%</div>'
+         + '<div style="font-size:10px;color:var(--t3)">BTC active addresses 7d</div></div>';
+    }
+    h += '</div>';
+  }
+  h += '<button onclick="runDailyBrief()" style="padding:7px 15px;border-radius:7px;border:none;background:var(--acc);color:#fff;font-weight:700;font-size:11px;cursor:pointer;font-family:inherit">🧠 Brief me on all of this</button>';
+  h += '<div id="brief-out" style="margin-top:.7rem"></div>';
+
+  // SOURCE LINKS
+  h += '<div style="margin-top:1rem;border-top:.5px solid var(--bd);padding-top:.7rem">';
+  h += '<div style="font-size:12px;font-weight:700;margin-bottom:.2rem">📰 Sources by layer</div>';
+  h += '<div style="font-size:10px;color:var(--t3);margin-bottom:.5rem">Items marked ✓ are fetched automatically above. The rest need your own eyes — the tool will not pretend to have read them.</div>';
+  NEWS_SOURCES.forEach(function(g){
+    h += '<div style="font-size:11px;font-weight:700;color:var(--t2);margin-top:7px">'+g.layer+'</div>';
+    g.items.forEach(function(it){
+      var paid = /PAID/.test(it.d);
+      h += '<div style="display:flex;gap:7px;font-size:10px;padding:2px 0;align-items:baseline">'
+         + '<a href="'+it.u+'" target="_blank" rel="noopener" style="color:var(--acc);text-decoration:none;min-width:150px">'+it.n+'</a>'
+         + '<span style="color:'+(paid?'var(--am)':'var(--t3)')+'">'+it.d+'</span></div>';
+    });
+  });
+  h += '</div>';
+  return h + '</div>';
+}
+
+function runDailyBrief(){
+  var out = document.getElementById('brief-out'); if(!out) return;
+  var key = localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key');
+  if(!key){ out.innerHTML = '<div style="font-size:11px;color:var(--t3)">Add an AI key first (any coin → 🤖 Analyst → change key).</div>'; return; }
+  out.innerHTML = '<div style="font-size:11px;color:var(--t3)">Reading the fetched data and headlines…</div>';
+
+  // Build a payload of ONLY things actually retrieved
+  var have = [], missing = [];
+  if(Object.keys(_macro).length){
+    have.push('MACRO TAPE (Yahoo, live): ' + MACRO_TICKERS.map(function(t){
+      var m=_macro[t.key]; return m ? m.label+' '+m.price.toFixed(2)+' ('+(m.chg>=0?'+':'')+m.chg.toFixed(2)+'%)' : null;
+    }).filter(Boolean).join(', '));
+  } else missing.push('macro tape');
+  if(Object.keys(_derivs).length){
+    have.push('BTC DERIVATIVES (Binance, live): funding '+(_derivs.funding!=null?_derivs.funding.toFixed(4)+'%':'n/a')
+      +', long/short '+(_derivs.lsRatio!=null?_derivs.lsRatio.toFixed(2):'n/a')
+      +', open interest '+(_derivs.oi!=null?Math.round(_derivs.oi):'n/a')+' BTC');
+  } else missing.push('derivatives');
+  if(_stables) have.push('STABLECOIN SUPPLY (DefiLlama): $'+(_stables.total/1e9).toFixed(1)+'B, 7d change '+(_stables.chg7d!=null?_stables.chg7d.toFixed(2)+'%':'n/a'));
+  else missing.push('stablecoin supply');
+  if(_onchain.chg7d!=null) have.push('BTC ACTIVE ADDRESSES (blockchain.info): 7d change '+_onchain.chg7d.toFixed(1)+'%');
+  else missing.push('on-chain activity');
+
+  var reg = _regime || (typeof classifyRegime==='function' ? classifyRegime() : null);
+  have.push('SCREENER BOARD: regime '+(reg?reg.mode:'n/a')+(reg&&reg.provisional?' (provisional)':'')
+    +', BTC.D '+(_btcDom!=null?_btcDom.toFixed(2)+'%':'n/a')
+    +', USDT.D '+(_usdtDom!=null?_usdtDom.toFixed(2)+'%':'n/a')
+    +', breadth '+_breadth+'%'
+    +', BTC state '+btcState
+    +', A+ setups '+(allData||[]).filter(function(d){return d.highConviction;}).length
+    +', buy signals '+(allData||[]).filter(function(d){return d.sig==='BUY'||d.sig==='STRONG BUY';}).length);
+  var ew = (allData||[]).filter(function(d){ return d.earlyState; }).slice(0,5)
+            .map(function(d){ return d.pair+' ('+d.earlyState+(d.earlyDna?', '+d.earlyDna:'')+')'; });
+  if(ew.length) have.push('EARLY WATCH: ' + ew.join('; '));
+
+  // real fetched RSS headlines (the global the news tab already populates)
+  var _nc = (typeof newsCache !== 'undefined' && newsCache) ? newsCache : [];
+  var heads = _nc.slice(0,18).map(function(n){ return '- '+(n.title||'')+' ['+(n.source||n.src||'')+']'; })
+                             .filter(function(s){ return s.length > 8; });
+  if(heads.length) have.push('HEADLINES ACTUALLY FETCHED (RSS):\n'+heads.join('\n'));
+  else missing.push('news headlines');
+
+  var sys = 'You are briefing a spot-only crypto trader in Japan. Holds are days to weeks, no leverage, no shorting.\n\n'
+    + 'ABSOLUTE RULES:\n'
+    + '1. Use ONLY the data supplied below. You have NOT read Bloomberg, Reuters, FT, Glassnode or CryptoQuant. Never imply you did.\n'
+    + '2. If something is listed as MISSING, say plainly that it was not available and that the trader should check it themselves. Do not guess at it.\n'
+    + '3. Never invent a headline, number, or event. If you are unsure whether something happened, do not mention it.\n'
+    + '4. No price predictions and no probability percentages.\n'
+    + '5. Derivatives data means CROWDING and squeeze risk for a spot trader, not direction.\n'
+    + '6. If the honest conclusion is that nothing actionable changed, say exactly that. That is a useful brief, not a failed one.\n\n'
+    + 'FORMAT (short, plain prose, no tables):\n'
+    + 'TAPE: one line on macro and what it implies for crypto risk appetite.\n'
+    + 'FLOWS: stablecoin supply and dominance — is capital entering, leaving, or parked?\n'
+    + 'CROWDING: what funding and long/short say about positioning risk.\n'
+    + 'CRYPTO NEWS: only themes present in the supplied headlines.\n'
+    + 'BOARD: what the screener is actually showing, and whether its gates allow anything.\n'
+    + 'BLIND SPOTS: what you could not see, and what the trader should check personally.\n'
+    + 'BOTTOM LINE: one or two sentences. Doing nothing is a legitimate conclusion.';
+
+  var usr = 'DATA AVAILABLE:\n\n' + have.join('\n\n')
+    + (missing.length ? '\n\nMISSING / NOT FETCHED: ' + missing.join(', ') : '');
+
+  _aiCallModel(sys, [{role:'user', content:usr}], null).then(function(txt){
+    out.innerHTML = '<div style="background:var(--card3);border-radius:8px;padding:.8rem;font-size:12px;line-height:1.65;color:var(--text);white-space:pre-wrap">'
+      + (txt||'').replace(/</g,'&lt;') + '</div>'
+      + '<div style="font-size:9px;color:var(--t3);margin-top:5px;font-style:italic">Grounded only in the data listed above. Paywalled sources were not read — check those yourself via the links below.</div>';
+  }).catch(function(e){
+    out.innerHTML = '<div style="font-size:11px;color:var(--r)">Brief failed: '+(e.message||e)+'</div>';
+  });
+}
+
 function buildRegimePanel(){
   var r = _regime || classifyRegime();
   var m = REGIME_MODES[r.mode] || REGIME_MODES.neutral;
@@ -13872,6 +14061,132 @@ function applyTurnover(data){
     if(d.turnover == null || !(sd > 0)){ d.turnoverZ = null; return; }
     d.turnoverZ = Math.max(-2.5, Math.min(2.5, (Math.log(Math.max(1e-6,d.turnover)) - m)/sd));
   });
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FREE DATA LAYER — legitimate primary sources instead of paywalled aggregators.
+// The insight: much of what CoinGlass/Glassnode charge for is repackaged data the
+// exchanges and chains publish openly. This fetches the real thing, free:
+//   • Macro tape (S&P, Nasdaq, DXY, VIX, Gold, US10Y) — Yahoo public chart API
+//   • Derivatives (funding, open interest, long/short) — Binance public futures
+//   • Stablecoin supply — DefiLlama (real capital entering/leaving crypto)
+//   • BTC on-chain activity — blockchain.info charts
+// Nothing here bypasses a paywall. What genuinely sits behind one (Bloomberg,
+// FT, Glassnode's proprietary metrics) is LINKED, never faked.
+// ═══════════════════════════════════════════════════════════════════════════
+var _macro = {}, _derivs = {}, _stables = null, _onchain = {};
+
+function _pfetch(url, ms){
+  return fetchJ(url, ms||7000).catch(function(){
+    return fetchJ(withProxy(url, _proxyIdx), ms||9000);
+  });
+}
+
+// ── MACRO TAPE — BTC trades as a liquidity asset, so this is the layer that
+//    most often explains a move the crypto charts cannot.
+var MACRO_TICKERS = [
+  { sym:'^GSPC', label:'S&P 500',  key:'spx' },
+  { sym:'^IXIC', label:'Nasdaq',   key:'ndx' },
+  { sym:'DX-Y.NYB', label:'DXY',   key:'dxy', inverse:true },
+  { sym:'^VIX',  label:'VIX',      key:'vix', inverse:true },
+  { sym:'GC=F',  label:'Gold',     key:'gold' },
+  { sym:'^TNX',  label:'US 10Y',   key:'tnx', inverse:true }
+];
+function fetchMacro(){
+  var cached = null;
+  try { cached = JSON.parse(localStorage.getItem('macro_tape')||'null'); } catch(e){}
+  if(cached && (Date.now()-cached.ts) < 900000){ _macro = cached.d; return Promise.resolve(); }
+  return Promise.all(MACRO_TICKERS.map(function(t){
+    return _pfetch('https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(t.sym)+'?range=5d&interval=1d')
+      .then(function(j){
+        var r = j && j.chart && j.chart.result && j.chart.result[0];
+        var cl = r && r.indicators && r.indicators.quote && r.indicators.quote[0].close;
+        if(!cl) return null;
+        var vals = cl.filter(function(x){ return x != null; });
+        if(vals.length < 2) return null;
+        var last = vals[vals.length-1], prev = vals[vals.length-2];
+        return { key:t.key, label:t.label, price:last,
+                 chg: ((last-prev)/prev*100), inverse: !!t.inverse };
+      }).catch(function(){ return null; });
+  })).then(function(arr){
+    var d = {};
+    arr.forEach(function(x){ if(x) d[x.key] = x; });
+    if(Object.keys(d).length){
+      _macro = d;
+      try { localStorage.setItem('macro_tape', JSON.stringify({ts:Date.now(), d:d})); } catch(e){}
+    }
+  });
+}
+
+// ── DERIVATIVES — free from Binance's public futures endpoints. This is the
+//    core of what CoinGlass sells. For a SPOT trader these read as CROWDING:
+//    extreme funding means leveraged longs are packed in and squeeze risk is up.
+function fetchDerivs(){
+  var cached = null;
+  try { cached = JSON.parse(localStorage.getItem('derivs')||'null'); } catch(e){}
+  if(cached && (Date.now()-cached.ts) < 900000){ _derivs = cached.d; return Promise.resolve(); }
+  var out = {};
+  return Promise.all([
+    _pfetch('https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT').then(function(j){
+      if(j && j.lastFundingRate != null) out.funding = parseFloat(j.lastFundingRate)*100;
+    }).catch(function(){}),
+    _pfetch('https://fapi.binance.com/fapi/v1/openInterest?symbol=BTCUSDT').then(function(j){
+      if(j && j.openInterest) out.oi = parseFloat(j.openInterest);
+    }).catch(function(){}),
+    _pfetch('https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=BTCUSDT&period=1h&limit=1').then(function(j){
+      if(Array.isArray(j) && j[0]) out.lsRatio = parseFloat(j[0].longShortRatio);
+    }).catch(function(){})
+  ]).then(function(){
+    if(Object.keys(out).length){
+      _derivs = out;
+      try { localStorage.setItem('derivs', JSON.stringify({ts:Date.now(), d:out})); } catch(e){}
+    }
+  });
+}
+
+// ── STABLECOIN SUPPLY — free from DefiLlama. Genuinely useful: growing supply
+//    means fiat is entering crypto (dry powder), shrinking means it is leaving.
+//    A real complement to USDT.D, which only measures share, not absolute size.
+function fetchStables(){
+  var cached = null;
+  try { cached = JSON.parse(localStorage.getItem('stables')||'null'); } catch(e){}
+  if(cached && (Date.now()-cached.ts) < 3600000){ _stables = cached.d; return Promise.resolve(); }
+  return _pfetch('https://stablecoins.llama.fi/stablecoincharts/all').then(function(j){
+    if(!Array.isArray(j) || j.length < 8) return;
+    function tot(x){ var v=0; var p=x.totalCirculating||x.totalCirculatingUSD||{};
+      Object.keys(p).forEach(function(k){ v += (p[k]||0); }); return v; }
+    var last = tot(j[j.length-1]), wk = tot(j[Math.max(0,j.length-8)]);
+    if(!last) return;
+    var d = { total:last, chg7d: wk>0 ? (last-wk)/wk*100 : null };
+    _stables = d;
+    try { localStorage.setItem('stables', JSON.stringify({ts:Date.now(), d:d})); } catch(e){}
+  }).catch(function(){});
+}
+
+// ── BTC ON-CHAIN — free from blockchain.info. Not Glassnode's proprietary
+//    metrics, but active addresses is the input behind Liebi's validated
+//    network-usage value factor, so it is the one worth having.
+function fetchOnchain(){
+  var cached = null;
+  try { cached = JSON.parse(localStorage.getItem('onchain')||'null'); } catch(e){}
+  if(cached && (Date.now()-cached.ts) < 21600000){ _onchain = cached.d; return Promise.resolve(); }
+  return _pfetch('https://api.blockchain.info/charts/n-unique-addresses?timespan=30days&format=json')
+    .then(function(j){
+      var v = j && j.values;
+      if(!Array.isArray(v) || v.length < 8) return;
+      var last = v[v.length-1].y, wk = v[Math.max(0,v.length-8)].y;
+      var d = { addresses:last, chg7d: wk>0 ? (last-wk)/wk*100 : null };
+      _onchain = d;
+      try { localStorage.setItem('onchain', JSON.stringify({ts:Date.now(), d:d})); } catch(e){}
+    }).catch(function(){});
+}
+
+function refreshExternalData(){
+  try { fetchMacro(); } catch(e){}
+  try { fetchDerivs(); } catch(e){}
+  try { fetchStables(); } catch(e){}
+  try { fetchOnchain(); } catch(e){}
 }
 
 function computeEarlyWatch(data){
@@ -14346,6 +14661,7 @@ function renderMarketRead(){
 
   var btcIcon = {bullish:'🟢',stable:'🟢',falling:'🟡',dumping:'🔴'}[m.btcState]||'⚪';
   var h='';
+  try { h += buildSourcesPanel(); } catch(e){}
   try { h += buildRegimePanel(); } catch(e){}
   try { h += buildEarlyWatchPanel(); } catch(e){}
   // ── AI MARKET BRIEFING — one AI call summarizing the whole board on demand ──
