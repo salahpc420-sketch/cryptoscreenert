@@ -1294,8 +1294,11 @@ function parseBingXTickers(d,syms){
 }
 function parseBybitKlines(d){
   if(!d||!d.result||!d.result.list||!d.result.list.length)throw new Error('byt empty');
+  // Bybit v5 kline: [start, open, high, low, close, volume(BASE), turnover(QUOTE)]
+  // Keep turnover at index 7 so both exchanges expose quote volume in one place.
   return d.result.list.slice().reverse().map(function(r){
-    return[String(r[0]),String(r[1]),String(r[2]),String(r[3]),String(r[4]),String(r[5])];
+    return[String(r[0]),String(r[1]),String(r[2]),String(r[3]),String(r[4]),String(r[5]),'',
+           String(r[6]!=null?r[6]:'')];
   });
 }
 function parseBybitTickers(d,syms){
@@ -1314,7 +1317,10 @@ function parseBybitTickers(d,syms){
 }
 function parseBinanceKlines(d){
   if(!Array.isArray(d)||!d.length)throw new Error('bn empty');
-  return d.map(function(r){return[String(r[0]),String(r[1]),String(r[2]),String(r[3]),String(r[4]),String(r[5]),'','','',String(r[9]!=null?r[9]:'')];});
+  // Binance kline: [openTime,o,h,l,c,volume(BASE),closeTime,quoteAssetVolume(QUOTE),
+  //                 trades, takerBuyBase, takerBuyQuote, ignore]
+  return d.map(function(r){return[String(r[0]),String(r[1]),String(r[2]),String(r[3]),String(r[4]),String(r[5]),'',
+    String(r[7]!=null?r[7]:''),'',String(r[9]!=null?r[9]:'')];});
 }
 function parseBinanceTickers(d,syms){
   // Binance /ticker/24hr returns array with native fields: symbol, lastPrice, priceChangePercent, quoteVolume
@@ -2319,7 +2325,19 @@ function processSymbol(ticker) {
     var cAll = klines.map(function(k){ return parseFloat(k[4]); });
     var hAll = klines.map(function(k){ return parseFloat(k[2]); });
     var lAll = klines.map(function(k){ return parseFloat(k[3]); });
-    var vAll = klines.map(function(k){ return parseFloat(k[5]); });
+    // VOLUME BUG FIX: index 5 is BASE volume (coin units). A ratio built from it
+    // is distorted by price trend — R_quote = R_base x (price_now / price_then).
+    // On a coin up 50%, a genuine doubling of dollar turnover reads as only 1.33x;
+    // on a coin down 50%, collapsing capital flow reads as ~2x expansion. That
+    // biases the signal AGAINST trending coins and TOWARD falling knives.
+    // Use quote (USD) turnover, falling back to base x close when unavailable.
+    var vBase = klines.map(function(k){ return parseFloat(k[5]); });
+    var vAll  = klines.map(function(k, i){
+      var q = parseFloat(k[7]);
+      if (isFinite(q) && q > 0) return q;
+      var px = parseFloat(k[4]), b = parseFloat(k[5]);
+      return (isFinite(px) && isFinite(b)) ? b * px : 0;      // fallback
+    });
 
     // ═══ FIX #1 REPAINTING — evaluate SIGNALS on CLOSED candles only ═══════════
     // The last kline is the CURRENTLY-FORMING candle. Using it makes signals
@@ -2332,6 +2350,7 @@ function processSymbol(ticker) {
     var h = candleClosed ? hAll.slice(0, -1) : hAll;
     var l = candleClosed ? lAll.slice(0, -1) : lAll;
     var v = candleClosed ? vAll.slice(0, -1) : vAll;
+    var vB = candleClosed ? vBase.slice(0, -1) : vBase;
     if (c.length < 30) { c = cAll; h = hAll; l = lAll; v = vAll; } // safety: too few bars
 
     // Cache BTC CLOSED closes globally so other coins compute relative strength
@@ -2351,6 +2370,13 @@ function processSymbol(ticker) {
     var closePx = c[c.length-1];            // last CLOSED close — used for signal gating
     var chg    = parseFloat(ticker.priceChangePercent);
     var vol24  = parseFloat(ticker.quoteVolume);
+    // BUG FIX: bitbank quoteVolume is JPY-denominated (base vol x JPY price),
+    // while every liquidity threshold in this tool is written in USD. At ~150
+    // JPY/USD the filters were roughly 150x too loose in JPY mode, so they
+    // effectively did nothing. Carry a normalized USD figure alongside.
+    var vol24usd = (typeof MODE !== 'undefined' && MODE === 'JPY')
+      ? vol24 / (window._jpyRate || 150)
+      : vol24;
 
     // Trend uses the closed close (not the flickering live price)
     var trend = (closePx > e20 && e20 > e50) ? 'up' : (closePx < e20 && e20 < e50) ? 'down' : 'mixed';
@@ -2360,6 +2386,19 @@ function processSymbol(ticker) {
     var avgVol = v.slice(-21, -3).reduce(function(a, b){ return a + b; }, 0) / Math.max(1, v.slice(-21,-3).length);
     var recentVol = vLen >= 3 ? (v[vLen-1] + v[vLen-2] + v[vLen-3]) / 3 : v[vLen-1] || 0;
     var volR   = avgVol > 0 ? recentVol / avgVol : 1;
+    // ABNORMAL VOLUME (log z-score) — the construct with actual cross-sectional
+    // support. Volume is right-skewed, so logs stabilise it; the z-score is
+    // dimensionless and therefore comparable across coins, unlike a raw ratio.
+    var volZ = 0;
+    (function(){
+      var w = v.slice(-31, -1).filter(function(x){ return x > 0; });
+      if(w.length < 12) return;
+      var lg = w.map(function(x){ return Math.log(1 + x); });
+      var m  = lg.reduce(function(a,b){ return a+b; }, 0) / lg.length;
+      var sd = Math.sqrt(lg.reduce(function(a,b){ return a+(b-m)*(b-m); }, 0) / lg.length);
+      var last = v[v.length-1];
+      if(sd > 0 && last > 0) volZ = Math.max(-4, Math.min(4, (Math.log(1+last) - m) / sd));
+    })();
 
     // ATR% on closed candles
     var atr    = calcATR(h, l, c, 14);
@@ -2748,7 +2787,7 @@ function processSymbol(ticker) {
 
     // 1. SURVIVORSHIP GATE — even the top-25 is not safe (LUNA was top-10 and
     //    went to zero), but below it permanent impairment is the base case.
-    invEligible = (coinRank <= 25) && (vol24 > 20000000);
+    invEligible = (coinRank <= 25) && (vol24usd > 20000000);   // USD-normalized
     if(!invEligible){
       invReason = coinRank > 25 ? 'outside top-25 — survivorship risk too high for a multi-year hold'
                                 : 'liquidity too thin for accumulation';
@@ -2791,12 +2830,13 @@ function processSymbol(ticker) {
     var ddHigh = ddLong;
 
     return {
-      sym:sym, pair:pair, price:price, chg:chg, vol24:vol24,
+      sym:sym, pair:pair, price:price, chg:chg, vol24:vol24, vol24usd:vol24usd,
       tlBreakUp:tlBreakUp, tlTouches:tlTouches, liqAbove:_liqUp, liqBelow:_liqDn, _ew:_ew,
       tlBounceUp:tlBounceUp, tlUpTouches:tlUpTouches, tlBreakDown:tlBreakDown,
       rsi:rsi, ema20:e20, ema50:e50, ema200:e200,
       trend:trend, volR:volR, atrPct:atrPct,
       fromHigh: (function(){ var hi=Math.max.apply(null,c.slice(-30)); return hi>0?(price-hi)/hi*100:0; })(),
+      volZ: Math.round(volZ*100)/100,
       invScore:invScore, ddHigh:Math.round(ddHigh), distE200:Math.round(distE200pct),
       invEligible:invEligible, invReason:invReason, e200Rising:e200Rising, coinRank:coinRank,
       struct:st, liq:liq, sup:sr.sup, res:sr.res, sDist:sr.sDist, rDist:sr.rDist,
@@ -3218,6 +3258,21 @@ function loadAll() {
       d.momQuintile = i < qn ? 'top' : (i >= withMom.length - qn ? 'bottom' : 'mid');
     });
     allData.forEach(function(d){ if(d.momRank == null){ d.momRank = 50; d.momQuintile = 'mid'; } });
+    // SIZE FILTER (research): cross-sectional momentum pays ~4.2%/wk in
+    // above-median-size coins but an insignificant 0.6% in small ones. Ranking
+    // all 80 together dilutes it, so flag whether each coin is in the half where
+    // momentum actually has support. Tracked separately so the IC Lab can grade
+    // whether the filtered version really beats the unfiltered one.
+    (function(){
+      var withVol = allData.filter(function(d){ return d.vol24 > 0; })
+                           .sort(function(a,b){ return b.vol24 - a.vol24; });
+      var medIdx = Math.floor(withVol.length/2);
+      var medVol = withVol.length ? withVol[medIdx].vol24 : 0;
+      allData.forEach(function(d){
+        d.momLarge = (d.vol24||0) >= medVol;                    // in the half momentum works in
+        d.momRankL = d.momLarge ? d.momRank : null;             // size-filtered momentum
+      });
+    })();
 
     // PHASE 9: Opportunity Score — master rank (needs rsRank + accum + bp)
     allData.forEach(function(d){ d.opportunity = calcOpportunity(d); });
@@ -5770,7 +5825,9 @@ var IC_SCORE_FIELDS = { opportunity:'Opportunity Score', score:'Signal Score', b
                         rsRank:'RS Rank', momRank:'Momentum Rank', trendQ:'Trend Quality',
                         accum:'Accumulation Score', volR:'Volume Ratio',
                         invScore:'Investment Score (investing mode)',
-                        turnover:'Turnover (volume/mktcap)' };
+                        turnover:'Turnover (volume/mktcap)',
+                        volZ:'Abnormal Volume (log z)',
+                        momRankL:'Momentum (large coins only)' };
 
 function _icLoad(k){ try{ return JSON.parse(localStorage.getItem(k)||'[]'); }catch(e){ return []; } }
 function _icSave(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
@@ -8778,23 +8835,39 @@ function _extractAILevels(sym, text){
   // before parsing, otherwise CONDITIONS_JSON/LEVELS_JSON silently fail and the
   // memo falls back to generic defaults (looked fine, was wrong).
   var _p = String(text).replace(/```(?:json)?/gi, '');
+  // TOLERANT MARKER PARSING (bug fix). The model does not always emit the marker
+  // bare — it may write "### LEVELS_JSON:" or "**CONDITIONS_JSON:**". The old
+  // regexes allowed only whitespace after the keyword, so a single colon made
+  // every match fail SILENTLY: conditions fell back to generic defaults, levels
+  // came from prose, and the raw JSON was never stripped from the display.
+  // Allow optional #/* decoration and an optional colon everywhere.
+  function _mk(key, open, close){
+    // any mix of whitespace, colons and asterisks may sit between the keyword
+    // and the JSON — "**LEVELS_JSON:**", "### LEVELS_JSON:", "LEVELS_JSON" all valid
+    return new RegExp(key + '[\\s:*#]*(\\' + open + '[\\s\\S]*?\\' + close + ')', 'i');
+  }
+  function _strip(t, key, close){
+    return String(t)
+      .replace(new RegExp('#{0,6}\\s*\\**\\s*' + key + '[\\s\\S]*?\\' + close + '[\\s`*]*', 'i'), '')
+      .replace(/```(?:json)?/gi, '');
+  }
   // Pull the AI's machine-checkable entry conditions (watched live afterwards)
   try {
-    var cbm = _p.match(/CONDITIONS_B_JSON\s*(\[[\s\S]*?\])/);
+    var cbm = _p.match(_mk('CONDITIONS_B_JSON', '[', ']'));
     if(cbm){
       window._aiCondsB = window._aiCondsB || {};
       window._aiCondsB[sym] = JSON.parse(cbm[1]);
-      _p = _p.replace(/CONDITIONS_B_JSON[\s\S]*?\][\s`]*/i, '');
-      text = text.replace(/CONDITIONS_B_JSON[\s\S]*?\][\s`]*/i, '').trim();
+      _p   = _strip(_p,   'CONDITIONS_B_JSON', ']');
+      text = _strip(text, 'CONDITIONS_B_JSON', ']').trim();
     }
-    var cm = _p.match(/CONDITIONS_JSON\s*(\[[\s\S]*?\])/);
+    var cm = _p.match(_mk('CONDITIONS_JSON', '[', ']'));
     if(cm){
       window._aiConds = window._aiConds || {};
       window._aiConds[sym] = JSON.parse(cm[1]);
-      text = text.replace(/CONDITIONS_JSON[\s\S]*?\][\s`]*/i, '').trim();
+      text = _strip(text, 'CONDITIONS_JSON', ']').trim();
     }
   } catch(e){}
-  var m = _p.match(/LEVELS_JSON\s*(\{[^}]*\})/);
+  var m = _p.match(_mk('LEVELS_JSON', '{', '}'));
   if(m){
     try{
       var o = JSON.parse(m[1]);
@@ -8811,7 +8884,11 @@ function _extractAILevels(sym, text){
         }
       } catch(e){}
     }catch(e){}
-    return text.replace(/LEVELS_JSON[\s\S]*?\}[\s`]*/i,'').replace(/```(?:json)?/gi,'').trim();
+    // strip the marker block, then tidy the separators the model leaves behind
+    return _strip(text, 'LEVELS_JSON', '}')
+             .replace(/^\s*-{3,}\s*$/gm, '')       // stray --- rules
+             .replace(/\n{3,}/g, '\n\n')            // collapse blank runs
+             .trim();
   }
   // NO LEVELS_JSON in the reply (the model sometimes omits it) — still save a
   // memo by parsing the levels out of the prose, and still refresh the Trade
@@ -9028,13 +9105,38 @@ function buildTradePlan(d){
     var stopDistPct = Math.abs((planEntry - sl) / planEntry * 100);
     if(stopDistPct > 0){
       var riskAmt = acct * riskPct/100;
-      var posSize = riskAmt / (stopDistPct/100);   // notional so that a stop = riskAmt
+      // ── VOLUME-SCALED RISK (the one use of volume with strong evidence) ──
+      // Volume predicts VOLATILITY, not direction — that is the most replicated
+      // result in the price/volume literature (Lamoureux & Lastrapes: ARCH
+      // effects largely vanish once volume enters the variance equation). So
+      // abnormal volume means a WIDER expected range, and the same 1% risk must
+      // buy a SMALLER position. This does not try to predict where price goes.
+      var _vz = (d.volZ != null) ? d.volZ : 0;
+      var volMult = 1, volNote = '';
+      if(_vz >= 2.5)      { volMult = 0.55; volNote = 'volume ' + _vz.toFixed(1) + 'σ above normal — expect a much wider range'; }
+      else if(_vz >= 1.5) { volMult = 0.70; volNote = 'volume ' + _vz.toFixed(1) + 'σ above normal — wider range likely'; }
+      else if(_vz >= 0.8) { volMult = 0.85; volNote = 'volume somewhat elevated'; }
+      else if(_vz <= -1.0){ volMult = 1.00; volNote = 'volume quiet — normal sizing, but breakouts from here are unconfirmed'; }
+      var riskAdj = riskAmt * volMult;
+      var posSize = riskAdj / (stopDistPct/100);   // notional so that a stop = riskAdj
       posSize = Math.min(posSize, acct);           // spot: can't exceed capital
       var pctOfAcct = posSize/acct*100;
+      // Stop distance should also respect volatility: a stop sized for quiet
+      // conditions gets taken out by ordinary movement when volume expands.
+      var minStopPct = (d.atrPct||2) * (_vz >= 1.5 ? 1.8 : 1.3);
+      var stopTight  = stopDistPct < minStopPct;
       h += '<div style="margin-top:10px;padding:9px;border-radius:8px;background:rgba(124,77,255,.06)">';
-      h += '<div style="font-size:11px;font-weight:800;color:#7c4dff;margin-bottom:4px">📐 Position size (1% risk)</div>';
-      h += '<div style="font-size:11px;color:var(--t2);line-height:1.6">On a <span style="cursor:pointer;text-decoration:underline" onclick="var v=prompt(\'Account size (USDT)\',\''+acct+'\');if(v){localStorage.setItem(\'acct_size\',parseFloat(v)||1000);switchMTab(\'ai\');}">'+acct.toLocaleString()+' account</span>, risking 1% ('+riskAmt.toFixed(0)+'): buy ≈ <strong>'+posSize.toFixed(0)+' USDT</strong> ('+pctOfAcct.toFixed(0)+'% of capital). Stop at '+fE(sl)+' = −'+stopDistPct.toFixed(1)+'% loses '+riskAmt.toFixed(0)+'.</div>';
-      h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;font-style:italic">Fixed-fractional sizing is the biggest evidence-based lever (asset allocation drives ~90% of return variation). Tap the account number to change it. Educational — not advice.</div>';
+      h += '<div style="font-size:11px;font-weight:800;color:#7c4dff;margin-bottom:4px">📐 Position size (1% risk'
+         + (volMult < 1 ? ', volume-adjusted ×'+volMult.toFixed(2) : '') + ')</div>';
+      h += '<div style="font-size:11px;color:var(--t2);line-height:1.6">On a <span style="cursor:pointer;text-decoration:underline" onclick="var v=prompt(\'Account size (USDT)\',\''+acct+'\');if(v){localStorage.setItem(\'acct_size\',parseFloat(v)||1000);switchMTab(\'ai\');}">'+acct.toLocaleString()+' account</span>, risking 1% ('+riskAmt.toFixed(0)+'): buy ≈ <strong>'+posSize.toFixed(0)+' USDT</strong> ('+pctOfAcct.toFixed(0)+'% of capital). Stop at '+fE(sl)+' = −'+stopDistPct.toFixed(1)+'% loses '+riskAdj.toFixed(0)+'.</div>';
+      if(volNote){
+        h += '<div style="font-size:10px;color:'+(volMult<1?'var(--am)':'var(--t3)')+';margin-top:5px;line-height:1.5">📊 '+volNote
+           + (volMult<1 ? ' → size cut to '+Math.round(volMult*100)+'% of normal.' : '') + '</div>';
+      }
+      if(stopTight){
+        h += '<div style="font-size:10px;color:var(--am);margin-top:4px;line-height:1.5">⚠️ This stop ('+stopDistPct.toFixed(1)+'%) is inside the coin\'s normal noise band (~'+minStopPct.toFixed(1)+'% given ATR'+(_vz>=1.5?' and elevated volume':'')+'). Ordinary movement may take it out — widen it and size down, or wait for a tighter entry.</div>';
+      }
+      h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;font-style:italic">Fixed-fractional sizing is the biggest evidence-based lever in the research. The volume adjustment uses the one volume finding that is strongly supported — volume predicts the SIZE of moves, not their direction. It never implies which way price goes. Tap the account number to change it. Educational — not advice.</div>';
       h += '</div>';
     }
   })();
@@ -9665,8 +9767,12 @@ function loadNews(){
     }
     // Tag each item with its source, and never reject the whole batch on one failure
     return tryNewsSource(0)
-      .then(function(items){ items.forEach(function(it){ it.source = feed.name; }); return items; })
-      .catch(function(){ return []; });   // failed feed → empty, others continue
+      .then(function(items){
+        items.forEach(function(it){ it.source = feed.name; });
+        _feedStatus[feed.name] = items.length;      // record coverage
+        return items;
+      })
+      .catch(function(){ _feedStatus[feed.name] = 0; return []; });   // failed → visible, not silent
   }
 
   Promise.all(FEEDS.map(fetchFeed))
@@ -9682,10 +9788,16 @@ function loadNews(){
     merged.sort(function(a,b){ return (new Date(b.date||0)) - (new Date(a.date||0)); });
     if(!merged.length) throw new Error('all feeds failed');
 
+    // tag topic so crypto vs macro is separable, and keep the RSS category as-is
+    merged.forEach(function(it){ it.topic = classifyHeadline(it.title); });
     newsCache = merged;
     newsLoading = false;
+    var _ok = Object.keys(_feedStatus).filter(function(k){ return _feedStatus[k] > 0; });
+    var _bad = Object.keys(_feedStatus).filter(function(k){ return !_feedStatus[k]; });
+    var _cr = merged.filter(function(it){ return it.topic==='Crypto'||it.topic==='Crypto+Macro'; }).length;
+    window._newsCoverage = { ok:_ok, bad:_bad, total:merged.length, crypto:_cr };
     var cntEl = document.getElementById('news-cnt');
-    if(cntEl) cntEl.textContent = merged.length+' articles';
+    if(cntEl) cntEl.textContent = merged.length+' articles ('+_cr+' crypto · '+_ok.length+'/'+FEEDS.length+' feeds)';
     renderTicker(merged);
     renderNewsList(merged);
     if(window._d){
@@ -9702,6 +9814,28 @@ function loadNews(){
     var track=document.getElementById('ticker-track');
     if(track) track.innerHTML='<span style="padding:0 20px;line-height:32px;font-size:12px;color:var(--t3)">⚠ News feeds unavailable</span>';
   });
+}
+
+// Which feeds returned items on the last load. A failed feed used to vanish
+// silently, so coverage could quietly collapse from 7 sources to 2 with no sign.
+var _feedStatus = {};
+
+// General-finance feeds (Yahoo) carry plenty of non-crypto stories. Rather than
+// drop them — macro genuinely matters for BTC — they are tagged so the news tab
+// can separate "crypto" from "macro//markets" instead of blending them.
+var CRYPTO_WORDS = ['BITCOIN','BTC','ETHEREUM','ETH','CRYPTO','BLOCKCHAIN','ALTCOIN','STABLECOIN',
+  'SOLANA','XRP','RIPPLE','BINANCE','COINBASE','DEFI','NFT','TOKEN','MINER','MINING','SATOSHI',
+  'USDT','USDC','TETHER','ETF','WEB3','DOGECOIN','CARDANO','AVALANCHE','CHAINLINK','POLKADOT'];
+var MACRO_WORDS = ['FED','FOMC','POWELL','INFLATION','CPI','RATE','TREASURY','YIELD','JOBS',
+  'GDP','RECESSION','DOLLAR','TARIFF','ECB','BOJ','NASDAQ','S&P','STOCKS','EQUITIES'];
+function classifyHeadline(title){
+  var t = (title||'').toUpperCase();
+  var isCrypto = CRYPTO_WORDS.some(function(w){ return t.indexOf(w) !== -1; });
+  var isMacro  = MACRO_WORDS.some(function(w){ return t.indexOf(w) !== -1; });
+  if(isCrypto && isMacro) return 'Crypto+Macro';
+  if(isCrypto) return 'Crypto';
+  if(isMacro)  return 'Macro';
+  return 'Other';
 }
 
 function processNewsItems(items){
@@ -9798,12 +9932,36 @@ function tkPause(p){ _tkPaused = !!p; }
 
 function renderNewsList(items){
   var html='';
+  // COVERAGE BANNER — makes silent feed failures visible. Previously a feed that
+  // failed just returned nothing, so coverage could drop from 7 sources to 2 and
+  // look identical to "quiet news day".
+  var cv = window._newsCoverage;
+  if(cv){
+    var pct = cv.total ? Math.round(cv.crypto/cv.total*100) : 0;
+    var warn = cv.bad.length >= Math.ceil(cv.ok.length/2) && cv.bad.length > 0;
+    html += '<div style="padding:8px 10px;margin-bottom:8px;border-radius:7px;'
+      + 'background:'+(warn?'rgba(239,83,80,.10)':'var(--card2)')+';'
+      + (warn?'border-left:3px solid var(--r);':'')
+      + 'font-size:10px;color:var(--t2);line-height:1.55">'
+      + '<b>'+cv.ok.length+'/'+(cv.ok.length+cv.bad.length)+' feeds loaded</b> · '
+      + cv.total+' articles, '+cv.crypto+' crypto-specific ('+pct+'%)'
+      + (cv.ok.length ? '<br><span style="color:var(--t3)">Live: '+cv.ok.join(', ')+'</span>' : '')
+      + (cv.bad.length ? '<br><span style="color:'+(warn?'var(--r)':'var(--am)')+'">Not responding: '+cv.bad.join(', ')
+          +' — RSS proxies rate-limit, so try refresh in a minute.</span>' : '')
+      + '</div>';
+  }
   for(var i=0;i<items.length;i++){
     var it=items[i];
     var cat=(it.cat||'News').toString().substring(0,16);
     var age=timeAgo(it.date);
+    // derived topic is more consistent than RSS categories, which differ per feed
+    var tp = it.topic || classifyHeadline(it.title);
+    var tpCol = tp==='Crypto' ? 'var(--g)' : tp==='Crypto+Macro' ? 'var(--acc)'
+              : tp==='Macro' ? 'var(--am)' : 'var(--t3)';
     var imgHtml=it.img?'<img class="news-img" src="'+it.img+'" loading="lazy">':'<div class="news-img" style="display:flex;align-items:center;justify-content:center;font-size:20px">📰</div>';
-    html+='<a class="news-item" href="'+it.link+'" target="_blank" rel="noopener">'+imgHtml+'<div class="news-body"><div class="news-ttl">'+it.title+'</div><div class="news-meta"><span class="news-meta-cat">'+cat+'</span><span>'+age+'</span></div></div></a>';
+    html+='<a class="news-item" href="'+it.link+'" target="_blank" rel="noopener">'+imgHtml+'<div class="news-body"><div class="news-ttl">'+it.title+'</div><div class="news-meta">'
+      +'<span style="font-size:9px;font-weight:700;color:'+tpCol+';border:.5px solid '+tpCol+';padding:0 4px;border-radius:3px">'+tp+'</span>'
+      +'<span class="news-meta-cat">'+(it.source||cat)+'</span><span>'+age+'</span></div></div></a>';
   }
   document.getElementById('news-list').innerHTML=html;
 }
@@ -10061,7 +10219,10 @@ var candleWatcher = {
       var atr   = calcATR(h, l, c, 14);
       var atrPct = closePx > 0 ? atr / closePx * 100 : 0;
       var avgVol = v.slice(-21, -1).reduce(function(a, b) { return a + b; }, 0) / 20;
-      var volR   = avgVol > 0 ? v[v.length - 1] / avgVol : 1; // last CLOSED bar vol
+      // use the SAME definition as the main scan (3-bar mean vs 18-bar baseline)
+      // so a coin's volR does not differ between panels
+      var _rv = v.length >= 3 ? (v[v.length-1]+v[v.length-2]+v[v.length-3])/3 : v[v.length-1]||0;
+      var volR   = avgVol > 0 ? _rv / avgVol : 1;
       var trend  = (closePx > e20 && e20 > e50) ? 'up' : (closePx < e20 && e20 < e50) ? 'down' : 'mixed';
       var struct = calcStruct(h, l, c);
       var sr     = calcSR(h, l, c);
@@ -14169,7 +14330,8 @@ var MACRO_TICKERS = [
   { sym:'DX-Y.NYB', label:'DXY',   key:'dxy', inverse:true },
   { sym:'^VIX',  label:'VIX',      key:'vix', inverse:true },
   { sym:'GC=F',  label:'Gold',     key:'gold' },
-  { sym:'^TNX',  label:'US 10Y',   key:'tnx', inverse:true }
+  { sym:'^TNX',  label:'US 10Y',   key:'tnx', inverse:true },
+  { sym:'USDJPY=X', label:'USD/JPY', key:'usdjpy' }
 ];
 function fetchMacro(){
   var cached = null;
@@ -14190,6 +14352,8 @@ function fetchMacro(){
   })).then(function(arr){
     var d = {};
     arr.forEach(function(x){ if(x) d[x.key] = x; });
+    // keep the live rate for USD-normalizing JPY volumes
+    if(d.usdjpy && d.usdjpy.price > 50) window._jpyRate = d.usdjpy.price;
     if(Object.keys(d).length){
       _macro = d;
       try { localStorage.setItem('macro_tape', JSON.stringify({ts:Date.now(), d:d})); } catch(e){}
@@ -14276,7 +14440,7 @@ function computeEarlyWatch(data){
     if(!d._ew || d._stale) return false;
     if(d._ew.isDecline) return false;                     // grinding lower ≠ basing
     if(d._ew.baseType === 'none') return false;           // no recognisable base
-    if((d.vol24 || 0) < 3000000) return false;            // <$3M/day = slippage risk
+    if((d.vol24usd || d.vol24 || 0) < 3000000) return false;   // <$3M/day = slippage risk
     return true;
   });
   data.forEach(function(d){ d.earlyScore=null; d.earlyState=null; });
@@ -14408,7 +14572,7 @@ function resolveEarlyWatch(data){
 function runCoilBacktest(){
   var out = document.getElementById('coil-bt-out');
   if(!out) return;
-  var universe = (allData||[]).filter(function(d){ return d.vol24 > 3000000; })
+  var universe = (allData||[]).filter(function(d){ return (d.vol24usd||d.vol24) > 3000000; })
                  .sort(function(a,b){ return (b.vol24||0)-(a.vol24||0); }).slice(0, 45);
   // BTC must be included — it defines the regime the results are split by
   var btcD = (allData||[]).find(function(d){ return d.sym==='BTCUSDT' || d.sym==='BTCJPY'; });
