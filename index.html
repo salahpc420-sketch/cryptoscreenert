@@ -3235,7 +3235,25 @@ function loadAll() {
       _btcDominanceRising = (_btcDomChg != null)
         ? (_btcDomChg > 0.05)
         : (btc && btc.chg > 1.5 && _breadth < 45);
-      _regime = classifyRegime();
+      // alt index first — the classifier now prefers it over dominance
+      _altIdx = computeAltIndex(allData);
+      var _raw = classifyRegime();
+      // HYSTERESIS: hold the previous regime until the new one repeats
+      (function(){
+        var h = _regHist();
+        h.push({ ts: Date.now(), raw: _raw.mode });
+        var need = REGIME_HOLD, last = h.slice(-need).map(function(x){ return x.raw; });
+        var agreed = last.length === need && last.every(function(r){ return r === last[0]; });
+        var prevStable = h.length > 1 ? (h[h.length-2].stable || _raw.mode) : _raw.mode;
+        var stable = agreed ? last[0] : prevStable;
+        h[h.length-1].stable = stable;
+        _regSave(h);
+        _regime = { mode: stable, why: _raw.why, provisional: _raw.provisional,
+                    raw: _raw.mode, pending: stable !== _raw.mode,
+                    holdCount: last.filter(function(r){ return r === _raw.mode; }).length };
+      })();
+      _capit  = detectCapitulation(allData);
+      _reclaim = checkReclaim(allData);
     })();
 
     // PHASE 7: Rank Relative Strength 1-99 across all coins (percentile)
@@ -13929,7 +13947,7 @@ function _residualize(y, x){
 // trend — until then it reports "collecting" rather than guessing.
 // ═══════════════════════════════════════════════════════════════════════════
 var _btcDom = null, _usdtDom = null, _btcDomChg = null, _usdtDomChg = null;
-var _regime = null, _domFresh = false;
+var _regime = null, _domFresh = false, _altIdx = null, _capit = null, _reclaim = null;
 
 function _domHist(){ try{ return JSON.parse(localStorage.getItem('dom_history')||'[]'); }catch(e){ return []; } }
 function _domSave(h){ try{ localStorage.setItem('dom_history', JSON.stringify(h.slice(-400))); }catch(e){} }
@@ -13966,6 +13984,95 @@ function _applyDominance(h){
 // The four modes. Deliberately a GATE, not a score multiplier — an arbitrary
 // "+15% confidence" is unfalsifiable, whereas "this regime allowed/blocked the
 // entry" produces a clean record the Coach can grade later.
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REGIME v3 — three research-driven changes.
+//  1. HYSTERESIS: the regime must repeat before it switches. A classifier that
+//     flips on one reading whipsaws, and whipsaw is expensive here (Japan taxes
+//     every disposal as miscellaneous income, up to ~55%).
+//  2. EQUAL-WEIGHTED ALT/BTC replaces dominance as the primary alt signal.
+//     BTC.D falling is PARTLY DEFINITIONAL — it falls mechanically when alts
+//     outperform, so it restates what already happened. An equal-weighted alt
+//     index vs BTC, built from this board, is the more honest measure.
+//  3. CAPITULATION TIER: arms a watchlist, never fires a buy. The research was
+//     explicit that extreme fear does not predict bounces at a days-to-weeks
+//     horizon (returns drive sentiment, not the reverse) and that momentum
+//     strategies crash precisely in post-decline panic states.
+// ═══════════════════════════════════════════════════════════════════════════
+var REGIME_HOLD = 3;          // consecutive agreeing reads before switching
+
+function _regHist(){ try{ return JSON.parse(localStorage.getItem('regime_hist')||'[]'); }catch(e){ return []; } }
+function _regSave(h){ try{ localStorage.setItem('regime_hist', JSON.stringify(h.slice(-40))); }catch(e){} }
+
+// ── Equal-weighted alt index vs BTC (replaces cap-weighted dominance) ──
+function computeAltIndex(data){
+  var btc = data.find(function(d){ return d.sym==='BTCUSDT'||d.sym==='BTCJPY'; });
+  if(!btc) return null;
+  var alts = data.filter(function(d){
+    return d.sym !== btc.sym && d.chg != null && (d.vol24||0) > 3000000;
+  });
+  if(alts.length < 12) return null;
+  // equal weight: every coin counts once, so a few megacaps cannot dominate
+  var mean = alts.reduce(function(s,d){ return s + d.chg; }, 0) / alts.length;
+  var rel  = mean - (btc.chg || 0);                       // alt index vs BTC
+  var hist = [];
+  try { hist = JSON.parse(localStorage.getItem('alt_idx')||'[]'); } catch(e){}
+  var now = Date.now();
+  if(!hist.length || (now - hist[hist.length-1].ts) > 3600000){
+    hist.push({ ts:now, rel:rel });
+    try { localStorage.setItem('alt_idx', JSON.stringify(hist.slice(-200))); } catch(e){}
+  }
+  // 24h direction of the RELATIVE performance, not of dominance
+  var ref = null, best = Infinity, target = now - 24*3600000;
+  hist.forEach(function(r){ var d0 = Math.abs(r.ts-target); if(d0 < best){ best = d0; ref = r; } });
+  var trend = (ref && best < 18*3600000) ? (rel - ref.rel) : null;
+  return { rel: rel, trend: trend, n: alts.length };
+}
+
+// ── Capitulation tier: three simultaneous extremes ──
+function detectCapitulation(data){
+  var out = { active:false, parts:[], score:0 };
+  // 1. breadth washout — bottom decile
+  if(typeof _breadth === 'number'){
+    if(_breadth < 10){ out.score++; out.parts.push('breadth '+_breadth+'% (washout)'); }
+    else out.parts.push('breadth '+_breadth+'% — not washed out');
+  }
+  // 2. volatility spike — board-wide ATR% in its top decile vs stored history
+  var atrs = data.filter(function(d){ return d.atrPct>0; }).map(function(d){ return d.atrPct; });
+  if(atrs.length > 20){
+    atrs.sort(function(a,b){ return a-b; });
+    var medATR = atrs[Math.floor(atrs.length/2)];
+    var vh = [];
+    try { vh = JSON.parse(localStorage.getItem('vol_hist')||'[]'); } catch(e){}
+    var now = Date.now();
+    if(!vh.length || (now - vh[vh.length-1].ts) > 3600000){
+      vh.push({ ts:now, v:medATR });
+      try { localStorage.setItem('vol_hist', JSON.stringify(vh.slice(-300))); } catch(e){}
+    }
+    if(vh.length > 30){
+      var vals = vh.map(function(x){ return x.v; }).slice().sort(function(a,b){ return a-b; });
+      var p90 = vals[Math.floor(vals.length*0.9)];
+      if(medATR >= p90){ out.score++; out.parts.push('volatility in top decile ('+medATR.toFixed(1)+'%)'); }
+      else out.parts.push('volatility normal ('+medATR.toFixed(1)+'%)');
+    } else out.parts.push('volatility history building ('+vh.length+'/30)');
+  }
+  // 3. stablecoin supply spiking — capital fleeing into stables
+  if(_stables && _stables.chg7d != null){
+    if(_stables.chg7d > 1.0){ out.score++; out.parts.push('stablecoin supply +'+_stables.chg7d.toFixed(1)+'% 7d'); }
+    else out.parts.push('stablecoin supply '+(_stables.chg7d>=0?'+':'')+_stables.chg7d.toFixed(1)+'% 7d');
+  } else out.parts.push('stablecoin supply unavailable');
+  out.active = out.score >= 3;
+  return out;
+}
+
+// ── Confirmation trigger: the ONLY thing that turns the watchlist into action ──
+function checkReclaim(data){
+  var btc = data.find(function(d){ return d.sym==='BTCUSDT'||d.sym==='BTCJPY'; });
+  var btcReclaim = !!(btc && btc.ema200 > 0 && btc.price > btc.ema200);
+  var breadthOk  = (typeof _breadth === 'number') && _breadth >= 25;
+  return { ok: btcReclaim || breadthOk, btcReclaim: btcReclaim, breadthOk: breadthOk };
+}
+
 function classifyRegime(){
   var up   = btcState === 'bullish';
   var flat = btcState === 'stable';
@@ -13980,6 +14087,21 @@ function classifyRegime(){
     else if(_breadthWeak) { mode='risk_off'; why='breadth '+_breadth+'% — most coins in downtrends'; }
     else { mode='neutral'; why='mixed signals (dominance history still building)'; }
     return { mode:mode, why:why, provisional:true };
+  }
+  // PRIMARY: equal-weighted alt/BTC. Dominance is partly definitional (it falls
+  // mechanically when alts outperform), so it is demoted to corroboration.
+  if(_altIdx && _altIdx.trend != null){
+    var altStrong = _altIdx.rel > 0.5 && _altIdx.trend > 0;
+    var altWeak   = _altIdx.rel < -0.5 && _altIdx.trend < 0;
+    if(down && (altWeak || ud > 0.05))
+      return { mode:'risk_off', provisional:false,
+               why:'BTC '+btcState+', alt index '+_altIdx.rel.toFixed(2)+'% vs BTC and weakening' };
+    if(up && altStrong)
+      return { mode:'altseason', provisional:false,
+               why:'BTC up and the equal-weighted alt index is beating it by '+_altIdx.rel.toFixed(2)+'% and rising' };
+    if(up && altWeak)
+      return { mode:'btc_season', provisional:false,
+               why:'BTC up but alts lagging it by '+Math.abs(_altIdx.rel).toFixed(2)+'% — money is going to BTC' };
   }
   if(down && ud > 0.05){
     mode='risk_off'; why='BTC '+btcState+' and USDT.D rising '+(ud>0?'+':'')+ud+'pt — capital moving to the sidelines';
@@ -14191,6 +14313,45 @@ function runDailyBrief(){
   });
 }
 
+
+// ── CAPITULATION WATCH panel. Structurally incapable of saying "buy": it has
+//    exactly two states — ARMING (build a shortlist) and CONFIRMED (the trigger
+//    fired). The research was unambiguous that extreme fear does not predict
+//    bounces at this horizon, so the extreme reading only ever prepares.
+function buildCapitulationPanel(){
+  if(!_capit) return '';
+  var conf = _reclaim || { ok:false };
+  var armed = _capit.active;
+  if(!armed && !conf.ok) {
+    // still show it quietly so the parts are visible while they build
+    var h0 = '<div style="background:var(--card2);border-radius:var(--rad);padding:.85rem;margin-bottom:1rem">';
+    h0 += '<div style="font-size:12px;font-weight:700;margin-bottom:.3rem">🧭 Capitulation watch <span style="font-weight:400;color:var(--t3);font-size:10px">'+_capit.score+'/3 conditions</span></div>';
+    h0 += '<div style="font-size:10px;color:var(--t3);line-height:1.6">'+_capit.parts.map(function(p){ return '• '+p; }).join('<br>')+'</div>';
+    h0 += '<div style="font-size:9px;color:var(--t3);margin-top:6px;font-style:italic">Arms a shortlist when all three fire. It never signals a buy — extreme fear does not predict bounces at a days-to-weeks horizon.</div>';
+    return h0 + '</div>';
+  }
+  var col = conf.ok ? 'var(--g)' : 'var(--am)';
+  var h = '<div style="background:linear-gradient(135deg,'+(conf.ok?'rgba(38,166,154,.12)':'rgba(245,158,11,.12)')+',transparent);border:.5px solid '+col+';border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  if(armed && !conf.ok){
+    h += '<div style="font-size:13px;font-weight:800;color:'+col+';margin-bottom:.35rem">🧭 CAPITULATION CONDITIONS — shortlist armed, do NOT buy yet</div>';
+    h += '<div style="font-size:11px;color:var(--t2);line-height:1.6;margin-bottom:.5rem">All three extremes are present. Historically this is where bottoms FORM, but it is not where they are confirmed — one more leg down is the norm, not the exception. Your job right now is to build the list, not to take positions.</div>';
+  } else if(conf.ok){
+    h += '<div style="font-size:13px;font-weight:800;color:'+col+';margin-bottom:.35rem">✅ CONFIRMATION TRIGGER FIRED</div>';
+    h += '<div style="font-size:11px;color:var(--t2);line-height:1.6;margin-bottom:.5rem">'
+       + (conf.btcReclaim ? 'BTC has reclaimed its 200 EMA. ' : '')
+       + (conf.breadthOk ? 'Breadth is back above 25%. ' : '')
+       + 'This is the entry condition the research supports — trend confirmation, not the extreme reading itself. Your armed shortlist is now live, subject to every normal gate.</div>';
+  }
+  h += '<div style="font-size:10px;color:var(--t3);line-height:1.6">'+_capit.parts.map(function(p){ return '• '+p; }).join('<br>')+'</div>';
+  h += '<div style="font-size:10px;color:var(--t2);margin-top:8px;padding-top:7px;border-top:.5px solid var(--bd);line-height:1.55">'
+     + '<b>What to do now:</b> ' + (conf.ok
+        ? 'Work the shortlist you built, with normal position sizing and stops. Nothing here overrides the higher-timeframe or volume gates.'
+        : 'Open 🌱 Early Watch, take only bases <b>clear of their 90-bar low</b> (your own data: near-low coils show ~0% edge), and set 👁 watchers on three to five. Then wait for BTC to reclaim its 200 EMA or breadth to cross 25%.')
+     + '</div>';
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:6px;font-style:italic">Momentum strategies crash in post-decline panic states (Daniel &amp; Moskowitz). This tier deliberately cannot trigger an entry on its own.</div>';
+  return h + '</div>';
+}
+
 function buildRegimePanel(){
   var r = _regime || classifyRegime();
   var m = REGIME_MODES[r.mode] || REGIME_MODES.neutral;
@@ -14201,6 +14362,10 @@ function buildRegimePanel(){
      + (r.provisional ? '<span style="font-size:9px;color:var(--am);background:rgba(245,158,11,.15);padding:2px 7px;border-radius:99px">provisional</span>' : '')
      + '<span style="margin-left:auto;font-size:9px;color:var(--t3)">'+(_domFresh?'live':'cached')+' · CoinGecko</span></div>';
   h += '<div style="font-size:11px;color:var(--t2);margin-bottom:.5rem">'+r.why+'</div>';
+  if(r.pending){
+    h += '<div style="font-size:10px;color:var(--am);margin-bottom:.5rem">⏳ Reading '+(REGIME_MODES[r.raw]?REGIME_MODES[r.raw].label:r.raw)
+       + ' ('+r.holdCount+'/'+REGIME_HOLD+' confirmations) — holding the current regime until it repeats, to avoid whipsawing on one reading.</div>';
+  }
   // the two dominance numbers
   h += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:.5rem">';
   function dom(lbl, val, chg, invert){
@@ -14209,6 +14374,11 @@ function buildRegimePanel(){
     var col = chg == null ? 'var(--t3)' : (good ? 'var(--g)' : 'var(--r)');
     return '<div><div style="font-size:16px;font-weight:800;color:var(--text)">'+val.toFixed(2)+'%</div>'
          + '<div style="font-size:10px;color:'+col+'">'+lbl+(chg!=null?' '+(chg>=0?'+':'')+chg+'pt/24h':' (collecting)')+'</div></div>';
+  }
+  if(_altIdx){
+    var aCol = _altIdx.rel > 0 ? 'var(--g)' : 'var(--r)';
+    h += '<div><div style="font-size:16px;font-weight:800;color:'+aCol+'">'+(_altIdx.rel>=0?'+':'')+_altIdx.rel.toFixed(2)+'%</div>'
+       + '<div style="font-size:10px;color:var(--t3)">alt index vs BTC'+(_altIdx.trend!=null?(_altIdx.trend>0?' ↑':' ↓'):' (collecting)')+'</div></div>';
   }
   h += dom('BTC.D', _btcDom, _btcDomChg, false);
   h += dom('USDT.D', _usdtDom, _usdtDomChg, true);
@@ -14904,6 +15074,7 @@ function renderMarketRead(){
   var btcIcon = {bullish:'🟢',stable:'🟢',falling:'🟡',dumping:'🔴'}[m.btcState]||'⚪';
   var h='';
   try { h += buildSourcesPanel(); } catch(e){}
+  try { h += buildCapitulationPanel(); } catch(e){}
   try { h += buildRegimePanel(); } catch(e){}
   try { h += buildEarlyWatchPanel(); } catch(e){}
   // ── AI MARKET BRIEFING — one AI call summarizing the whole board on demand ──
