@@ -2837,6 +2837,8 @@ function processSymbol(ticker) {
       trend:trend, volR:volR, atrPct:atrPct,
       fromHigh: (function(){ var hi=Math.max.apply(null,c.slice(-30)); return hi>0?(price-hi)/hi*100:0; })(),
       volZ: Math.round(volZ*100)/100,
+      // last CLOSED candle + the one before it — needed for close-based watchers
+      closePx: closePx, prevClose: (c.length > 1 ? c[c.length-2] : null),
       invScore:invScore, ddHigh:Math.round(ddHigh), distE200:Math.round(distE200pct),
       invEligible:invEligible, invReason:invReason, e200Rising:e200Rising, coinRank:coinRank,
       struct:st, liq:liq, sup:sr.sup, res:sr.res, sDist:sr.sDist, rDist:sr.rDist,
@@ -8106,8 +8108,10 @@ var WATCH_TYPES = {
   liqSweep:     { label:'Liquidity sweep + reclaim', icon:'💧' },
   emaRetest:    { label:'Pulls back to EMA20/50 and holds', icon:'📉' },
   rsiOversold:  { label:'RSI drops below 35', icon:'📊' },
-  priceBelow:   { label:'Price falls to my level', icon:'🎯', needsPrice:true },
-  priceAbove:   { label:'Price rises to my level', icon:'🎯', needsPrice:true }
+  priceBelow:   { label:'Price TOUCHES my level from above (wick counts)', icon:'🎯', needsPrice:true },
+  priceAbove:   { label:'Price TOUCHES my level from below (wick counts)', icon:'🎯', needsPrice:true },
+  closeAbove:   { label:'Candle CLOSES above my level (acceptance, not a wick)', icon:'✅', needsPrice:true },
+  closeBelow:   { label:'Candle CLOSES below my level (acceptance, not a wick)', icon:'🔻', needsPrice:true }
 };
 
 function loadWatchers(){ try{ return JSON.parse(localStorage.getItem('coin_watchers')||'[]'); }catch(e){ return []; } }
@@ -8141,6 +8145,19 @@ function _evalWatchCondition(type, w, d){
     case 'rsiOversold':  return (d.rsi||100) < 35;
     case 'priceBelow':   return w.px > 0 && d.price <= w.px;
     case 'priceAbove':   return w.px > 0 && d.price >= w.px;
+    // CLOSE-BASED: uses the last CLOSED candle, not the live price. A wick
+    // through a level is noise — the sweep detector exists precisely because
+    // that happens constantly. A close beyond it means the market traded there
+    // and stayed. Requires a genuine cross (previous close on the other side),
+    // so it fires on the event rather than every scan while price sits beyond.
+    case 'closeAbove': {
+      if(!(w.px > 0) || d.closePx == null || d.prevClose == null) return false;
+      return d.closePx > w.px && d.prevClose <= w.px;
+    }
+    case 'closeBelow': {
+      if(!(w.px > 0) || d.closePx == null || d.prevClose == null) return false;
+      return d.closePx < w.px && d.prevClose >= w.px;
+    }
   }
   return false;
 }
@@ -8161,7 +8178,12 @@ function checkWatchers(data){
       if(_evalWatchCondition(t, w, d)){
         w[key] = now; changed = true;
         var def = WATCH_TYPES[t] || {label:t, icon:'👁'};
-        var msg = def.icon + ' ' + w.pair + ' — ' + def.label;
+        // Name the timeframe on close-based alerts: a 15m close through a level
+        // is near-meaningless, a 4h or 1d close is a real event. Never leave the
+        // trader guessing which one fired.
+        var isClose = (t === 'closeAbove' || t === 'closeBelow');
+        var msg = def.icon + ' ' + w.pair + ' — ' + def.label
+                + (isClose ? ' [' + TF + ' close ' + fE(d.closePx) + ' vs ' + fE(w.px) + ']' : '');
         try { showToast(d, 'strong', msg); } catch(e){}
         try { addAlHistory(d, 'watcher', msg); } catch(e){}
         try { sendBrowserNotif(d, msg); } catch(e){}
@@ -8187,6 +8209,7 @@ function renderWatchPanel(sym){
   var _st = d && d._cs ? CHART_STATES[d._cs] : null;
   var h = _st ? '<div style="font-size:11px;font-weight:800;margin-bottom:4px">'+_st.icon+' Chart right now: '+_st.label+' <span style="font-weight:400;color:var(--t3)">(describes the present — not a prediction)</span></div>' : '';
   h += '<div style="font-size:11px;color:var(--t2);margin-bottom:6px">Tell me when ANY of these happens on <b>'+(d?d.pair:sym)+'</b> — you get a notification, nothing is logged or traded.</div>';
+  h += '<div style="font-size:10px;color:var(--t3);margin-bottom:7px;line-height:1.5">🎯 <b>Touch</b> fires the moment price tags your level, wick included — good for "my zone is live now". ✅🔻 <b>Close</b> fires only when a candle finishes beyond it on the <b>'+TF+'</b> chart — that is acceptance rather than a probe, and it is what usually matters for a decision.</div>';
   Object.keys(WATCH_TYPES).forEach(function(t){
     var def = WATCH_TYPES[t], on = (w.types||[]).indexOf(t) >= 0;
     h += '<label style="display:flex;gap:7px;align-items:center;font-size:11px;padding:3px 0;cursor:pointer">'
@@ -8194,7 +8217,7 @@ function renderWatchPanel(sym){
        + '<span>'+def.icon+' '+def.label+'</span></label>';
   });
   h += '<div style="display:flex;gap:6px;align-items:center;margin-top:6px">'
-     + '<span style="font-size:11px;color:var(--t3)">My level:</span>'
+     + '<span style="font-size:11px;color:var(--t3)">My level (used by all 🎯 ✅ 🔻 conditions):</span>'
      + '<input id="watch-px" type="number" step="any" value="'+(w.px||'')+'" onchange="saveWatcherFor(\''+sym+'\',true)" placeholder="'+(d?fE(d.price):'price')+'" style="width:120px;padding:4px 7px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:11px;font-family:inherit"></div>';
   h += '<div style="display:flex;gap:8px;align-items:center;margin-top:9px">'
      + '<span id="watch-status" style="font-size:11px;font-weight:700;color:'+((w.types||[]).length?'var(--g)':'var(--t3)')+'">'
