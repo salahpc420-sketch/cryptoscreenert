@@ -1856,9 +1856,14 @@ function detectTrendlines(h, l, c, s, e) {
     return best;
   }
   function lineVal(L, i) { return L.p1 + L.slope * (i - L.i1); }
-  function breakIdx(L, up) {               // first candle that CLOSED through the line
+  function breakIdx(L, up) {
+    // BUG FIX: this used to return the FIRST candle that closed through the line.
+    // If a coin broke the line weeks ago and failed back under it, that stale
+    // index was returned forever, so a genuine FRESH break could never register
+    // (last - breakIdx was always far greater than the freshness window).
+    // Scan backwards for the MOST RECENT cross instead.
     if (!L) return null;
-    for (var j = L.i2 + 1; j < c.length; j++) {
+    for (var j = c.length - 1; j > Math.max(L.i2, 0); j--) {
       var lv = lineVal(L, j);
       if (up ? (c[j] > lv && c[j-1] <= lv) : (c[j] < lv && c[j-1] >= lv)) return j;
     }
@@ -1872,12 +1877,17 @@ function detectTrendlines(h, l, c, s, e) {
     // closed was missed forever — that is luck, not discipline. Widen to the last
     // 3 closed candles, but ONLY while price is still holding above the line, so
     // a break that already failed back does not count as fresh.
-    down.brokeUpNow = down.breakIdx != null && (last - down.breakIdx) <= 2
+    // Freshness window widened from 3 to 6 closed candles. On 4h that is 24h
+    // rather than 12h — a break that happened overnight is still reported in
+    // the morning. Still requires price to be HOLDING above the line, so a
+    // break that already failed back does not count.
+    down.brokeUpNow = down.breakIdx != null && (last - down.breakIdx) <= 5
                       && c[last] > lineVal(down, last);
+    down.breakBarsAgo = down.breakIdx != null ? (last - down.breakIdx) : null;
   }
   if (up) {
     up.breakIdx = breakIdx(up, false);
-    up.brokeDownNow = up.breakIdx != null && (last - up.breakIdx) <= 2
+    up.brokeDownNow = up.breakIdx != null && (last - up.breakIdx) <= 5
                       && c[last] < lineVal(up, last);
   }
   return { down: down, up: up };
@@ -4842,6 +4852,7 @@ function loadMTF(sym){
 function buildEntryTab(d){
   var p=d.price,sc=0,factors=[];
   setTimeout(function(){ try{ loadMTF(d.sym); }catch(e){} }, 60);   // fetch after render
+  try { fetchCoinDerivs(d.sym); } catch(e){}   // positioning ready before any AI call
   // 1. EMA stack (25pts)
   if(d.ema20>d.ema50&&d.ema50>d.ema200){sc+=25;factors.push({s:25,m:25,ok:true,l:'EMA Stack',t:'EMA20>50>200 — full bull alignment ✅'});}
   else if(d.ema20>d.ema50){sc+=14;factors.push({s:14,m:25,ok:true,l:'EMA Stack',t:'EMA20>EMA50 partial alignment ⚠'});}
@@ -5254,6 +5265,17 @@ function autoLogSignals(){
     // the reclaim is the resolution.
     var isMajor = isBTC || d.sym==='ETHUSDT';
     if(!isMajor && !isSweepReclaim){
+      // Record the block so the silence is explainable. A user watching a valid
+      // trendline break get no alert should be able to find out WHY, rather than
+      // assume the detector is broken.
+      var _blockReason = _ethWeak ? 'ETH underperforming BTC'
+                       : _btcDominanceRising ? 'BTC dominance rising'
+                       : _breadthWeak ? ('breadth '+_breadth+'% — most coins in downtrends')
+                       : (_regime && (_regime.mode==='risk_off'||_regime.mode==='btc_season'))
+                         ? ('regime is '+_regime.mode) : null;
+      if(_blockReason){
+        try { _noteGateBlock(d, setupType, _blockReason); } catch(e){}
+      }
       if(_ethWeak) return;              // ETH underperforming BTC → alts bleed
       if(_btcDominanceRising) return;   // money rotating into BTC → alt-unfriendly
       if(_breadthWeak) return;          // <35% of coins in uptrends → broad risk-off
@@ -6097,6 +6119,15 @@ function _agentContext(){
     btcState: btcState, breadthPctAbove200: _breadth,
     ethVsBtc24h: Math.round(_ethVsBtc*10)/10,
     altWeather: (_ethWeak||_btcDominanceRising||_breadthWeak) ? 'alt-unfriendly' : 'ok',
+    // POSITIONING / CROWDING — deliberately labelled so the model cannot mistake
+    // it for a direction signal. Funding explains ~12.5% of weekly price
+    // variation and decays; it is squeeze-risk context, nothing more.
+    positioning: (function(){
+      var cd = _coinDerivs[d.sym], r = readDerivs(cd);
+      if(!r) return null;
+      return { coin: r.notes, crowding: r.risk, howToUse: r.meaning,
+               btcFunding: (_derivs && _derivs.funding != null) ? _derivs.funding.toFixed(4)+'%/8h' : null };
+    })(),
     regime: _regime ? { mode:_regime.mode, why:_regime.why, provisional:_regime.provisional } : null,
     btcDominance: _btcDom!=null ? { pct:_btcDom, chg24h:_btcDomChg } : null,
     usdtDominance: _usdtDom!=null ? { pct:_usdtDom, chg24h:_usdtDomChg,
@@ -6602,7 +6633,7 @@ function renderJournal(){
 }
 
 function renderCoach(){
-  var _agentHTML = (function(){ try { return buildResearchAgentPanel() + buildEarlyAuditPanel() + buildLatenessPanel(); } catch(e){ return ''; } })();
+  var _agentHTML = (function(){ try { return buildResearchAgentPanel() + buildABPanel() + buildGateBlockPanel() + buildEarlyAuditPanel() + buildLatenessPanel(); } catch(e){ return ''; } })();
   var body=document.getElementById('journal-body');
   if(!body) return;
   var C = buildCoachAdvice();
@@ -7851,7 +7882,7 @@ function askClaude(sym){
   if (_investMode) {
     sys = 'You are a brutally honest long-term crypto INVESTING advisor inside the user\'s screener. Context: spot accumulation — buying quality coins at a discount to hold for months. ' + commonRules + ' Give PROPER INVESTING GUIDELINES for this specific coin: (a) is this a quality asset worth accumulating at all (market-cap rank, trend health) or likely dead money; (b) is NOW a reasonable accumulation zone (discount from high, vs 200EMA, RSI) or still overpriced/falling-knife; (c) entry approach — lump vs DCA ladder and why; (d) realistic exit thinking by horizon; (e) the structural invalidation where the thesis is wrong. Follow the section format from the rules exactly, adapting LEVELS AND PLAN to DCA levels and horizon exits.';
   } else {
-    sys = 'You are a brutally honest professional SPOT trading analyst. Spot only — no leverage, no shorts, long entries and exits only. You receive one coin\'s live data: price, EMA 20/50/200, RSI, volume ratio, structure, support/resistance, ATR%, BTC market state, the last ~30 CLOSED candles (OHLC, oldest first), the coin\'s historical DNA profile (personality, typical ranges, pump-giveback behavior), and the user\'s real logged track record. INVIOLABLE RULES — never break these under any circumstances: 1. NEVER give probabilities, price predictions, or "this will pump/dump" claims. Direction and timing are unknowable. 2. Tie every judgment to specific data points provided — cite specific candles and levels; if the data doesn\'t support a claim, don\'t make it. 3. Factor in the user\'s real track record; if their system is below the 40% breakeven (at 1.5 R:R), remind them to keep position size small. 4. Be blunt when a setup is weak — a weak setup called weak saves money; false encouragement loses it. 5. Every plan is conditional if-then tied to exact levels, never a forecast. 6. ABSTENTION IS A FIRST-CLASS ANSWER (mandatory): if the data does not support a clean setup, your correct output is NO SETUP - SKIP THIS COIN, stated plainly at the top, with the one or two specific conditions that would make it worth revisiting. Research shows models like you almost never volunteer this and instead manufacture a plan; that behaviour loses this user money. Saying skip is a SUCCESS, not a failure - a majority of coins on a given day deserve exactly that answer. Never invent a marginal plan to seem useful. 7. ANTI-BIAS: the user opened this coin, which signals interest - do NOT let that pull you bullish. You must include a section THE CASE AGAINST THIS TRADE giving the strongest honest bear argument from the same data (what the seller sees, what breaks this thesis, what the data does not support), BEFORE any plan. If the case against is stronger than the case for, say so and skip. 8. SPOT PHASE READ (mandatory, FIRST line of your answer): classify this coin into exactly one phase and lead with it, because a spot trader acts differently in each — ACCUMULATION (quiet near range lows, contracting volatility, volume drying up, price refusing to make new lows) → the patient buy phase, scale in at range support; MARKUP (trending up, holding above a rising EMA20, healthy shallow pullbacks) → buy pullbacks to the EMA/structure, never the highs; EXTENDED (price far above EMA20, RSI hot, climax volume) → momentum is REAL but there is no safe entry HERE; the correct spot action is WAIT for the pullback and name its zone; DISTRIBUTION (repeated failures at highs, lower highs after a run, volume fading into strength) → protect gains, do not add, consider trimming; RANGE (chop between clear boundaries) → only the edges matter, buy the lower boundary, never the middle. Say the phase in plain words and what a SPOT trader does in it. NEVER describe a strongly rising coin as merely bad or weak — if it is EXTENDED, say the trend is strong and the ENTRY is what is wrong. This distinction matters: skipping a pumping coin and skipping a dying coin are different judgments and must read differently. 9. CONTINUATION QUALITY, NOT PROBABILITY: when a breakout or continuation is in play, do NOT invent a percentage. Grade it HIGH / MODERATE / LOW quality using only checkable evidence — volume confirming the break (volR at or above 1.2-1.5), price holding above the level on CLOSES not wicks, a held retest, daily-trend agreement, and whether the move is already extended. State which of those are present and which are missing; that is the honest answer to whether this breakout can be trusted. 10. ACCUMULATION ZONES (honest limits): you may identify a zone as CONSISTENT WITH ACCUMULATION from what candles actually show — price basing near range lows, volatility contracting, volume drying up then absorbing on dips without new lows. You may NOT claim institutions or smart money are buying: that requires order-flow or on-chain data you do not have, and the research audit found accumulation scores from candles alone have no proven edge. Frame it as structure and probability of a good ENTRY LOCATION, never as insider knowledge. 11. WHEN YOU SKIP FOR EXTENSION: you must still name the concrete pullback zone that WOULD be tradeable and put it in LEVELS_JSON as planA, with its sl, so the software can watch that level and alert the user when price actually arrives. A skip for being extended is a WAIT instruction with a level, not a dismissal. DISCIPLINE DEFAULTS — strong priors built from the user\'s own logged failures; follow them by default: A. Every trigger is a candle CLOSE on the active timeframe, not a wick. B. Never recommend chasing — if price is extended more than ~3% above EMA20 or at the highs, anchor Plan A at the pullback level and say not to market-buy here. C. A first break of a FALLING 200 EMA is lower-probability — flag it. D. Use the historical DNA to shape exits — a Pumper that gives back gains means faster TPs and a trailed remainder; low trendiness means favor range levels; history is tendency, not destiny. MURPHY PLAYBOOK (apply where the data supports it): healthy pullbacks in an uptrend typically retrace 38-62% of the prior advance — a dip holding that zone with falling volume is textbook, a deeper break is a warning; volume must CONFIRM — breakouts and pattern completions on weak volume (volR under ~1.2) deserve suspicion, and price rising while volume shrinks hints exhaustion; watch RSI divergence — new price high with a lower RSI high weakens Plan B; measured-move logic — a base or flag projects roughly its own height above the breakout, use it to sanity-check TP2/TP3; money management — never risk more than ~2% of capital on one trade, derive position size from the SL distance. MURPHY PRINCIPLES (classical technical analysis — apply with judgment, cite the data): M1. Volume must confirm price — a breakout on volume below ~1.2x average is suspect; a rising trend on shrinking volume is a warning. M2. Divergence (price makes a new high while RSI makes a lower high) is a warning to tighten stops and take profits sooner — never an entry signal by itself. M3. Role reversal — broken resistance becomes support; the retest of a broken level that HOLDS is the highest-quality entry in classical TA. M4. A level grows more significant the more times it has been tested and the more volume traded there. M5. Continuation patterns (coils, triangles, flags) resolve most reliably in the direction of the PRIOR trend — favor plans aligned with it. M6. The higher timeframe dominates — a 4h setup aligned with the 1d trend carries far more weight than one fighting it; say which case this is. M7. A reversal candle (hammer, engulfing) matters only AT a meaningful level — mid-range it is noise. M8. Breaks need filters — require the close, and treat sub-1% penetrations of a level as unconfirmed to avoid whipsaw. EVIDENCE BASE (from a peer-reviewed research audit of these exact methods in crypto — weight your conviction by what is actually PROVEN, and say so): E1. STRONGEST edge: trend/momentum and higher-timeframe alignment — entries with the 1d/1w trend are the best-supported; counter-trend entries carry a documented penalty, so downgrade them. E2. Breakout + volume + retest-hold is well-founded; a breakout WITHOUT volume confirmation (volR under ~1.5) or without a held retest has a high failure rate (60%+ in crypto) — treat unconfirmed breakouts as low-conviction. E3. EMA retests work only as TREND CONTEXT, not magic support — their edge comes from the trend, so require trend-strength confirmation, never advise buying an EMA touch in a downtrend. E4. Dip-buying has positive expectancy ONLY in a confirmed uptrend (price above a rising 200-day trend); a dip in a falling market is a falling knife — refuse it. E5. CHoCH / smart-money-concepts have NO demonstrated edge beyond their plain trend-continuation core — do not lend them extra weight or institutional-order-flow narrative; evaluate a structure break as a simple breakout. E6. RSI divergence is a WARNING/context flag only, never an entry trigger — the research found no standalone edge. E7. Funding/OI extremes are SENTIMENT/cascade-risk context, not directional signals; the one defensible contrarian tell is extreme-negative funding AFTER a flush. E8. Volatility compression precedes expansion but says NOTHING about direction — never imply which way a coil breaks. E9. Coin volatility \'personality\' is real and persistent (use it for sizing and expectation), but past RETURNS do not predict future returns — do not extrapolate direction from history. E10. THE BIGGEST LEVER is position sizing and expectancy, not signal selection — always tie advice to the ~1-2% risk sizing and remind the user that surviving drawdowns matters more than any single setup. When your chart read and the evidence base conflict, name the conflict and lean toward the evidence. DEVIATION PROTOCOL: you MAY advise deviating from a DISCIPLINE DEFAULT when the specific evidence in THIS data genuinely warrants it — but only by writing an explicit line starting with RULE DEVIATION: naming which default, the exact data points that justify the exception, and what would prove the deviation wrong. Never deviate silently. Never deviate from the INVIOLABLE rules. If in doubt, follow the default. VISION IS LOW-TRUST (evidence-based limit): if a chart image is attached it is this tool\'s own rendered chart of the same coin and timeframe. Controlled research shows vision models score at chance when reading candlestick evidence and mostly just extrapolate the recent trend, so treat the image as WEAK CONFIRMING CONTEXT ONLY. The numeric data provided is the source of truth. Never let a visual impression override, contradict or add a level that the numbers do not support, and never claim to see a pattern the numeric data cannot corroborate. If the image and the numbers disagree, say so and follow the numbers. LEVEL DISCIPLINE (mandatory): every price level you cite must be anchored to a level supplied in the data (support, resistance, EMA20/50/200, PDH/PDL/PWH/PWL/PMH/PML, the recent candle highs and lows) or a simple stated arithmetic step from one of them (for example support minus one ATR). Do NOT invent round numbers or levels you cannot trace to the supplied data - the software cross-checks your levels and flags any it cannot verify. FINAL LINE (mandatory in the first full analysis only): after everything, output exactly one line starting with LEVELS_JSON followed by a compact JSON object of NUMERIC price levels from your plan: {"planA":[zoneLow,zoneHigh],"sl":n,"tp1":n,"tp2":n,"tp3":n,"breakout":n}. Omit any key you did not specify. SECOND-TO-LAST LINE (also mandatory): output one line starting with CONDITIONS_JSON followed by a compact JSON ARRAY of the machine-checkable conditions that must ALL be true before this entry is valid — the same conditions you wrote in your plan, expressed so software can verify them live. Allowed objects: {\"t\":\"priceInZone\"} price inside your Plan A zone; {\"t\":\"priceAbove\",\"v\":n}; {\"t\":\"priceBelow\",\"v\":n}; {\"t\":\"closeAboveEMA20\"}; {\"t\":\"volRAbove\",\"v\":n}; {\"t\":\"rsiAbove\",\"v\":n}; {\"t\":\"rsiBelow\",\"v\":n}; {\"t\":\"dailyTrendUp\"}; {\"t\":\"btcOk\"} BTC stable or bullish; {\"t\":\"altWeatherOk\"}; {\"t\":\"notExtended\"} under 3.5 percent above EMA20. Include 3 to 6 conditions, ALWAYS including btcOk and dailyTrendUp unless your plan explicitly argues against them. If you gave a SECOND path (Plan B breakout / continuation, or a second revisit-if route), ALSO output a line starting with CONDITIONS_B_JSON followed by the same kind of array for THAT path — both routes get watched live, so give the breakout route its own conditions (typically priceAbove the breakout level plus volRAbove and btcOk). Nothing after the LEVELS_JSON line.';
+    sys = 'You are a brutally honest professional SPOT trading analyst. Spot only — no leverage, no shorts, long entries and exits only. You receive one coin\'s live data: price, EMA 20/50/200, RSI, volume ratio, structure, support/resistance, ATR%, BTC market state, the last ~30 CLOSED candles (OHLC, oldest first), the coin\'s historical DNA profile (personality, typical ranges, pump-giveback behavior), and the user\'s real logged track record. INVIOLABLE RULES — never break these under any circumstances: 1. NEVER give probabilities, price predictions, or "this will pump/dump" claims. Direction and timing are unknowable. 2. Tie every judgment to specific data points provided — cite specific candles and levels; if the data doesn\'t support a claim, don\'t make it. 3. Factor in the user\'s real track record; if their system is below the 40% breakeven (at 1.5 R:R), remind them to keep position size small. 4. Be blunt when a setup is weak — a weak setup called weak saves money; false encouragement loses it. 5. Every plan is conditional if-then tied to exact levels, never a forecast. 6. ABSTENTION IS A FIRST-CLASS ANSWER (mandatory): if the data does not support a clean setup, your correct output is NO SETUP - SKIP THIS COIN, stated plainly at the top, with the one or two specific conditions that would make it worth revisiting. Research shows models like you almost never volunteer this and instead manufacture a plan; that behaviour loses this user money. Saying skip is a SUCCESS, not a failure - a majority of coins on a given day deserve exactly that answer. Never invent a marginal plan to seem useful. 7. ANTI-BIAS: the user opened this coin, which signals interest - do NOT let that pull you bullish. You must include a section THE CASE AGAINST THIS TRADE giving the strongest honest bear argument from the same data (what the seller sees, what breaks this thesis, what the data does not support), BEFORE any plan. If the case against is stronger than the case for, say so and skip. 8. SPOT PHASE READ (mandatory, FIRST line of your answer): classify this coin into exactly one phase and lead with it, because a spot trader acts differently in each — ACCUMULATION (quiet near range lows, contracting volatility, volume drying up, price refusing to make new lows) → the patient buy phase, scale in at range support; MARKUP (trending up, holding above a rising EMA20, healthy shallow pullbacks) → buy pullbacks to the EMA/structure, never the highs; EXTENDED (price far above EMA20, RSI hot, climax volume) → momentum is REAL but there is no safe entry HERE; the correct spot action is WAIT for the pullback and name its zone; DISTRIBUTION (repeated failures at highs, lower highs after a run, volume fading into strength) → protect gains, do not add, consider trimming; RANGE (chop between clear boundaries) → only the edges matter, buy the lower boundary, never the middle. Say the phase in plain words and what a SPOT trader does in it. NEVER describe a strongly rising coin as merely bad or weak — if it is EXTENDED, say the trend is strong and the ENTRY is what is wrong. This distinction matters: skipping a pumping coin and skipping a dying coin are different judgments and must read differently. 9. CONTINUATION QUALITY, NOT PROBABILITY: when a breakout or continuation is in play, do NOT invent a percentage. Grade it HIGH / MODERATE / LOW quality using only checkable evidence — volume confirming the break (volR at or above 1.2-1.5), price holding above the level on CLOSES not wicks, a held retest, daily-trend agreement, and whether the move is already extended. State which of those are present and which are missing; that is the honest answer to whether this breakout can be trusted. 10. ACCUMULATION ZONES (honest limits): you may identify a zone as CONSISTENT WITH ACCUMULATION from what candles actually show — price basing near range lows, volatility contracting, volume drying up then absorbing on dips without new lows. You may NOT claim institutions or smart money are buying: that requires order-flow or on-chain data you do not have, and the research audit found accumulation scores from candles alone have no proven edge. Frame it as structure and probability of a good ENTRY LOCATION, never as insider knowledge. 11. WHEN YOU SKIP FOR EXTENSION: you must still name the concrete pullback zone that WOULD be tradeable and put it in LEVELS_JSON as planA, with its sl, so the software can watch that level and alert the user when price actually arrives. A skip for being extended is a WAIT instruction with a level, not a dismissal. DISCIPLINE DEFAULTS — strong priors built from the user\'s own logged failures; follow them by default: A. Every trigger is a candle CLOSE on the active timeframe, not a wick. B. Never recommend chasing — if price is extended more than ~3% above EMA20 or at the highs, anchor Plan A at the pullback level and say not to market-buy here. C. A first break of a FALLING 200 EMA is lower-probability — flag it. D. Use the historical DNA to shape exits — a Pumper that gives back gains means faster TPs and a trailed remainder; low trendiness means favor range levels; history is tendency, not destiny. MURPHY PLAYBOOK (apply where the data supports it): healthy pullbacks in an uptrend typically retrace 38-62% of the prior advance — a dip holding that zone with falling volume is textbook, a deeper break is a warning; volume must CONFIRM — breakouts and pattern completions on weak volume (volR under ~1.2) deserve suspicion, and price rising while volume shrinks hints exhaustion; watch RSI divergence — new price high with a lower RSI high weakens Plan B; measured-move logic — a base or flag projects roughly its own height above the breakout, use it to sanity-check TP2/TP3; money management — never risk more than ~2% of capital on one trade, derive position size from the SL distance. MURPHY PRINCIPLES (classical technical analysis — apply with judgment, cite the data): M1. Volume must confirm price — a breakout on volume below ~1.2x average is suspect; a rising trend on shrinking volume is a warning. M2. Divergence (price makes a new high while RSI makes a lower high) is a warning to tighten stops and take profits sooner — never an entry signal by itself. M3. Role reversal — broken resistance becomes support; the retest of a broken level that HOLDS is the highest-quality entry in classical TA. M4. A level grows more significant the more times it has been tested and the more volume traded there. M5. Continuation patterns (coils, triangles, flags) resolve most reliably in the direction of the PRIOR trend — favor plans aligned with it. M6. The higher timeframe dominates — a 4h setup aligned with the 1d trend carries far more weight than one fighting it; say which case this is. M7. A reversal candle (hammer, engulfing) matters only AT a meaningful level — mid-range it is noise. M8. Breaks need filters — require the close, and treat sub-1% penetrations of a level as unconfirmed to avoid whipsaw. EVIDENCE BASE (from a peer-reviewed research audit of these exact methods in crypto — weight your conviction by what is actually PROVEN, and say so): E1. STRONGEST edge: trend/momentum and higher-timeframe alignment — entries with the 1d/1w trend are the best-supported; counter-trend entries carry a documented penalty, so downgrade them. E2. Breakout + volume + retest-hold is well-founded; a breakout WITHOUT volume confirmation (volR under ~1.5) or without a held retest has a high failure rate (60%+ in crypto) — treat unconfirmed breakouts as low-conviction. E3. EMA retests work only as TREND CONTEXT, not magic support — their edge comes from the trend, so require trend-strength confirmation, never advise buying an EMA touch in a downtrend. E4. Dip-buying has positive expectancy ONLY in a confirmed uptrend (price above a rising 200-day trend); a dip in a falling market is a falling knife — refuse it. E5. CHoCH / smart-money-concepts have NO demonstrated edge beyond their plain trend-continuation core — do not lend them extra weight or institutional-order-flow narrative; evaluate a structure break as a simple breakout. E6. RSI divergence is a WARNING/context flag only, never an entry trigger — the research found no standalone edge. E7. Funding/OI extremes are SENTIMENT/cascade-risk context, not directional signals; the one defensible contrarian tell is extreme-negative funding AFTER a flush. E8. Volatility compression precedes expansion but says NOTHING about direction — never imply which way a coil breaks. E9. Coin volatility \'personality\' is real and persistent (use it for sizing and expectation), but past RETURNS do not predict future returns — do not extrapolate direction from history. E10. THE BIGGEST LEVER is position sizing and expectancy, not signal selection — always tie advice to the ~1-2% risk sizing and remind the user that surviving drawdowns matters more than any single setup. When your chart read and the evidence base conflict, name the conflict and lean toward the evidence. DEVIATION PROTOCOL: you MAY advise deviating from a DISCIPLINE DEFAULT when the specific evidence in THIS data genuinely warrants it — but only by writing an explicit line starting with RULE DEVIATION: naming which default, the exact data points that justify the exception, and what would prove the deviation wrong. Never deviate silently. Never deviate from the INVIOLABLE rules. If in doubt, follow the default. POSITIONING DATA (funding, open interest, long/short accounts): when supplied, treat it as CROWDING and squeeze risk ONLY. Crowded longs mean stops get hit on ordinary noise and flushes arrive without warning — it does NOT mean price will fall, and you must never phrase it as a direction call. The research base is explicit that funding explains only about 12.5 percent of weekly price variation and decays quickly. Legitimate uses: widening a stop, sizing smaller, or noting that an entry sits in a crowded area. Illegitimate: predicting a reversal because funding is high. If positioning data is absent, say nothing about it rather than speculating. VISION IS LOW-TRUST (evidence-based limit): if a chart image is attached it is this tool\'s own rendered chart of the same coin and timeframe. Controlled research shows vision models score at chance when reading candlestick evidence and mostly just extrapolate the recent trend, so treat the image as WEAK CONFIRMING CONTEXT ONLY. The numeric data provided is the source of truth. Never let a visual impression override, contradict or add a level that the numbers do not support, and never claim to see a pattern the numeric data cannot corroborate. If the image and the numbers disagree, say so and follow the numbers. LEVEL DISCIPLINE (mandatory): every price level you cite must be anchored to a level supplied in the data (support, resistance, EMA20/50/200, PDH/PDL/PWH/PWL/PMH/PML, the recent candle highs and lows) or a simple stated arithmetic step from one of them (for example support minus one ATR). Do NOT invent round numbers or levels you cannot trace to the supplied data - the software cross-checks your levels and flags any it cannot verify. FINAL LINE (mandatory in the first full analysis only): after everything, output exactly one line starting with LEVELS_JSON followed by a compact JSON object of NUMERIC price levels from your plan: {"planA":[zoneLow,zoneHigh],"sl":n,"tp1":n,"tp2":n,"tp3":n,"breakout":n}. Omit any key you did not specify. SECOND-TO-LAST LINE (also mandatory): output one line starting with CONDITIONS_JSON followed by a compact JSON ARRAY of the machine-checkable conditions that must ALL be true before this entry is valid — the same conditions you wrote in your plan, expressed so software can verify them live. Allowed objects: {\"t\":\"priceInZone\"} price inside your Plan A zone; {\"t\":\"priceAbove\",\"v\":n}; {\"t\":\"priceBelow\",\"v\":n}; {\"t\":\"closeAboveEMA20\"}; {\"t\":\"volRAbove\",\"v\":n}; {\"t\":\"rsiAbove\",\"v\":n}; {\"t\":\"rsiBelow\",\"v\":n}; {\"t\":\"dailyTrendUp\"}; {\"t\":\"btcOk\"} BTC stable or bullish; {\"t\":\"altWeatherOk\"}; {\"t\":\"notExtended\"} under 3.5 percent above EMA20. Include 3 to 6 conditions, ALWAYS including btcOk and dailyTrendUp unless your plan explicitly argues against them. If you gave a SECOND path (Plan B breakout / continuation, or a second revisit-if route), ALSO output a line starting with CONDITIONS_B_JSON followed by the same kind of array for THAT path — both routes get watched live, so give the breakout route its own conditions (typically priceAbove the breakout level plus volRAbove and btcOk). Nothing after the LEVELS_JSON line.';
   }
 
   var key = (localStorage.getItem('ai_api_key') || localStorage.getItem('anthropic_api_key') || '').trim();
@@ -14617,6 +14648,62 @@ function fetchOnchain(){
     }).catch(function(){});
 }
 
+// Per-coin funding/OI. BTC's funding says little about an individual alt, and
+// the crowding question is coin-specific. Cached 15min, fails silently.
+var _coinDerivs = {};
+function fetchCoinDerivs(sym){
+  if(!sym) return Promise.resolve(null);
+  var key = 'cd_' + sym, now = Date.now();
+  if(_coinDerivs[sym] && (now - _coinDerivs[sym].ts) < 900000) return Promise.resolve(_coinDerivs[sym]);
+  var base = sym.replace('JPY','USDT');
+  var out = { ts: now };
+  return Promise.all([
+    _pfetch('https://fapi.binance.com/fapi/v1/premiumIndex?symbol='+base).then(function(j){
+      if(j && j.lastFundingRate != null) out.funding = parseFloat(j.lastFundingRate)*100;
+    }).catch(function(){}),
+    _pfetch('https://fapi.binance.com/futures/data/openInterestHist?symbol='+base+'&period=4h&limit=7').then(function(j){
+      if(Array.isArray(j) && j.length > 1){
+        var last = parseFloat(j[j.length-1].sumOpenInterestValue);
+        var prev = parseFloat(j[0].sumOpenInterestValue);
+        out.oiUsd = last;
+        out.oiChg = prev > 0 ? (last-prev)/prev*100 : null;   // ~24h change
+      }
+    }).catch(function(){}),
+    _pfetch('https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol='+base+'&period=1h&limit=1').then(function(j){
+      if(Array.isArray(j) && j[0]) out.lsRatio = parseFloat(j[0].longShortRatio);
+    }).catch(function(){})
+  ]).then(function(){
+    _coinDerivs[sym] = out;
+    return out;
+  }).catch(function(){ return null; });
+}
+
+// Turn raw numbers into the reading that actually matters for a SPOT trader.
+// Research: funding explains ~12.5% of 7-day price variation and decays fast, so
+// this is CROWDING and squeeze risk — never a direction call.
+function readDerivs(d){
+  if(!d) return null;
+  var notes = [], risk = 'normal';
+  if(d.funding != null){
+    var annual = d.funding * 3 * 365;            // 8h funding → rough annualised
+    if(d.funding > 0.05){ notes.push('funding very high ('+d.funding.toFixed(4)+'%/8h, ~'+Math.round(annual)+'%/yr) — longs are paying heavily to stay in, crowded'); risk='long_crowded'; }
+    else if(d.funding > 0.02){ notes.push('funding elevated ('+d.funding.toFixed(4)+'%/8h) — leveraged longs building'); risk='long_leaning'; }
+    else if(d.funding < -0.03){ notes.push('funding negative ('+d.funding.toFixed(4)+'%/8h) — shorts paying, bearish positioning crowded'); risk='short_crowded'; }
+    else notes.push('funding normal ('+d.funding.toFixed(4)+'%/8h)');
+  }
+  if(d.oiChg != null){
+    if(d.oiChg > 15) notes.push('open interest +'+d.oiChg.toFixed(0)+'% in 24h — leverage piling in fast');
+    else if(d.oiChg < -15) notes.push('open interest '+d.oiChg.toFixed(0)+'% in 24h — positions being closed or liquidated');
+    else notes.push('open interest '+(d.oiChg>=0?'+':'')+d.oiChg.toFixed(0)+'% 24h');
+  }
+  if(d.lsRatio != null){
+    if(d.lsRatio > 2.5) notes.push('long/short accounts '+d.lsRatio.toFixed(2)+' — retail heavily one-sided long');
+    else if(d.lsRatio < 0.8) notes.push('long/short accounts '+d.lsRatio.toFixed(2)+' — unusually short-leaning');
+  }
+  return { risk: risk, notes: notes,
+    meaning: 'For a SPOT trader this is CROWDING, not direction. Crowded longs mean a flush can come from nowhere and stops get hit on noise; it does NOT mean price falls. Funding explains only ~12.5% of weekly price variation and decays fast, so never treat it as a timing signal.' };
+}
+
 function refreshExternalData(){
   try { fetchMacro(); } catch(e){}
   try { fetchDerivs(); } catch(e){}
@@ -14762,6 +14849,182 @@ function resolveEarlyWatch(data){
 // live detector, applied at every historical bar, benchmarked against the
 // MEDIAN coin over the identical window.
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TRENDLINE A/B TEST — the research found NO peer-reviewed validation of
+// diagonal trendline breaks, while objective N-day-high (Donchian) breakouts
+// have a century of trend-following evidence. If the fitted line adds nothing
+// over the simple rule, the honest move is to delete several hundred lines of
+// pivot-fitting code. This test is deliberately SUBTRACTIVE.
+//
+// Three arms, identical gates and exits:
+//   A  trendline break        (the feature under test)
+//   B  20-day-high breakout   (objective benchmark, no fitting, no look-ahead)
+//   C  random entries         (control — proves the gates alone aren't the edge)
+//
+// Date-clustering matters: crypto breakouts arrive together, so 300 raw signals
+// may carry the weight of 20 independent observations.
+// ═══════════════════════════════════════════════════════════════════════════
+var AB_VERDICT_PREREGISTERED = {
+  keep:    'A beats B by >0.10R AND the clustered CI excludes zero → KEEP the trendline',
+  replace: 'A within 0.10R of B → REPLACE with Donchian; delete the fitting code',
+  remove:  'A within 0.10R of C → REMOVE the setup entirely'
+};
+
+function runTrendlineAB(){
+  var out = document.getElementById('ab-out');
+  if(!out) return;
+  var universe = (allData||[]).filter(function(d){ return d.vol24 > 3000000; })
+                 .sort(function(a,b){ return (b.vol24||0)-(a.vol24||0); }).slice(0, 45);
+  if(universe.length < 15){ out.innerHTML = '<div style="font-size:11px;color:var(--t3)">Load the board first.</div>'; return; }
+  out.innerHTML = '<div style="font-size:11px;color:var(--t3)">⏮ Running three arms over history…</div>';
+
+  var FWD = 12, DONCH = 20;
+  Promise.all(universe.map(function(d){
+    return bybitKlines(d.sym, TF, 200).then(function(kl){ return {sym:d.sym, kl:kl}; })
+                                      .catch(function(){ return null; });
+  })).then(function(res){
+    var coins = res.filter(function(x){ return x && x.kl && x.kl.length > 100; });
+    if(coins.length < 12){ out.innerHTML = '<div style="font-size:11px;color:var(--r)">Not enough history.</div>'; return; }
+    var minLen = Math.min.apply(null, coins.map(function(x){ return x.kl.length; }));
+    coins.forEach(function(x){
+      var k = x.kl.slice(-minLen);
+      x.h = k.map(function(r){return parseFloat(r[2]);});
+      x.l = k.map(function(r){return parseFloat(r[3]);});
+      x.c = k.map(function(r){return parseFloat(r[4]);});
+      x.v = k.map(function(r){return parseFloat(r[5]);});
+    });
+
+    function ema(arr, p, end){
+      var k = 2/(p+1), e = arr[Math.max(0,end-p*3)];
+      for(var i=Math.max(1,end-p*3)+1; i<=end; i++) e = arr[i]*k + e*(1-k);
+      return e;
+    }
+    function rsiAt(arr, i, p){
+      p = p||14; if(i < p+1) return 50;
+      var g=0, l=0;
+      for(var j=i-p+1; j<=i; j++){ var ch=arr[j]-arr[j-1]; if(ch>0) g+=ch; else l-=ch; }
+      if(l===0) return 100;
+      var rs=(g/p)/(l/p); return 100 - 100/(1+rs);
+    }
+    // IDENTICAL gates for every arm — so the arms differ only in the trigger
+    function gates(x, i){
+      function avg(a){ return a.length ? a.reduce(function(p,q){return p+q;},0)/a.length : 0; }
+      var volR = avg(x.v.slice(Math.max(0,i-2), i+1)) / Math.max(1e-9, avg(x.v.slice(Math.max(0,i-20), i-2)));
+      var e20 = ema(x.c, 20, i);
+      var r = rsiAt(x.c, i), rPrev = rsiAt(x.c, i-1);
+      return volR >= 1.2 && x.c[i] > e20 && r >= 45 && r > rPrev;
+    }
+
+    var arms = { A:[], B:[], C:[] }, byDate = { A:{}, B:{}, C:{} };
+    var seedRnd = 12345;
+    function rnd(){ seedRnd = (seedRnd*1103515245 + 12345) & 0x7fffffff; return seedRnd/0x7fffffff; }
+
+    for(var i = 100; i < minLen - FWD; i++){
+      coins.forEach(function(x){
+        if(!(x.c[i] > 0)) return;
+        if(!gates(x, i)) return;                       // same gate for all arms
+        var fwd = (x.c[i+FWD] - x.c[i]) / x.c[i] * 100;
+        // stop distance proxy → express result in R so arms are comparable
+        var atr = 0, n = 0;
+        for(var q=Math.max(1,i-13); q<=i; q++){ atr += Math.max(x.h[q]-x.l[q], Math.abs(x.h[q]-x.c[q-1]), Math.abs(x.l[q]-x.c[q-1])); n++; }
+        var stopPct = n ? (atr/n)/x.c[i]*100*1.5 : 3;
+        var R = stopPct > 0 ? fwd/stopPct : 0;
+
+        // ARM A — trendline break (uses the live detector on the window so far)
+        var tl = null;
+        try { tl = detectTrendlines(x.h.slice(0,i+1), x.l.slice(0,i+1), x.c.slice(0,i+1)); } catch(e){}
+        if(tl && tl.down && tl.down.brokeUpNow && (tl.down.touches||0) >= 2){
+          arms.A.push(R); (byDate.A[i] = byDate.A[i] || []).push(R);
+        }
+        // ARM B — objective 20-day-high breakout, no fitting at all
+        var hh = -Infinity;
+        for(var j=i-DONCH; j<i; j++) if(x.h[j] > hh) hh = x.h[j];
+        if(x.c[i] > hh){ arms.B.push(R); (byDate.B[i] = byDate.B[i] || []).push(R); }
+        // ARM C — random control, matched roughly to arm A's rate
+        if(rnd() < 0.02){ arms.C.push(R); (byDate.C[i] = byDate.C[i] || []).push(R); }
+      });
+    }
+
+    function stat(a, dates){
+      if(!a.length) return null;
+      var m = a.reduce(function(p,q){return p+q;},0)/a.length;
+      var win = a.filter(function(x){ return x > 0; }).length / a.length * 100;
+      // CLUSTERED: average within each bar first, so a market-wide break day
+      // counts once rather than 40 times
+      var keys = Object.keys(dates);
+      var clustered = keys.map(function(k){
+        var g = dates[k]; return g.reduce(function(p,q){return p+q;},0)/g.length;
+      });
+      var cm = clustered.length ? clustered.reduce(function(p,q){return p+q;},0)/clustered.length : 0;
+      var sd = clustered.length > 1
+        ? Math.sqrt(clustered.reduce(function(p,q){return p+(q-cm)*(q-cm);},0)/(clustered.length-1)) : 0;
+      var se = clustered.length ? sd/Math.sqrt(clustered.length) : 0;
+      return { n:a.length, effN:clustered.length, mean:m, clustMean:cm, se:se,
+               ci: 1.645*se, win:win };
+    }
+    var sA = stat(arms.A, byDate.A), sB = stat(arms.B, byDate.B), sC = stat(arms.C, byDate.C);
+    if(!sA || !sB){ out.innerHTML = '<div style="font-size:11px;color:var(--t3)">Too few signals in the available history to compare.</div>'; return; }
+
+    var diffAB = sA.clustMean - sB.clustMean;
+    var diffAC = sA.clustMean - sC ? (sA.clustMean - (sC?sC.clustMean:0)) : 0;
+    var seDiff = Math.sqrt(sA.se*sA.se + sB.se*sB.se);
+    var ciDiff = 1.645 * seDiff;
+    var verdict, vcol;
+    if(sA.effN < 20 || sB.effN < 20){
+      verdict = '⏳ Only '+sA.effN+' / '+sB.effN+' effective independent observations. Far too few — no verdict.'; vcol='var(--t3)';
+    } else if(diffAB > 0.10 && (diffAB - ciDiff) > 0){
+      verdict = '🟢 KEEP — the trendline beat Donchian by '+diffAB.toFixed(2)+'R and the interval excludes zero.'; vcol='var(--g)';
+    } else if(sC && Math.abs(sA.clustMean - sC.clustMean) < 0.10){
+      verdict = '🔴 REMOVE — the trendline is indistinguishable from random entries with the same gates. The gates were doing the work.'; vcol='var(--r)';
+    } else if(Math.abs(diffAB) <= 0.10){
+      verdict = '🟠 REPLACE — the trendline matched a plain 20-day-high breakout ('+(diffAB>=0?'+':'')+diffAB.toFixed(2)+'R). Same result, none of the fitting or subjectivity. Delete the pivot code.'; vcol='var(--am)';
+    } else {
+      verdict = '🔴 REPLACE — Donchian BEAT the trendline by '+Math.abs(diffAB).toFixed(2)+'R.'; vcol='var(--r)';
+    }
+
+    var h = '<div style="background:var(--card);border-radius:8px;padding:.85rem">';
+    h += '<table style="width:100%;font-size:11px;border-collapse:collapse">';
+    h += '<tr style="color:var(--t3);font-size:10px"><th style="text-align:left">Arm</th><th>mean R</th><th>clustered R</th><th>win %</th><th>signals</th><th>eff. N</th></tr>';
+    [['A · Trendline break', sA, 'var(--acc)'],
+     ['B · 20-day-high (Donchian)', sB, 'var(--t2)'],
+     ['C · Random control', sC, 'var(--t3)']].forEach(function(row){
+      if(!row[1]) return;
+      h += '<tr style="border-top:.5px solid var(--bd)">'
+         + '<td style="padding:5px 0;color:'+row[2]+';font-weight:700">'+row[0]+'</td>'
+         + '<td style="text-align:center;color:'+(row[1].mean>=0?'var(--g)':'var(--r)')+'">'+(row[1].mean>=0?'+':'')+row[1].mean.toFixed(2)+'</td>'
+         + '<td style="text-align:center;font-weight:700;color:'+(row[1].clustMean>=0?'var(--g)':'var(--r)')+'">'+(row[1].clustMean>=0?'+':'')+row[1].clustMean.toFixed(2)+'</td>'
+         + '<td style="text-align:center;color:var(--t3)">'+row[1].win.toFixed(0)+'%</td>'
+         + '<td style="text-align:center;color:var(--t3)">'+row[1].n+'</td>'
+         + '<td style="text-align:center;color:var(--t3)">'+row[1].effN+'</td></tr>';
+    });
+    h += '</table>';
+    h += '<div style="font-size:11px;font-weight:700;color:'+vcol+';margin-top:9px;line-height:1.55">'+verdict+'</div>';
+    h += '<div style="font-size:10px;color:var(--t3);margin-top:7px;line-height:1.6">'
+       + 'A − B = '+(diffAB>=0?'+':'')+diffAB.toFixed(2)+'R (90% CI ±'+ciDiff.toFixed(2)+')<br>'
+       + '<b>Clustered R</b> averages signals within the same bar first, so one market-wide break day counts once instead of 40 times. That is why eff. N is far below the raw signal count — and why the raw column overstates confidence.</div>';
+    h += '<div style="font-size:9px;color:var(--t3);margin-top:8px;font-style:italic;line-height:1.5">⚠️ In-sample, ~200 bars, one market period, survivorship (only coins on your list today). The trendline arm also carries look-ahead risk that Donchian does not — pivots need future bars to confirm — which biases this test IN FAVOUR of arm A. If A still fails to beat B here, that is decisive.</div>';
+    out.innerHTML = h + '</div>';
+  }).catch(function(e){
+    out.innerHTML = '<div style="font-size:11px;color:var(--r)">Failed: '+(e.message||e)+'</div>';
+  });
+}
+
+function buildABPanel(){
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🧪 Trendline A/B test — does the fitted line beat a simple rule?</div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">The research found no peer-reviewed validation of diagonal trendline breaks, while objective N-day-high breakouts have a century of evidence. This runs three arms with <b>identical gates and exits</b>, so they differ only in the trigger. If the fitted line adds nothing, the honest outcome is to delete it.</div>';
+  h += '<div style="background:var(--card3);border-radius:7px;padding:8px 10px;margin-bottom:.6rem">';
+  h += '<div style="font-size:10px;font-weight:700;color:var(--t2);margin-bottom:3px">📋 Verdict pre-registered BEFORE you see the numbers</div>';
+  h += '<div style="font-size:10px;color:var(--t3);line-height:1.6">'
+     + '• '+AB_VERDICT_PREREGISTERED.keep+'<br>'
+     + '• '+AB_VERDICT_PREREGISTERED.replace+'<br>'
+     + '• '+AB_VERDICT_PREREGISTERED.remove+'</div></div>';
+  h += '<button onclick="runTrendlineAB()" style="padding:7px 15px;border-radius:7px;border:.5px solid var(--acc);background:transparent;color:var(--acc);font-weight:700;font-size:11px;cursor:pointer;font-family:inherit">🧪 Run the three arms</button>';
+  h += '<div id="ab-out" style="margin-top:.7rem"></div>';
+  return h + '</div>';
+}
+
 function runCoilBacktest(){
   var out = document.getElementById('coil-bt-out');
   if(!out) return;
@@ -14928,6 +15191,45 @@ function runCoilBacktest(){
   }).catch(function(e){
     out.innerHTML = '<div style="font-size:11px;color:var(--r)">Backtest failed: '+(e.message||e)+'</div>';
   });
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GATE BLOCK LOG — every setup the gates suppressed. Without this, a correctly
+// blocked signal is indistinguishable from a broken detector, and the user
+// reasonably concludes the tool missed something.
+// ═══════════════════════════════════════════════════════════════════════════
+function _noteGateBlock(d, setupType, reason){
+  var a = [];
+  try { a = JSON.parse(localStorage.getItem('gate_blocks')||'[]'); } catch(e){}
+  var key = d.sym + '|' + setupType + '|' + TF;
+  var now = Date.now();
+  // one entry per setup per coin per 12h — this fires on every scan otherwise
+  var recent = a.find(function(x){ return x.key === key && (now - x.ts) < 12*3600000; });
+  if(recent) return;
+  a.unshift({ key:key, sym:d.sym, pair:d.pair, setup:setupType, reason:reason,
+              price:d.price, ts:now, tf:TF });
+  try { localStorage.setItem('gate_blocks', JSON.stringify(a.slice(0,120))); } catch(e){}
+}
+
+function buildGateBlockPanel(){
+  var a = [];
+  try { a = JSON.parse(localStorage.getItem('gate_blocks')||'[]'); } catch(e){}
+  var recent = a.filter(function(x){ return (Date.now() - x.ts) < 72*3600000; });
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🚦 Setups the gates blocked <span style="font-weight:400;color:var(--t3);font-size:10px">last 72h</span></div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">Valid setups that were detected but NOT alerted, because a market-condition gate suppressed them. This is the tool working as designed — but you should be able to see it, not just experience silence.</div>';
+  if(!recent.length) return h + '<div style="font-size:11px;color:var(--t3)">Nothing blocked in the last 72h.</div></div>';
+  recent.slice(0,25).forEach(function(x){
+    var age = Math.round((Date.now()-x.ts)/3600000);
+    h += '<div style="display:flex;gap:8px;align-items:baseline;font-size:11px;padding:3px 0;border-top:.5px solid var(--bd)">'
+       + '<b style="min-width:92px">'+x.pair+'</b>'
+       + '<span style="color:var(--t2);min-width:112px">'+x.setup+'</span>'
+       + '<span style="color:var(--am);font-size:10px">'+x.reason+'</span>'
+       + '<span style="margin-left:auto;color:var(--t3);font-size:10px">'+age+'h ago</span></div>';
+  });
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:8px;font-style:italic;line-height:1.5">These are logged but NOT traded and NOT counted in your win rate. If the board is quiet while good-looking breaks appear on charts, this panel is usually the reason.</div>';
+  return h + '</div>';
 }
 
 function buildEarlyAuditPanel(){
