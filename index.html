@@ -3343,6 +3343,7 @@ function loadAll() {
     try { fetchDominance(); } catch(e){}             // live BTC.D / USDT.D
     try { fetchMarketCaps(); } catch(e){}            // market caps → turnover
     try { refreshExternalData(); } catch(e){}        // macro tape, derivatives, stables, on-chain
+    try { fetchFearGreed(); } catch(e){}             // live Fear & Greed index
     try { checkChartStates(allData); } catch(e){}    // chart-state reads + BTC flip alert
     try { checkWatchers(allData); } catch(e){}       // user-defined coin watchers
     try { checkAIMemoAlerts(allData); } catch(e){}   // AI entry-zone watches
@@ -4060,9 +4061,9 @@ function renderMacro(){
   // Gold/DXY/S&P/Nasdaq were removed here — they are shown live in
   // Market Read → 🌐 Live external data, and duplicating them added nothing.
   // This tab is now BTC-focused: BTC gates every other decision in the tool.
-  var assets=[
-    {ico:'₿',  name:'Bitcoin (BTC)',  desc:'Crypto flagship',    data:null,               type:'btc'},
-  ];
+  // The BTC flagship card is gone too — buildBTCPanel() below shows the same
+  // price plus chart state, levels, watcher and trade plan. One BTC view, not two.
+  var assets=[];
   var btc=allData.find(function(d){return d.sym==='BTCUSDT'||d.sym==='BTCJPY';});
   if(btc) assets[0].data={price:btc.price,chg:btc.chg};
 
@@ -4103,7 +4104,16 @@ function renderMacro(){
     return '<div class="macro-card '+cls+'"><div class="mc-ico">'+a.ico+'</div><div class="mc-name">'+a.name+'</div><div class="mc-price">'+pStr+'</div><div class="mc-chg" style="color:'+chgC+'">'+chgStr+'</div>'+(subInfo?'<div class="mc-sub">'+subInfo+'</div>':'')+'<div class="mc-bias" style="color:'+biasC+'">'+bias+'</div><div class="mc-hint">'+a.desc+'</div></div>';
   }).join('');
 
-  // ── Fear & Greed + BTC Dominance + ETH/BTC bar ───────────────────────────
+  // ── MOVED to Market Read ─────────────────────────────────────────────────
+  // Fear & Greed, BTC dominance and ETH/BTC are MARKET-WIDE readings, not BTC
+  // detail, so they now live in Market Read alongside the regime classifier.
+  // Keeping them here also produced a real bug: this panel showed a volume-based
+  // dominance ESTIMATE (~72%) while Market Read showed the real CoinGecko figure
+  // (~56%) — two different numbers for the same thing in one app.
+  var _macroRatios = document.getElementById('macro-ratios');
+  if (_macroRatios) _macroRatios.innerHTML = '';
+  if (false) {
+  // ── (retained but disabled) ──────────────────────────────────────────────
   var fgEl = document.getElementById('macro-fg-row');
   if (!fgEl) {
     var fgDiv = document.createElement('div');
@@ -4174,6 +4184,7 @@ function renderMacro(){
   }
 
   fgEl.innerHTML = fgHtml;
+  }   // end disabled block
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -14513,6 +14524,124 @@ function buildCapitulationPanel(){
   return h + '</div>';
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MARKET-WIDE RATIOS — moved here from the Macro tab, which is now BTC-only.
+// Clean separation: Macro answers "what is BTC doing", Market Read answers
+// "what is the market doing". Everything here is market-wide by definition.
+//
+// Also fixes a real inconsistency: the Macro tab rendered a volume-based
+// dominance ESTIMATE (~72%) while this tab showed the real CoinGecko figure
+// (~56%). One authoritative source now — the live API, never the proxy.
+// ═══════════════════════════════════════════════════════════════════════════
+var _fgLive = null;
+
+// Live Fear & Greed from alternative.me (free, no key, the industry standard
+// index). The old value was derived from our own board, which made it circular:
+// the screener scored its own coins and called the result market sentiment.
+function fetchFearGreed(){
+  var cached = null;
+  try { cached = JSON.parse(localStorage.getItem('fg_live')||'null'); } catch(e){}
+  if(cached && (Date.now()-cached.ts) < 3600000){ _fgLive = cached.d; return Promise.resolve(); }
+  return _pfetch('https://api.alternative.me/fng/?limit=2').then(function(j){
+    var arr = j && j.data;
+    if(!Array.isArray(arr) || !arr.length) return;
+    var d = { value: parseInt(arr[0].value), label: arr[0].value_classification,
+              prev: arr[1] ? parseInt(arr[1].value) : null };
+    _fgLive = d;
+    try { localStorage.setItem('fg_live', JSON.stringify({ts:Date.now(), d:d})); } catch(e){}
+  }).catch(function(){});
+}
+
+// TOTAL3 / BTC — altcoin market (excluding BTC and ETH) measured against BTC.
+// This is the cleanest single "are alts winning" ratio, and unlike dominance it
+// is not partly definitional.
+function computeTotal3(){
+  var btc = (allData||[]).find(function(d){ return d.sym==='BTCUSDT'||d.sym==='BTCJPY'; });
+  if(!btc) return null;
+  var alts = (allData||[]).filter(function(d){
+    return d.sym !== btc.sym && d.sym !== 'ETHUSDT' && d.chg != null && (d.vol24||0) > 3000000;
+  });
+  if(alts.length < 10) return null;
+  var mean = alts.reduce(function(s,d){ return s + d.chg; }, 0) / alts.length;
+  return { rel: mean - (btc.chg||0), n: alts.length };
+}
+
+function buildRatiosPanel(){
+  var h = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem">';
+  function card(title, badge, big, bigCol, meterPct, meterCol, note){
+    var s = '<div style="flex:1;min-width:172px;background:var(--card2);border-radius:var(--rad);padding:10px 12px;border:.5px solid var(--bd)">';
+    s += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">'
+       + '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--t3)">'+title+'</div>'
+       + (badge||'') + '</div>';
+    s += '<div style="font-size:20px;font-weight:800;color:'+(bigCol||'var(--text)')+'">'+big+'</div>';
+    if(meterPct != null)
+      s += '<div style="width:100%;height:6px;background:var(--card3);border-radius:3px;margin:5px 0;overflow:hidden">'
+         + '<div style="width:'+Math.max(0,Math.min(100,meterPct))+'%;height:100%;background:'+meterCol+';border-radius:3px"></div></div>';
+    s += '<div style="font-size:11px;color:var(--t2);line-height:1.45">'+note+'</div>';
+    return s + '</div>';
+  }
+
+  // Fear & Greed — LIVE
+  if(_fgLive){
+    var v = _fgLive.value;
+    var col = v <= 25 ? 'var(--r)' : v <= 45 ? 'var(--am)' : v <= 55 ? 'var(--t2)' : v <= 75 ? 'var(--g)' : 'var(--am)';
+    var mv = _fgLive.prev != null ? (v - _fgLive.prev) : null;
+    var note = v <= 25 ? 'Extreme fear. Historically a better accumulation zone than a trading one — the effect plays out over months, not days.'
+             : v <= 45 ? 'Fear. Useful context, not a timing signal.'
+             : v <= 55 ? 'Neutral.'
+             : v <= 75 ? 'Greed. Watch for chasing.'
+             : 'Extreme greed. Positioning is crowded.';
+    h += card('😱 Fear &amp; Greed',
+      '<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(38,166,154,.15);color:var(--g)">● live</span>',
+      v + ' <span style="font-size:12px;font-weight:600;color:var(--t3)">'+(_fgLive.label||'')+'</span>'
+        + (mv != null ? ' <span style="font-size:11px;color:'+(mv>=0?'var(--g)':'var(--r)')+'">'+(mv>=0?'+':'')+mv+'</span>' : ''),
+      col, v, col, note);
+  }
+
+  // BTC dominance — REAL only
+  if(_btcDom != null){
+    var bd = _btcDom;
+    var bnote = bd > 58 ? 'BTC season — capital favouring BTC over alts'
+              : bd > 52 ? 'Mixed — selective alts only' : 'Alt-friendly dominance level';
+    h += card('₿ BTC Dominance',
+      '<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(38,166,154,.15);color:var(--g)">● CoinGecko</span>',
+      bd.toFixed(2)+'%' + (_btcDomChg != null ? ' <span style="font-size:11px;color:'+(_btcDomChg>0?'var(--am)':'var(--g)')+'">'+(_btcDomChg>0?'+':'')+_btcDomChg+'pt</span>' : ''),
+      'var(--text)', bd, bd > 55 ? 'var(--am)' : 'var(--g)',
+      bnote + '<br><span style="font-size:10px;color:var(--t3)">Partly definitional — it falls mechanically when alts outperform, so treat it as confirmation, not prediction.</span>');
+  }
+
+  // USDT dominance
+  if(_usdtDom != null){
+    h += card('₮ USDT Dominance', '', _usdtDom.toFixed(2)+'%'
+      + (_usdtDomChg != null ? ' <span style="font-size:11px;color:'+(_usdtDomChg>0?'var(--r)':'var(--g)')+'">'+(_usdtDomChg>0?'+':'')+_usdtDomChg+'pt</span>' : ''),
+      'var(--text)', Math.min(100,_usdtDom*8), _usdtDomChg > 0 ? 'var(--r)' : 'var(--g)',
+      _usdtDomChg > 0.05 ? 'Rising — capital parking in stablecoins (risk-off)' : 'Stable or falling — capital deploying');
+  }
+
+  // ETH/BTC
+  var eth = (allData||[]).find(function(d){ return d.sym==='ETHUSDT'; });
+  var btc = (allData||[]).find(function(d){ return d.sym==='BTCUSDT'||d.sym==='BTCJPY'; });
+  if(eth && btc && btc.price > 0){
+    var ratio = eth.price / btc.price;
+    var rel = (eth.chg||0) - (btc.chg||0);
+    h += card('Ξ ETH/BTC', '', ratio.toFixed(5)
+      + ' <span style="font-size:11px;color:'+(rel>=0?'var(--g)':'var(--r)')+'">'+(rel>=0?'+':'')+rel.toFixed(2)+'%</span>',
+      'var(--text)', null, null,
+      rel >= 0 ? 'ETH outperforming BTC — usually alt-supportive' : 'ETH weakening vs BTC — alts historically struggle');
+  }
+
+  // TOTAL3 / BTC — the honest "are alts winning" measure
+  var t3 = computeTotal3();
+  if(t3){
+    h += card('🧮 Alts vs BTC <span style="text-transform:none;font-weight:400">(TOTAL3-style)</span>', '',
+      (t3.rel>=0?'+':'')+t3.rel.toFixed(2)+'%',
+      t3.rel >= 0 ? 'var(--g)' : 'var(--r)', null, null,
+      'Equal-weighted average of '+t3.n+' alts (excl. BTC/ETH) minus BTC, over 24h. Equal-weighted so two megacaps cannot fake a broad alt move.');
+  }
+  return h + '</div>';
+}
+
 function buildRegimePanel(){
   var r = _regime || classifyRegime();
   var m = REGIME_MODES[r.mode] || REGIME_MODES.neutral;
@@ -15508,6 +15637,7 @@ function renderMarketRead(){
   try { h += buildSourcesPanel(); } catch(e){}
   try { h += buildCapitulationPanel(); } catch(e){}
   try { h += buildRegimePanel(); } catch(e){}
+  try { h += buildRatiosPanel(); } catch(e){}
   try { h += buildEarlyWatchPanel(); } catch(e){}
   // ── AI MARKET BRIEFING — one AI call summarizing the whole board on demand ──
   var hasKey = !!(localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key'));
