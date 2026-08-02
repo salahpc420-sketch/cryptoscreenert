@@ -1885,6 +1885,28 @@ function detectTrendlines(h, l, c, s, e) {
     down.brokeUpNow = down.breakIdx != null && (last - down.breakIdx) <= 5
                       && c[last] > lineVal(down, last);
     down.breakBarsAgo = down.breakIdx != null ? (last - down.breakIdx) : null;
+
+    // ── ROLE REVERSAL: broken resistance now HOLDING as support ──────────────
+    // Classical TA (Murphy M3) calls the held retest of a broken level the
+    // highest-quality entry, and the research audit (E2) agrees that a break
+    // WITH a held retest is materially better than a bare break. Requires:
+    //   1. the line was genuinely broken (close through it)
+    //   2. price has since come back down and TOUCHED it (wick into the line)
+    //   3. the candle CLOSED back above it — the line held
+    //   4. it is still holding right now
+    down.retestHeld = false; down.retestBarsAgo = null;
+    if (down.breakIdx != null && last - down.breakIdx >= 1) {
+      for (var rq = last; rq > down.breakIdx && rq >= last - 12; rq--) {
+        var lvR = lineVal(down, rq);
+        var touched = l[rq] <= lvR * (1 + TOUCH_TOL);     // wicked into the line
+        var closedAbove = c[rq] > lvR;                    // but closed above it
+        if (touched && closedAbove && c[last] > lineVal(down, last)) {
+          down.retestHeld = true;
+          down.retestBarsAgo = last - rq;
+          break;
+        }
+      }
+    }
   }
   if (up) {
     up.breakIdx = breakIdx(up, false);
@@ -2775,6 +2797,7 @@ function processSymbol(ticker) {
 
     // PHASE 7+6: Relative strength vs BTC + accumulation score
     var relStr = calcRelStrength(c, _btcCloses);
+    var resil = calcResilience(c, _btcCloses);
     var accum  = calcAccumulation(h, l, c, v, relStr, e20, e50);
     // Trend quality — how clean/smooth is the trend
     var trendQ = calcTrendQuality(c, e20, e50, e200);
@@ -2842,12 +2865,15 @@ function processSymbol(ticker) {
 
     return {
       sym:sym, pair:pair, price:price, chg:chg, vol24:vol24, vol24usd:vol24usd,
-      tlBreakUp:tlBreakUp, tlTouches:tlTouches, liqAbove:_liqUp, liqBelow:_liqDn, _ew:_ew,
+      tlBreakUp:tlBreakUp, tlTouches:tlTouches,
+      tlRetestHeld: !!(_tl.down && _tl.down.retestHeld),
+      tlRetestBarsAgo: (_tl.down && _tl.down.retestBarsAgo != null) ? _tl.down.retestBarsAgo : null, liqAbove:_liqUp, liqBelow:_liqDn, _ew:_ew,
       tlBounceUp:tlBounceUp, tlUpTouches:tlUpTouches, tlBreakDown:tlBreakDown,
       rsi:rsi, ema20:e20, ema50:e50, ema200:e200,
       trend:trend, volR:volR, atrPct:atrPct,
       fromHigh: (function(){ var hi=Math.max.apply(null,c.slice(-30)); return hi>0?(price-hi)/hi*100:0; })(),
       volZ: Math.round(volZ*100)/100,
+      resilCapture: resil ? -resil.capture : null,   // negated so higher = better, for IC
       // last CLOSED candle + the one before it — needed for close-based watchers
       closePx: closePx, prevClose: (c.length > 1 ? c[c.length-2] : null),
       invScore:invScore, ddHigh:Math.round(ddHigh), distE200:Math.round(distE200pct),
@@ -2863,7 +2889,7 @@ function processSymbol(ticker) {
       buyTier:buyTier, buyTierFails:buyTierFails,
       smc:smc,
       breakout:breakout, emaRetest:emaRetest, pumpDump:pumpDump,
-      relStr:relStr, accum:accum, rsRank:null, opportunity:0,
+      relStr:relStr, resil:resil, accum:accum, rsRank:null, opportunity:0,
       trendQ:trendQ.score, trendQLabel:trendQ.label, trendQDir:trendQ.dir,
       _closes:c.slice(-60) // keep recent closes for any re-computation
     };
@@ -2875,6 +2901,48 @@ function processSymbol(ticker) {
 // Compares a coin's return to BTC's return over multiple lookbacks.
 // Output stored raw; ranked 1-99 across all coins after the full scan.
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RESILIENCE — how a coin behaves ON THE BARS WHERE BTC FELL.
+// This is one of the few genuinely evidence-backed ideas in the tool: relative
+// strength during market downturns is a documented predictor of subsequent
+// outperformance, and it is the mechanism behind the research finding that RS
+// should be double-weighted when BTC is weak.
+//
+// It is deliberately NOT the same as the existing relStr, which measures fixed
+// 7/14/30/60-bar windows regardless of what BTC was doing. A coin can look
+// strong there simply because the whole market rose. This isolates the bars
+// that actually test a coin: the ones where BTC was dropping.
+// ═══════════════════════════════════════════════════════════════════════════
+function calcResilience(closes, btcCloses){
+  if(!closes || !btcCloses) return null;
+  var n = Math.min(closes.length, btcCloses.length);
+  if(n < 40) return null;
+  var lb = Math.min(60, n-1);
+  var downBars = 0, coinSum = 0, btcSum = 0, held = 0;
+  for(var i = n-lb; i < n; i++){
+    if(btcCloses[i-1] <= 0 || closes[i-1] <= 0) continue;
+    var btcR = (btcCloses[i] - btcCloses[i-1]) / btcCloses[i-1] * 100;
+    if(btcR >= -0.15) continue;                 // only bars where BTC actually fell
+    var coinR = (closes[i] - closes[i-1]) / closes[i-1] * 100;
+    downBars++; coinSum += coinR; btcSum += btcR;
+    if(coinR > btcR) held++;                    // outperformed BTC on that bar
+  }
+  if(downBars < 6) return null;                 // not enough BTC weakness to judge
+  // "downCapture": what fraction of BTC's decline the coin absorbed.
+  //   1.0  = fell exactly with BTC
+  //   0.5  = fell half as much   (resilient)
+  //   <0   = actually ROSE while BTC fell (the strongest reading)
+  var capture = btcSum < 0 ? coinSum / btcSum : 1;
+  return {
+    downBars: downBars,
+    coinSum: Math.round(coinSum*10)/10,
+    btcSum: Math.round(btcSum*10)/10,
+    capture: Math.round(capture*100)/100,
+    heldPct: Math.round(held/downBars*100)
+  };
+}
+
 function calcRelStrength(closes, btcCloses) {
   if (!closes || closes.length < 30 || !btcCloses || btcCloses.length < 30) return null;
   // Multi-lookback relative performance (weighted: recent matters more)
@@ -3310,6 +3378,7 @@ function loadAll() {
 
     // TURNOVER — usage-vs-price proxy, then fold it into the investing score
     try { applyTurnover(allData); applyTurnoverToInvScore(allData); } catch(e){}
+    try { applyUnlocks(allData); checkUnlockAlerts(allData); } catch(e){}
 
     // EARLY WATCH — cross-sectional base/expansion ranking
     try { computeEarlyWatch(allData); } catch(e){}
@@ -3344,6 +3413,24 @@ function loadAll() {
     try { fetchMarketCaps(); } catch(e){}            // market caps → turnover
     try { refreshExternalData(); } catch(e){}        // macro tape, derivatives, stables, on-chain
     try { fetchFearGreed(); } catch(e){}             // live Fear & Greed index
+    try { fetchUnlocks(); } catch(e){}               // scheduled unlock calendar
+    // TRENDLINE ROLE-REVERSAL ALERTS — fires on the flip itself, deduped 12h.
+    try {
+      var _tlSeen = JSON.parse(localStorage.getItem('tl_flip_seen')||'{}');
+      var _tlNow = Date.now(), _tlChanged = false;
+      allData.forEach(function(d){
+        if(!d.tlRetestHeld) return;
+        var k = d.sym + '_' + TF;
+        if(_tlSeen[k] && (_tlNow - _tlSeen[k]) < 12*3600000) return;
+        _tlSeen[k] = _tlNow; _tlChanged = true;
+        var msg = '🔄 ' + d.pair + ' — broken trendline is HOLDING as support ('
+                + (d.tlTouches||0) + ' touches, retest ' + (d.tlRetestBarsAgo||0) + ' bars ago)';
+        try { showToast(d, 'strong', msg); } catch(e){}
+        try { addAlHistory(d, 'tl_flip', msg); } catch(e){}
+        try { sendBrowserNotif(d, msg); } catch(e){}
+      });
+      if(_tlChanged) localStorage.setItem('tl_flip_seen', JSON.stringify(_tlSeen));
+    } catch(e){}
     try { checkChartStates(allData); } catch(e){}    // chart-state reads + BTC flip alert
     try { checkWatchers(allData); } catch(e){}       // user-defined coin watchers
     try { checkAIMemoAlerts(allData); } catch(e){}   // AI entry-zone watches
@@ -5523,6 +5610,12 @@ function autoLogSignals(){
       // risk-off, capital is leaving; in BTC season it is arriving but going to
       // BTC, and this trader's own log showed alt entries then won 18% vs 32%.
       if(_regime && (_regime.mode==='risk_off' || _regime.mode==='btc_season')) return;
+      // A large unlock inside 3 days is scheduled dilution — do not open into it.
+      if(d.unlock && d.unlock.days <= 3 &&
+         ((d.unlock.pctMcap != null ? d.unlock.pctMcap : d.unlock.pctSupply) || 0) >= 3){
+        try { _noteGateBlock(d, setupType, 'token unlock in '+Math.round(d.unlock.days)+'d'); } catch(e){}
+        return;
+      }
     }
 
     // ── ANALYST GATE — only log trades the analyst grades A or B ──────────────
@@ -5788,6 +5881,14 @@ function autoLogSignals(){
        && d.price > d.ema20
        && d.rsi >= 45 && momentumUp){
       logIt(d, 'Trendline break');
+    }
+    // ROLE REVERSAL — the broken line now holding as support. Research E2: a
+    // break WITH a held retest is materially better than a bare break, so this
+    // gets its own setup type and is graded separately in the Coach.
+    if(d.tlRetestHeld && d.tlTouches >= 2
+       && d.price > (d.ema20||0)
+       && (d.volR||0) >= 1.0){
+      logIt(d, 'TL retest hold');
     }
 
     // SWEEP RECLAIM — the one contrarian entry the evidence audit endorsed:
@@ -6109,7 +6210,8 @@ var IC_SCORE_FIELDS = { opportunity:'Opportunity Score', score:'Signal Score', b
                         invScore:'Investment Score (investing mode)',
                         turnover:'Turnover (volume/mktcap)',
                         volZ:'Abnormal Volume (log z)',
-                        momRankL:'Momentum (large coins only)' };
+                        momRankL:'Momentum (large coins only)',
+                        resilCapture:'Down-bar resilience' };
 
 function _icLoad(k){ try{ return JSON.parse(localStorage.getItem(k)||'[]'); }catch(e){ return []; } }
 function _icSave(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
@@ -8376,6 +8478,7 @@ var WATCH_TYPES = {
   breakRes:     { label:'Breaks resistance (candle CLOSE above, volume ≥1.2×)', icon:'🚀' },
   accumZone:    { label:'Enters accumulation zone (near range low, volatility contracting)', icon:'🟦' },
   trendlineBrk: { label:'Trendline break (validated downtrend line, fresh)', icon:'⚡' },
+  trendlineFlip:{ label:'Broken trendline now HOLDING as support (retest held)', icon:'🔄' },
   liqSweep:     { label:'Liquidity sweep + reclaim', icon:'💧' },
   emaRetest:    { label:'Pulls back to EMA20/50 and holds', icon:'📉' },
   rsiOversold:  { label:'RSI drops below 35', icon:'📊' },
@@ -8410,6 +8513,7 @@ function _evalWatchCondition(type, w, d){
                 (d.price - d.sup)/(d.res - d.sup) < 0.3 &&
                 (d.atrPct||99) < 6 && (d.rsi||0) > 30 && (d.rsi||0) < 55);
     case 'trendlineBrk': return !!d.tlBreakUp;
+    case 'trendlineFlip': return !!d.tlRetestHeld;
     case 'liqSweep':     return d.liq === 'buy_sweep';
     case 'emaRetest':
       return !!(d.emaRetest && d.emaRetest.state === 'retest_completed');
@@ -9725,8 +9829,16 @@ function runProAnalysis(d) {
 
   // SL = below support with 0.5× ATR buffer (not too tight, not too loose)
   var sl = d.sup * (1 - atrEstimate * 0.005);
+  // BUG FIX: when price has dipped BELOW the identified support, anchoring the
+  // stop to support puts it ABOVE the entry — an impossible long, which rendered
+  // as "SL +0.02% from entry" with blank R:R. A stop must always sit below the
+  // entry; if support cannot provide that, fall back to a volatility-based stop.
+  var _minGapPct = Math.max(1.2, (d.atrPct || atrEstimate || 2) * 1.2);
+  if (!(sl < p * 0.999)) {
+    sl = p * (1 - _minGapPct / 100);
+  }
   var slPct = ((p - sl) / p * 100);
-  if (slPct < 1) slPct = 1.5; // minimum SL distance
+  if (slPct < 1) { slPct = _minGapPct; sl = p * (1 - slPct / 100); }
 
   // ══════════════════════════════════════════════════════════
   // PHASE 4: ENTRY STRATEGY SELECTION
@@ -14689,6 +14801,295 @@ function computeTotal3(){
   return { rel: mean - (btc.chg||0), n: alts.length };
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RESILIENCE PANEL — "which coins are refusing to fall with BTC?"
+// Shown only when there has been enough BTC weakness to judge. This is the
+// shortlist to prepare while the tape is bad, so that when BTC turns you
+// already know which names held up rather than scrambling.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CATALYST CLASSIFIER — events, not sentiment.
+// The distinction matters: sentiment measures how people FEEL (reflexive,
+// lagging, heavily manipulated — the research found it does not predict
+// returns). Events are FACTS with a mechanism: an unlock is scheduled supply
+// hitting the market, an exploit is capital actually gone, a listing is new
+// demand. The research audit called a catalyst/unlock calendar the single
+// highest-value non-OHLCV addition available.
+//
+// Honest limits, stated up front:
+//   • keyword classification is crude and will mislabel some headlines
+//   • a headline is NEWS OF an event, often after price already moved
+//   • this flags what to READ, it does not predict direction
+// ═══════════════════════════════════════════════════════════════════════════
+var CATALYST_TYPES = {
+  unlock:     { icon:'🔓', label:'Token unlock / vesting', lean:'bearish',
+                why:'Scheduled supply hits the market. Mechanically dilutive — the clearest bearish catalyst there is.',
+                kw:['UNLOCK','VESTING','CLIFF','TOKEN RELEASE','EMISSIONS','UNLOCKING','CIRCULATING SUPPLY INCREASE'] },
+  upgrade:    { icon:'⚙️', label:'Upgrade / mainnet', lean:'bullish',
+                why:'Protocol improvement or launch. Often priced in before the date — check whether the run already happened.',
+                kw:['MAINNET','UPGRADE','HARD FORK','HARDFORK','MIGRATION','V2 LAUNCH','V3 LAUNCH','TESTNET','ROADMAP','RELEASES '] },
+  listing:    { icon:'📈', label:'Exchange listing', lean:'bullish',
+                why:'New venue, new demand and liquidity. Effect is usually fast and often fades.',
+                kw:['LISTS ','LISTING','WILL LIST','NOW AVAILABLE ON','DEBUTS ON','ADDS SUPPORT FOR'] },
+  delist:     { icon:'🚫', label:'Delisting', lean:'bearish',
+                why:'Liquidity removed. Reliably negative and often abrupt.',
+                kw:['DELIST','DELISTING','REMOVES SUPPORT','SUSPENDS TRADING','HALTS TRADING'] },
+  exploit:    { icon:'🚨', label:'Hack / exploit', lean:'bearish',
+                why:'Capital actually gone and trust damaged. Among the most reliably negative events.',
+                kw:['HACK','EXPLOIT','DRAINED','STOLEN','BREACH','ATTACK','RUG','VULNERABILITY','COMPROMISED'] },
+  partner:    { icon:'🤝', label:'Partnership / integration', lean:'mild_bullish',
+                why:'Frequently announced, rarely material. Treat as weak unless it brings real usage.',
+                kw:['PARTNERSHIP','PARTNERS WITH','INTEGRATION','INTEGRATES','COLLABORAT','TEAMS UP'] },
+  institution:{ icon:'🏦', label:'Institutional / ETF', lean:'bullish',
+                why:'Real capital flows. One of the more substantive categories.',
+                kw:['ETF','INSTITUTIONAL','BLACKROCK','FIDELITY','GRAYSCALE','TREASURY','CUSTODY','SEC APPROV'] },
+  regulatory: { icon:'⚖️', label:'Regulatory / legal', lean:'mixed',
+                why:'Can cut either way. Read it, do not assume.',
+                kw:['SEC ','LAWSUIT','REGULAT','BAN ','LEGAL','COURT','SUBPOENA','SETTLEMENT','COMPLIANCE'] },
+  supply:     { icon:'🔥', label:'Burn / buyback', lean:'bullish',
+                why:'Supply reduction. Real but usually small relative to float.',
+                kw:['BURN','BUYBACK','BUY BACK','DEFLATIONARY','REDUCES SUPPLY'] },
+  whale:      { icon:'🐋', label:'Large holder movement', lean:'mixed',
+                why:'The research found whale transfers explain almost none of subsequent price (R² under 0.05). Noise unless paired with something real.',
+                kw:['WHALE','LARGE HOLDER','MOVES ','TRANSFERS ','DUMPS'] }
+};
+
+function classifyCatalyst(title){
+  if(!title) return null;
+  var t = ' ' + title.toUpperCase() + ' ';
+  var hits = [];
+  Object.keys(CATALYST_TYPES).forEach(function(k){
+    var def = CATALYST_TYPES[k];
+    for(var i=0;i<def.kw.length;i++){
+      if(t.indexOf(def.kw[i]) !== -1){ hits.push(k); return; }
+    }
+  });
+  return hits.length ? hits : null;
+}
+
+// Which coins does this headline concern? Reuses the same word-boundary matcher
+// as the per-coin news tab, so a headline cannot match "purSUIt" as SUI.
+function headlineCoins(title){
+  if(!title) return [];
+  var t = ' ' + title.toUpperCase() + ' ', out = [];
+  Object.keys(COIN_ALIASES).forEach(function(sym){
+    var names = COIN_ALIASES[sym] || [], found = false;
+    for(var i=0;i<names.length;i++){ if(t.indexOf(names[i]) !== -1){ found = true; break; } }
+    if(!found && sym.length >= 3){
+      try { if(new RegExp('\\b'+sym+'\\b').test(t)) found = true; } catch(e){}
+    }
+    if(found) out.push(sym);
+  });
+  return out;
+}
+
+// Scan the already-fetched headlines and attach catalysts to board coins.
+function scanCatalysts(){
+  var nc = (typeof newsCache !== 'undefined' && newsCache) ? newsCache : [];
+  var found = {};
+  nc.slice(0, 80).forEach(function(n){
+    var types = classifyCatalyst(n.title);
+    if(!types) return;
+    var syms = headlineCoins(n.title);
+    if(!syms.length) return;
+    syms.forEach(function(s){
+      var key = s + 'USDT';
+      (found[key] = found[key] || []).push({ types:types, title:n.title, link:n.link, date:n.date, source:n.source||n.src });
+    });
+  });
+  (allData||[]).forEach(function(d){ d.catalysts = found[d.sym] || null; });
+  return found;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UNLOCK CALENDAR — the ONLY genuinely early catalyst.
+// Hacks, listings and upgrades cannot be known before they happen; by the time
+// a headline exists, price has usually moved. Token unlocks are different: the
+// vesting schedule is published months in advance, so this is the one category
+// where a retail trader can be genuinely ahead rather than reacting.
+//
+// Source: DefiLlama emissions API — free, no key, CORS-friendly.
+// Mechanism (not sentiment): new supply arrives on a known date. Large unlocks
+// relative to circulating supply are the ones that matter; small ones are noise.
+// ═══════════════════════════════════════════════════════════════════════════
+var _unlocks = null;
+
+function fetchUnlocks(){
+  var cached = null;
+  try { cached = JSON.parse(localStorage.getItem('unlocks')||'null'); } catch(e){}
+  if(cached && (Date.now()-cached.ts) < 6*3600000){ _unlocks = cached.d; return Promise.resolve(); }
+  return _pfetch('https://api.llama.fi/emissions', 12000).then(function(j){
+    var list = Array.isArray(j) ? j : (j && j.protocols) ? j.protocols : null;
+    if(!list) return;
+    var out = [];
+    list.forEach(function(p){
+      var sym = (p.tSymbol || p.symbol || '').toUpperCase();
+      if(!sym) return;
+      // next future unlock event
+      var nxt = p.nextEvent || null;
+      var ts = nxt && (nxt.date || nxt.timestamp);
+      if(!ts) return;
+      var when = ts > 1e11 ? ts : ts*1000;                 // seconds vs ms
+      if(when < Date.now()) return;                         // past events ignored
+      var amt = nxt.noOfTokens;
+      if(Array.isArray(amt)) amt = amt.reduce(function(a,b){ return a+(b||0); }, 0);
+      out.push({ sym:sym, name:p.name||sym, when:when,
+                 tokens: amt||null, mcap: p.mcap||null, price: p.price||null,
+                 circ: p.circSupply||null });
+    });
+    _unlocks = out;
+    try { localStorage.setItem('unlocks', JSON.stringify({ts:Date.now(), d:out})); } catch(e){}
+  }).catch(function(){ if(cached) _unlocks = cached.d; });
+}
+
+// Attach the next unlock to each board coin, sized against circulating supply.
+function applyUnlocks(data){
+  if(!_unlocks || !_unlocks.length) return;
+  var byS = {};
+  _unlocks.forEach(function(u){
+    if(!byS[u.sym] || u.when < byS[u.sym].when) byS[u.sym] = u;
+  });
+  (data||[]).forEach(function(d){
+    var base = (d.sym||'').replace('USDT','').replace('JPY','').toUpperCase();
+    var u = byS[base];
+    if(!u){ d.unlock = null; return; }
+    var days = (u.when - Date.now()) / 86400000;
+    // size it: unlock value vs market cap is what actually matters
+    var pctSupply = (u.tokens && u.circ && u.circ > 0) ? (u.tokens / u.circ * 100) : null;
+    var usdVal = (u.tokens && u.price) ? u.tokens * u.price : null;
+    var pctMcap = (usdVal && u.mcap && u.mcap > 0) ? (usdVal / u.mcap * 100) : pctSupply;
+    d.unlock = { when:u.when, days:Math.round(days*10)/10, tokens:u.tokens,
+                 pctSupply:pctSupply, pctMcap:pctMcap, usdVal:usdVal, name:u.name };
+  });
+}
+
+// EARLY ALERT — fires ahead of the date, not after the headline.
+// Tiered so a genuinely large unlock warns sooner than a trivial one.
+function checkUnlockAlerts(data){
+  if(!data || !data.length) return;
+  var seen = {};
+  try { seen = JSON.parse(localStorage.getItem('unlock_seen')||'{}'); } catch(e){}
+  var now = Date.now(), changed = false;
+  data.forEach(function(d){
+    var u = d.unlock; if(!u || u.days < 0) return;
+    var size = u.pctMcap != null ? u.pctMcap : (u.pctSupply||0);
+    // how far ahead to warn, by size
+    var warnDays = size >= 5 ? 14 : size >= 2 ? 7 : size >= 1 ? 3 : 0;
+    if(!warnDays || u.days > warnDays) return;
+    var bucket = u.days > 7 ? '14d' : u.days > 3 ? '7d' : u.days > 1 ? '3d' : '1d';
+    var key = d.sym + '_' + bucket;
+    if(seen[key] && (now - seen[key]) < 20*3600000) return;
+    seen[key] = now; changed = true;
+    var sizeTxt = size ? size.toFixed(1)+'% of market cap' : 'size unknown';
+    var msg = '🔓 ' + d.pair + ' — token unlock in ' + (u.days < 1 ? 'under a day' : Math.round(u.days)+' days')
+            + ' (' + sizeTxt + '). New supply arriving on a scheduled date.';
+    try { showToast(d, 'sweep', msg); } catch(e){}
+    try { addAlHistory(d, 'unlock', msg); } catch(e){}
+    try { sendBrowserNotif(d, msg); } catch(e){}
+  });
+  if(changed){ try { localStorage.setItem('unlock_seen', JSON.stringify(seen)); } catch(e){} }
+}
+
+function buildUnlockPanel(){
+  var rows = (allData||[]).filter(function(d){ return d.unlock && d.unlock.days >= 0 && d.unlock.days <= 45; });
+  if(!rows.length) return '';
+  rows.sort(function(a,b){ return a.unlock.days - b.unlock.days; });
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.3rem">'
+     + '<span style="font-size:15px">🔓</span><span style="font-size:13px;font-weight:700">Upcoming token unlocks</span>'
+     + '<span style="margin-left:auto;font-size:9px;color:var(--t3)">DefiLlama · next 45 days</span></div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">The one catalyst you can know <b>in advance</b>. Unlock schedules are published months ahead, so unlike hacks or listings this is genuinely early rather than reactive. New supply arrives on a fixed date — size relative to market cap is what decides whether it matters.</div>';
+  rows.slice(0,12).forEach(function(d){
+    var u = d.unlock;
+    var size = u.pctMcap != null ? u.pctMcap : u.pctSupply;
+    var col = size >= 5 ? 'var(--r)' : size >= 2 ? 'var(--am)' : 'var(--t3)';
+    var urgency = u.days <= 1 ? 'var(--r)' : u.days <= 7 ? 'var(--am)' : 'var(--t3)';
+    h += '<div style="display:flex;gap:9px;align-items:baseline;font-size:11px;padding:4px 0;border-top:.5px solid var(--bd)">'
+       + '<b style="min-width:88px">'+d.pair+'</b>'
+       + '<span style="color:'+urgency+';font-weight:700;min-width:62px">'+(u.days<1?'<1 day':Math.round(u.days)+' days')+'</span>'
+       + '<span style="color:'+col+';font-size:10px">'+(size!=null?size.toFixed(1)+'% of mcap':'size unknown')+'</span>'
+       + (u.usdVal ? '<span style="color:var(--t3);font-size:10px">≈$'+(u.usdVal/1e6).toFixed(1)+'M</span>' : '')
+       + '<span style="margin-left:auto;font-size:10px;color:var(--t3)">'+new Date(u.when).toLocaleDateString()+'</span></div>';
+  });
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:9px;font-style:italic;line-height:1.5">⚠️ An unlock is dilution, not a guaranteed drop — often partly priced in, and small unlocks are noise. Treat anything under ~1% of market cap as ignorable. The useful action is usually to <b>avoid opening</b> a position into a large unlock, not to short it (you trade spot).</div>';
+  return h + '</div>';
+}
+
+function buildCatalystPanel(){
+  var found = {};
+  try { found = scanCatalysts(); } catch(e){ return ''; }
+  var syms = Object.keys(found);
+  if(!syms.length) return '';
+  // rank: bearish events first — they are the ones you must not miss
+  var order = { exploit:0, delist:1, unlock:2, regulatory:3, institution:4, listing:5, upgrade:6, supply:7, partner:8, whale:9 };
+  var items = [];
+  syms.forEach(function(s){
+    var d = (allData||[]).find(function(x){ return x.sym === s; });
+    if(!d) return;
+    found[s].forEach(function(ev){
+      ev.types.forEach(function(t){ items.push({ sym:s, pair:d.pair, price:d.price, chg:d.chg, type:t, ev:ev }); });
+    });
+  });
+  if(!items.length) return '';
+  items.sort(function(a,b){ return (order[a.type]||9) - (order[b.type]||9); });
+
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.3rem">'
+     + '<span style="font-size:15px">📌</span><span style="font-size:13px;font-weight:700">Catalysts on your coins</span>'
+     + '<span style="margin-left:auto;font-size:9px;color:var(--t3)">from '+((typeof newsCache!=='undefined'&&newsCache)?newsCache.length:0)+' headlines</span></div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">Events, not sentiment — unlocks, upgrades, listings, exploits. These have a <b>mechanism</b> (supply, liquidity, capital) rather than a mood. Keyword-classified, so read the headline before acting.</div>';
+  var seen = {};
+  items.slice(0, 14).forEach(function(it){
+    var k = it.sym + it.type; if(seen[k]) return; seen[k] = 1;
+    var def = CATALYST_TYPES[it.type];
+    var col = def.lean === 'bearish' ? 'var(--r)' : def.lean === 'bullish' ? 'var(--g)' : def.lean === 'mild_bullish' ? 'var(--am)' : 'var(--t2)';
+    h += '<div style="border-top:.5px solid var(--bd);padding:6px 0">';
+    h += '<div style="display:flex;gap:8px;align-items:baseline;font-size:11px">'
+       + '<span>'+def.icon+'</span><b style="min-width:88px">'+it.pair+'</b>'
+       + '<span style="color:'+col+';font-weight:700;font-size:10px">'+def.label+'</span>'
+       + '<span style="margin-left:auto;font-size:10px;color:'+((it.chg||0)>=0?'var(--g)':'var(--r)')+'">'+((it.chg||0)>=0?'+':'')+(it.chg||0).toFixed(1)+'%</span></div>';
+    h += '<a href="'+it.ev.link+'" target="_blank" rel="noopener" style="display:block;font-size:10px;color:var(--t2);text-decoration:none;margin-top:2px;line-height:1.45">'+it.ev.title+'</a>';
+    h += '<div style="font-size:9px;color:var(--t3);margin-top:2px">'+def.why+'</div>';
+    h += '</div>';
+  });
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:9px;font-style:italic;line-height:1.5">⚠️ A headline is news OF an event — price has often moved already. Unlocks are the exception worth acting on early because they are SCHEDULED and knowable in advance; check the project calendar rather than waiting for the article.</div>';
+  return h + '</div>';
+}
+
+function buildResiliencePanel(){
+  var rows = (allData||[]).filter(function(d){
+    return d.resil && d.resil.downBars >= 6 && (d.vol24||0) > 3000000
+        && d.sym !== 'BTCUSDT' && d.sym !== 'BTCJPY';
+  });
+  if(rows.length < 5) return '';
+  rows.sort(function(a,b){ return a.resil.capture - b.resil.capture; });  // lowest capture = most resilient
+  var btcSum = rows[0].resil.btcSum;
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.3rem">'
+     + '<span style="font-size:15px">🛡</span>'
+     + '<span style="font-size:13px;font-weight:700">Holding up while BTC falls</span>'
+     + '<span style="margin-left:auto;font-size:9px;color:var(--t3)">'+rows[0].resil.downBars+' down-bars · BTC '+btcSum.toFixed(1)+'%</span></div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">Measures each coin ONLY on the bars where BTC actually fell — not fixed lookbacks, which flatter coins that merely rose with the market. Relative strength during downturns is one of the better-evidenced predictors of later outperformance, so this is a genuine shortlist to prepare from.</div>';
+  rows.slice(0,10).forEach(function(d){
+    var r = d.resil;
+    var col = r.capture <= 0 ? 'var(--g)' : r.capture < 0.5 ? 'var(--g)' : r.capture < 0.85 ? 'var(--am)' : 'var(--t3)';
+    var read = r.capture <= 0 ? 'ROSE while BTC fell'
+             : r.capture < 0.4 ? 'absorbed only '+Math.round(r.capture*100)+'% of the drop'
+             : r.capture < 0.85 ? 'fell '+Math.round(r.capture*100)+'% as much as BTC'
+             : 'fell with BTC';
+    h += '<div style="display:flex;gap:9px;align-items:baseline;font-size:11px;padding:4px 0;border-top:.5px solid var(--bd)">'
+       + '<b style="min-width:92px">'+d.pair+'</b>'
+       + '<span style="color:'+col+';font-weight:700;min-width:52px">'+(r.capture<=0?'+':'')+(r.capture*100).toFixed(0)+'%</span>'
+       + '<span style="color:var(--t3);font-size:10px">'+read+'</span>'
+       + '<span style="margin-left:auto;color:var(--t3);font-size:10px">beat BTC on '+r.heldPct+'% of down-bars</span></div>';
+  });
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:9px;font-style:italic;line-height:1.5">⚠️ Resilience is not a buy signal by itself — a coin can hold up because it is illiquid or already dead. Cross-check against 🌱 Early Watch, and remember the entry trigger is still BTC turning, not the resilience reading.</div>';
+  return h + '</div>';
+}
+
 function buildRatiosPanel(){
   var h = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem">';
   function card(title, badge, big, bigCol, meterPct, meterCol, note){
@@ -15095,7 +15496,12 @@ function computeEarlyWatch(data){
   var btc = data.find(function(x){ return x.sym==='BTCUSDT'||x.sym==='BTCJPY'; });
   var btcChg = btc ? (btc.chg||0) : 0;
   var wDown = (btcChg < 0) ? 2 : 1;
-  var zRs   = _zAcross(rows.map(function(d){ return (d.chg||0) - btcChg; }));
+  // Prefer TRUE down-bar resilience over a single 24h change when available —
+  // this is the precise form of the rs_down factor the research supported.
+  var zRs = _zAcross(rows.map(function(d){
+    if(d.resil && d.resil.downBars >= 6) return -d.resil.capture;   // lower capture = stronger
+    return (d.chg||0) - btcChg;
+  }));
   var hResid = _zAcross(_residualize(zHigh, zMom));
 
   rows.forEach(function(d, i){
@@ -15760,6 +16166,9 @@ function renderMarketRead(){
   try { h += buildCapitulationPanel(); } catch(e){}
   try { h += buildRegimePanel(); } catch(e){}
   try { h += buildRatiosPanel(); } catch(e){}
+  try { h += buildUnlockPanel(); } catch(e){}
+  try { h += buildCatalystPanel(); } catch(e){}
+  try { h += buildResiliencePanel(); } catch(e){}
   try { h += buildEarlyWatchPanel(); } catch(e){}
   // ── AI MARKET BRIEFING — one AI call summarizing the whole board on demand ──
   var hasKey = !!(localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key'));
