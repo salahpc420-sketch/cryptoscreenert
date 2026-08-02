@@ -4063,17 +4063,22 @@ function renderMacro(){
   // This tab is now BTC-focused: BTC gates every other decision in the tool.
   // The BTC flagship card is gone too — buildBTCPanel() below shows the same
   // price plus chart state, levels, watcher and trade plan. One BTC view, not two.
-  var assets=[];
-  var btc=allData.find(function(d){return d.sym==='BTCUSDT'||d.sym==='BTCJPY';});
-  if(btc) assets[0].data={price:btc.price,chg:btc.chg};
+  var assets=[];   // (cards removed — see comment above)
 
-  document.getElementById('macro-lupd').textContent='Updated '+new Date().toLocaleTimeString();
-  // BTC detail replaces the removed Gold/DXY/S&P/Nasdaq cards
+  var _lupd = document.getElementById('macro-lupd');
+  if(_lupd) _lupd.textContent='Updated '+new Date().toLocaleTimeString();
+  // BTC detail replaces the removed cards. Render it FIRST so a failure further
+  // down this function cannot leave the tab empty.
   var _bd = document.getElementById('btc-detail');
-  if(_bd){ try { _bd.innerHTML = buildBTCPanel(); } catch(e){ _bd.innerHTML=''; } }
+  if(_bd){
+    try { _bd.innerHTML = buildBTCPanel(); }
+    catch(e){ _bd.innerHTML = '<div style="font-size:11px;color:var(--r)">BTC panel error: '+(e.message||e)+'</div>'; }
+  }
 
   // ── Main macro cards ─────────────────────────────────────────────────────
-  document.getElementById('macro-grid').innerHTML=assets.map(function(a){
+  var _mg = document.getElementById('macro-grid');
+  if(_mg && !assets.length){ _mg.style.display='none'; }
+  if(_mg) _mg.innerHTML=assets.map(function(a){
     if(!a.data||!a.data.price) return '<div class="macro-card neut"><div class="mc-ico">'+a.ico+'</div><div class="mc-name">'+a.name+'</div><div class="mc-price" style="color:var(--t3)">N/A</div><div class="mc-hint">'+a.desc+'</div></div>';
     var chg=a.data.chg,isY=a.data.isYield;
     var chgStr=chg===null?'—':(chg>=0?'+':'')+chg.toFixed(2)+(isY?'bps':'%');
