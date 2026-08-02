@@ -4032,27 +4032,144 @@ function buildBTCPanel(){
   h += '<button onclick="openModal(\''+d.sym+'\')" style="margin-top:7px;padding:5px 12px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:10px;cursor:pointer;font-family:inherit">Open BTC → 👁 Watch</button>';
   h += '</div>';
 
-  // ── 4. AI ANALYST + TRADE PLAN ──
-  h += '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem">';
-  h += '<div style="font-size:12px;font-weight:700;margin-bottom:.3rem">🤖 BTC analysis</div>';
+  // ── 4. AI TRADE PLAN — full detail, step by step ──
   var memo = null;
   try { memo = (loadAIMemos()||[]).find(function(m){ return m.sym===d.sym; }); } catch(e){}
+  h += '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem">';
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.5rem">'
+     + '<span style="font-size:12px;font-weight:700">🤖 BTC AI trade plan</span>';
   if(memo){
     var ageH = Math.round((Date.now()-memo.ts)/3600000);
-    h += '<div style="font-size:10px;color:var(--t3);margin-bottom:5px">Last analysis '+ageH+'h ago'+(ageH>24?' — stale, worth refreshing':'')+'</div>';
-    if(memo.levels){
-      h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:7px;margin-bottom:6px">';
-      [['entry','Entry'],['sl','Stop'],['tp1','TP1'],['tp2','TP2']].forEach(function(k){
-        var v = memo.levels[k[0]];
-        if(v) h += '<div><div style="font-size:11px;font-weight:700">'+fE(v)+'</div><div style="font-size:9px;color:var(--t3)">'+k[1]+'</div></div>';
-      });
-      h += '</div>';
-    }
-    if(memo.verdict) h += '<div style="font-size:10px;color:var(--t2);line-height:1.5">'+String(memo.verdict).slice(0,180)+'</div>';
-  } else {
-    h += '<div style="font-size:10px;color:var(--t3);margin-bottom:6px">No AI analysis saved for BTC yet.</div>';
+    var stale = ageH > 24;
+    h += '<span style="font-size:9px;padding:2px 7px;border-radius:99px;background:'
+       + (stale?'rgba(245,158,11,.15);color:var(--am)':'var(--card3);color:var(--t3)')+'">'
+       + ageH+'h old'+(stale?' · stale':'')+'</span>';
+    if(memo.tf) h += '<span style="font-size:9px;color:var(--t3)">'+memo.tf+' analysis</span>';
   }
-  h += '<button onclick="openModal(\''+d.sym+'\')" style="margin-top:7px;padding:6px 14px;border-radius:7px;border:none;background:var(--acc);color:#fff;font-weight:700;font-size:11px;cursor:pointer;font-family:inherit">Open BTC → 🤖 Analyst &amp; Trade Plan</button>';
+  h += '</div>';
+
+  if(!memo){
+    h += '<div style="font-size:11px;color:var(--t3);line-height:1.55;margin-bottom:8px">No AI analysis saved for BTC yet. Run one and the full plan — entry zone, stop, targets, invalidation and the conditions the AI wants met — will appear here.</div>';
+  } else {
+    // SKIP verdicts must not look like a live plan
+    if(memo.skip){
+      h += '<div style="background:rgba(245,158,11,.10);border-left:3px solid var(--am);border-radius:6px;padding:8px 10px;margin-bottom:8px">'
+         + '<div style="font-size:11px;font-weight:700;color:var(--am)">⏳ The AI said SKIP — this is a watch, not a plan</div>'
+         + '<div style="font-size:10px;color:var(--t2);margin-top:3px">The levels below are the pullback it wants to see before reconsidering. Nothing here is an entry.</div></div>';
+    }
+
+    // ── STEP 1 · WHERE TO BUY ──
+    h += '<div style="font-size:10px;font-weight:700;color:var(--t2);margin:9px 0 4px">1 · ENTRY ZONE</div>';
+    if(memo.zone){
+      var zLo = memo.zone[0], zHi = memo.zone[1];
+      var inZone = d.price >= zLo && d.price <= zHi;
+      var awayPct = inZone ? 0 : (d.price < zLo ? (zLo-d.price)/d.price*100 : (d.price-zHi)/d.price*100);
+      h += '<div style="display:flex;gap:9px;align-items:baseline;flex-wrap:wrap">'
+         + '<span style="font-size:14px;font-weight:800;color:'+(inZone?'var(--g)':'var(--text)')+'">'+fE(zLo)+' – '+fE(zHi)+'</span>'
+         + '<span style="font-size:10px;color:'+(inZone?'var(--g)':'var(--t3)')+'">'
+         +   (inZone ? '✅ price is IN the zone now' : (d.price > zHi ? 'price is '+awayPct.toFixed(1)+'% ABOVE the zone — wait for a pullback' : 'price is '+awayPct.toFixed(1)+'% below the zone'))
+         + '</span></div>';
+    } else h += '<div style="font-size:11px;color:var(--t3)">No entry zone specified.</div>';
+
+    // ── STEP 2 · WHERE YOU ARE WRONG ──
+    h += '<div style="font-size:10px;font-weight:700;color:var(--t2);margin:11px 0 4px">2 · STOP &amp; INVALIDATION</div>';
+    h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:9px">';
+    if(memo.sl){
+      var slDist = (d.price - memo.sl)/d.price*100;
+      h += '<div><div style="font-size:13px;font-weight:800;color:var(--r)">'+fE(memo.sl)+'</div>'
+         + '<div style="font-size:9px;color:var(--t3)">stop · '+slDist.toFixed(1)+'% below spot</div></div>';
+    }
+    if(memo.invalidation && memo.invalidation !== memo.sl){
+      h += '<div><div style="font-size:13px;font-weight:800;color:var(--r)">'+fE(memo.invalidation)+'</div>'
+         + '<div style="font-size:9px;color:var(--t3)">invalidation · thesis dead below</div></div>';
+    }
+    h += '</div>';
+    // sizing straight from the stop — the lever the research ranked highest
+    if(memo.sl && memo.zone){
+      var entryMid = (memo.zone[0]+memo.zone[1])/2;
+      var stopPct = (entryMid - memo.sl)/entryMid*100;
+      if(stopPct > 0){
+        var acct = parseFloat(localStorage.getItem('acct_size')||'10000');
+        var pos = Math.min(acct, (acct*0.01)/(stopPct/100));
+        h += '<div style="font-size:10px;color:var(--t2);margin-top:5px;background:var(--card3);border-radius:6px;padding:6px 9px">'
+           + '📐 Stop is <b>'+stopPct.toFixed(1)+'%</b> from the entry zone → at 1% risk, buy about <b>'+pos.toFixed(0)+' USDT</b> ('+(pos/acct*100).toFixed(0)+'% of capital).</div>';
+      }
+    }
+
+    // ── STEP 3 · TARGETS ──
+    h += '<div style="font-size:10px;font-weight:700;color:var(--t2);margin:11px 0 4px">3 · TARGETS</div>';
+    h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:9px">';
+    [['tp1','TP1'],['tp2','TP2'],['tp3','TP3']].forEach(function(k){
+      var v = memo[k[0]]; if(!v) return;
+      var up = (v - d.price)/d.price*100;
+      var rr = null;
+      if(memo.sl && memo.zone){
+        var em = (memo.zone[0]+memo.zone[1])/2;
+        var risk = em - memo.sl;
+        if(risk > 0) rr = (v - em)/risk;
+      }
+      h += '<div><div style="font-size:13px;font-weight:800;color:var(--g)">'+fE(v)+'</div>'
+         + '<div style="font-size:9px;color:var(--t3)">'+k[1]+' · +'+up.toFixed(1)+'%'
+         + (rr!=null ? ' · R:R '+rr.toFixed(1) : '')+'</div></div>';
+    });
+    h += '</div>';
+
+    // ── STEP 4 · STRUCTURE THE PLAN LEANS ON ──
+    h += '<div style="font-size:10px;font-weight:700;color:var(--t2);margin:11px 0 4px">4 · KEY LEVELS</div>';
+    h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:9px">';
+    [['sup','support','var(--g)'],['res','resistance','var(--r)'],['breakout','breakout trigger','var(--acc)']].forEach(function(k){
+      var v = memo[k[0]]; if(!v) return;
+      var dist = (v - d.price)/d.price*100;
+      h += '<div><div style="font-size:13px;font-weight:700;color:'+k[2]+'">'+fE(v)+'</div>'
+         + '<div style="font-size:9px;color:var(--t3)">'+k[1]+' · '+(dist>=0?'+':'')+dist.toFixed(1)+'%</div></div>';
+    });
+    h += '</div>';
+
+    // ── STEP 5 · WHAT MUST BE TRUE — live checklist ──
+    // Uses the SAME evaluator the memo watcher uses, so this panel and the
+    // alerting logic can never disagree about whether a condition is met.
+    var chk = null;
+    try { chk = _evalMemoConditions(memo, d); } catch(e){}
+    if(chk && chk.items && chk.items.length){
+      h += '<div style="font-size:10px;font-weight:700;color:var(--t2);margin:11px 0 4px">5 · CONDITIONS THE AI WANTS MET '
+         + '<span style="font-weight:400;color:'+(chk.allMet?'var(--g)':'var(--t3)')+'">'
+         + chk.met+'/'+chk.total+' ready</span></div>';
+      chk.items.forEach(function(it){
+        h += '<div style="display:flex;gap:7px;align-items:baseline;font-size:10px;padding:2px 0;color:'+(it.met?'var(--g)':'var(--t3)')+'">'
+           + '<span>'+(it.met?'✅':'⬜')+'</span>'
+           + '<span style="flex:1">'+it.label+'</span>'
+           + (it.actual?'<span style="color:var(--t3)">'+it.actual+'</span>':'')
+           + '</div>';
+      });
+      h += '<div style="font-size:9px;color:var(--t3);margin-top:4px;font-style:italic">A checklist, not a probability — these are the AI\'s own stated conditions, checked live.</div>';
+    }
+    // Plan B, when the AI gave a breakout route
+    var chkB = null;
+    try { chkB = _evalMemoConditions(memo, d, 'B'); } catch(e){}
+    if(chkB && chkB.items && chkB.items.length){
+      h += '<div style="font-size:10px;font-weight:700;color:var(--acc);margin:9px 0 4px">🚀 PLAN B — breakout route '
+         + '<span style="font-weight:400;color:var(--t3)">'+chkB.met+'/'+chkB.total+' ready</span></div>';
+      chkB.items.forEach(function(it){
+        h += '<div style="display:flex;gap:7px;font-size:10px;padding:2px 0;color:'+(it.met?'var(--g)':'var(--t3)')+'">'
+           + '<span>'+(it.met?'✅':'⬜')+'</span><span>'+it.label+'</span></div>';
+      });
+    }
+
+    // ── STEP 6 · THE AI'S OWN WORDS ──
+    if(memo.bottomLine){
+      h += '<div style="font-size:10px;font-weight:700;color:var(--t2);margin:11px 0 4px">6 · KEY POINT</div>';
+      h += '<div style="font-size:11px;color:var(--text);line-height:1.6;background:var(--card3);border-radius:7px;padding:9px 11px;border-left:3px solid var(--acc)">'
+         + String(memo.bottomLine).replace(/</g,'&lt;').slice(0,400) + '</div>';
+    }
+    if(memo.priceAtAnalysis){
+      var moved = (d.price - memo.priceAtAnalysis)/memo.priceAtAnalysis*100;
+      h += '<div style="font-size:9px;color:var(--t3);margin-top:7px">Analysed at '+fE(memo.priceAtAnalysis)
+         + ' · price has moved '+(moved>=0?'+':'')+moved.toFixed(1)+'% since'
+         + (Math.abs(moved) > 4 ? ' — enough that the plan may need refreshing.' : '.')+'</div>';
+    }
+  }
+  h += '<button onclick="openModal(\''+d.sym+'\')" style="margin-top:9px;padding:6px 14px;border-radius:7px;border:none;background:var(--acc);color:#fff;font-weight:700;font-size:11px;cursor:pointer;font-family:inherit">'
+     + (memo ? 'Open BTC → re-run analysis' : 'Open BTC → 🤖 run AI analysis') + '</button>';
   h += '</div>';
   return h;
 }
