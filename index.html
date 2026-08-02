@@ -526,6 +526,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
         <span id="macro-lupd" style="font-size:11px;color:var(--t3);margin-left:auto"></span>
       </div>
       <div class="macro-grid" id="macro-grid"><div style="font-size:12px;color:var(--t3)">Loading macro data…</div></div>
+      <div id="btc-detail" style="margin-top:.8rem"></div>
     </div>
     <!-- MACRO REGIME -->
     <div class="intel-panel" id="ip-regime">
@@ -3951,18 +3952,124 @@ function loadMacro(){
 
 function fetchText(url,ms){return new Promise(function(ok,fail){var done=false,t=setTimeout(function(){if(!done){done=true;fail(new Error('timeout'));}},ms||6000);fetch(url,{cache:'no-cache'}).then(function(r){if(done)return;clearTimeout(t);done=true;if(!r.ok){fail(new Error('HTTP '+r.status));return;}r.text().then(ok).catch(fail);}).catch(function(e){if(!done){clearTimeout(t);done=true;fail(e);}});});}
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BTC COMMAND CENTRE — replaces the duplicated macro cards. BTC gates every
+// other decision in this tool (regime, alt weather, coil edge, chart-state
+// alerts), so it deserves its own detail view rather than one card among five.
+// ═══════════════════════════════════════════════════════════════════════════
+function buildBTCPanel(){
+  var d = (allData||[]).find(function(x){ return x.sym==='BTCUSDT'||x.sym==='BTCJPY'; });
+  if(!d) return '<div style="font-size:11px;color:var(--t3)">BTC not loaded yet.</div>';
+  var st = d._cs ? CHART_STATES[d._cs] : null;
+  var h = '';
+
+  // ── 1. CHART STATE — the read, and what it gates ──
+  h += '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:.8rem">';
+  h += '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:.5rem">';
+  h += '<span style="font-size:20px;font-weight:800">'+fE(d.price)+'</span>';
+  h += '<span style="font-size:13px;font-weight:700;color:'+((d.chg||0)>=0?'var(--g)':'var(--r)')+'">'+((d.chg||0)>=0?'+':'')+(d.chg||0).toFixed(2)+'%</span>';
+  if(st) h += '<span style="font-size:12px;font-weight:700;color:'+(d._cs==='bullish'?'var(--g)':d._cs==='bearish'?'var(--r)':'var(--t2)')+'">'+st.icon+' '+st.label+'</span>';
+  h += '<span style="margin-left:auto;font-size:10px;color:var(--t3)">'+TF+' chart</span>';
+  h += '</div>';
+  // the seven checkable facts behind the read
+  var facts = [
+    ['Price vs EMA20',  d.ema20>0  ? (d.price>d.ema20  ? 'above' : 'below') : '—', d.price>d.ema20],
+    ['EMA20 vs EMA50',  (d.ema20>0&&d.ema50>0) ? (d.ema20>d.ema50 ? 'stacked up' : 'stacked down') : '—', d.ema20>d.ema50],
+    ['Price vs EMA200', d.ema200>0 ? (d.price>d.ema200 ? 'above' : 'below') : '—', d.price>d.ema200],
+    ['Structure',       d.struct||'—', d.struct==='HH/HL'||d.struct==='breakout'],
+    ['RSI',             (d.rsi||0).toFixed(1), (d.rsi||50)>=50],
+    ['Volume',          (d.volR||0).toFixed(2)+'×', (d.volR||0)>=1],
+    ['Daily trend',     (window._dailyTrend&&window._dailyTrend[d.sym]===true)?'up':(window._dailyTrend&&window._dailyTrend[d.sym]===false)?'down':'—',
+                        window._dailyTrend&&window._dailyTrend[d.sym]===true]
+  ];
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:5px">';
+  facts.forEach(function(f){
+    h += '<div style="display:flex;gap:5px;align-items:baseline;font-size:10px">'
+       + '<span style="color:var(--t3);min-width:82px">'+f[0]+'</span>'
+       + '<span style="font-weight:700;color:'+(f[2]?'var(--g)':'var(--t2)')+'">'+f[1]+'</span></div>';
+  });
+  h += '</div>';
+  h += '<div style="font-size:10px;color:var(--t3);margin-top:8px;padding-top:7px;border-top:.5px solid var(--bd);line-height:1.55">'
+     + '⚠️ This describes BTC as it is now — it is not a forecast. BTC state gates alt entries, the regime classifier, and the coil edge, so it is the first thing worth reading.</div>';
+  h += '</div>';
+
+  // ── 2. LEVELS ──
+  h += '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:.8rem">';
+  h += '<div style="font-size:12px;font-weight:700;margin-bottom:.5rem">📊 Levels that matter</div>';
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px">';
+  function lvl(label, v, note){
+    if(!v) return '';
+    var dist = (v - d.price)/d.price*100;
+    return '<div><div style="font-size:12px;font-weight:700">'+fE(v)+'</div>'
+         + '<div style="font-size:9px;color:var(--t3)">'+label+' '+(dist>=0?'+':'')+dist.toFixed(1)+'%</div>'
+         + (note?'<div style="font-size:9px;color:var(--t3)">'+note+'</div>':'')+'</div>';
+  }
+  h += lvl('resistance', d.res);
+  h += lvl('support', d.sup);
+  h += lvl('EMA20', d.ema20);
+  h += lvl('EMA50', d.ema50);
+  h += lvl('EMA200', d.ema200);
+  h += '</div></div>';
+
+  // ── 3. WATCHER — BTC-specific, since its flips drive everything ──
+  var ws = loadWatchers(), bw = ws.find(function(x){ return x.sym===d.sym; });
+  h += '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:.8rem">';
+  h += '<div style="font-size:12px;font-weight:700;margin-bottom:.3rem">👁 BTC watcher</div>';
+  h += '<div style="font-size:10px;color:var(--t2);margin-bottom:.5rem">BTC chart flips always notify you automatically. Add conditions here for anything more specific.</div>';
+  if(bw && (bw.types||[]).length){
+    (bw.types||[]).forEach(function(t){
+      var def = WATCH_TYPES[t] || {label:t, icon:'👁'};
+      var live = _evalWatchCondition(t, bw, d);
+      h += '<div style="display:flex;gap:6px;font-size:10px;padding:2px 0;color:'+(live?'var(--g)':'var(--t3)')+'">'
+         + '<span>'+(live?'🔔':def.icon)+'</span><span>'+def.label+'</span>'
+         + (live?'<span style="margin-left:auto;font-weight:700">TRUE NOW</span>':'')+'</div>';
+    });
+  } else {
+    h += '<div style="font-size:10px;color:var(--t3)">No extra conditions set.</div>';
+  }
+  h += '<button onclick="openModal(\''+d.sym+'\')" style="margin-top:7px;padding:5px 12px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:10px;cursor:pointer;font-family:inherit">Open BTC → 👁 Watch</button>';
+  h += '</div>';
+
+  // ── 4. AI ANALYST + TRADE PLAN ──
+  h += '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem">';
+  h += '<div style="font-size:12px;font-weight:700;margin-bottom:.3rem">🤖 BTC analysis</div>';
+  var memo = null;
+  try { memo = (loadAIMemos()||[]).find(function(m){ return m.sym===d.sym; }); } catch(e){}
+  if(memo){
+    var ageH = Math.round((Date.now()-memo.ts)/3600000);
+    h += '<div style="font-size:10px;color:var(--t3);margin-bottom:5px">Last analysis '+ageH+'h ago'+(ageH>24?' — stale, worth refreshing':'')+'</div>';
+    if(memo.levels){
+      h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:7px;margin-bottom:6px">';
+      [['entry','Entry'],['sl','Stop'],['tp1','TP1'],['tp2','TP2']].forEach(function(k){
+        var v = memo.levels[k[0]];
+        if(v) h += '<div><div style="font-size:11px;font-weight:700">'+fE(v)+'</div><div style="font-size:9px;color:var(--t3)">'+k[1]+'</div></div>';
+      });
+      h += '</div>';
+    }
+    if(memo.verdict) h += '<div style="font-size:10px;color:var(--t2);line-height:1.5">'+String(memo.verdict).slice(0,180)+'</div>';
+  } else {
+    h += '<div style="font-size:10px;color:var(--t3);margin-bottom:6px">No AI analysis saved for BTC yet.</div>';
+  }
+  h += '<button onclick="openModal(\''+d.sym+'\')" style="margin-top:7px;padding:6px 14px;border-radius:7px;border:none;background:var(--acc);color:#fff;font-weight:700;font-size:11px;cursor:pointer;font-family:inherit">Open BTC → 🤖 Analyst &amp; Trade Plan</button>';
+  h += '</div>';
+  return h;
+}
+
 function renderMacro(){
+  // Gold/DXY/S&P/Nasdaq were removed here — they are shown live in
+  // Market Read → 🌐 Live external data, and duplicating them added nothing.
+  // This tab is now BTC-focused: BTC gates every other decision in the tool.
   var assets=[
     {ico:'₿',  name:'Bitcoin (BTC)',  desc:'Crypto flagship',    data:null,               type:'btc'},
-    {ico:'🥇', name:'Gold (XAU)',     desc:'Risk-off gauge',     data:macroData.gold,     type:'gold'},
-    {ico:'💵', name:(macroData.dxy&&macroData.dxy.real)?'DXY':'DXY (≈ est.)', desc:'↑DXY = ⬇ crypto', data:macroData.dxy, type:'dxy'},
-    {ico:'📈', name:'S&P 500',        desc:'Risk-on barometer',  data:macroData.sp500,    type:'stock'},
-    {ico:'💹', name:'NASDAQ',         desc:'Tech risk proxy',    data:macroData.nasdaq,   type:'stock'},
   ];
   var btc=allData.find(function(d){return d.sym==='BTCUSDT'||d.sym==='BTCJPY';});
   if(btc) assets[0].data={price:btc.price,chg:btc.chg};
 
   document.getElementById('macro-lupd').textContent='Updated '+new Date().toLocaleTimeString();
+  // BTC detail replaces the removed Gold/DXY/S&P/Nasdaq cards
+  var _bd = document.getElementById('btc-detail');
+  if(_bd){ try { _bd.innerHTML = buildBTCPanel(); } catch(e){ _bd.innerHTML=''; } }
 
   // ── Main macro cards ─────────────────────────────────────────────────────
   document.getElementById('macro-grid').innerHTML=assets.map(function(a){
