@@ -2469,6 +2469,35 @@ function processSymbol(ticker) {
     var _pools = calcPeriodPools(klines);
     var liq = calcLiq(h, l, c, sr.sup, sr.res, atr, _pools);
 
+
+    // ── HORIZONTAL LEVEL FLIP — broken resistance now holding as support ──────
+    // The trendline version already exists (tlRetestHeld), but a "wall" is
+    // usually HORIZONTAL: prior day high, resistance, a moving average, all
+    // clustered. Murphy M3 calls the held retest of a broken level the highest
+    // quality entry in classical TA, and the research audit (E2) agreed a break
+    // WITH a held retest is materially better than a bare break.
+    // Sequence required: closed above the level → came back and touched it →
+    // closed back above → still above now.
+    var _resFlip = (function(){
+      if(!sr.res || sr.res <= 0 || c.length < 12) return null;
+      var lvl = sr.res, n = c.length, tol = Math.max(0.0015, (atrPct||2)/100 * 0.25);
+      // find the most recent close-through of the level
+      var brk = null;
+      for(var q = n-1; q > Math.max(0, n-25); q--){
+        if(c[q] > lvl && c[q-1] <= lvl){ brk = q; break; }
+      }
+      if(brk == null || brk >= n-1) return null;        // need at least one bar after
+      // did price come back and hold it?
+      for(var r2 = n-1; r2 > brk; r2--){
+        var touched = l[r2] <= lvl * (1 + tol);
+        var closedAbove = c[r2] > lvl;
+        if(touched && closedAbove && c[n-1] > lvl){
+          return { level: lvl, barsAgo: (n-1) - r2, brokeBarsAgo: (n-1) - brk };
+        }
+      }
+      return null;
+    })();
+
     // ── EARLY-WATCH FEATURES v2 — read like a trader, not like an indicator ──
     // v1 flaw (found by testing): a coin bleeding out ALSO has contracting
     // volatility and dead volume, so a 45% decline scored as a "tight base".
@@ -2866,6 +2895,8 @@ function processSymbol(ticker) {
     return {
       sym:sym, pair:pair, price:price, chg:chg, vol24:vol24, vol24usd:vol24usd,
       tlBreakUp:tlBreakUp, tlTouches:tlTouches,
+      resFlipHeld: !!_resFlip, resFlipLevel: _resFlip ? _resFlip.level : null,
+      resFlipBarsAgo: _resFlip ? _resFlip.barsAgo : null,
       tlRetestHeld: !!(_tl.down && _tl.down.retestHeld),
       tlRetestBarsAgo: (_tl.down && _tl.down.retestBarsAgo != null) ? _tl.down.retestBarsAgo : null, liqAbove:_liqUp, liqBelow:_liqDn, _ew:_ew,
       tlBounceUp:tlBounceUp, tlUpTouches:tlUpTouches, tlBreakDown:tlBreakDown,
@@ -3419,18 +3450,22 @@ function loadAll() {
       var _tlSeen = JSON.parse(localStorage.getItem('tl_flip_seen')||'{}');
       var _tlNow = Date.now(), _tlChanged = false;
       allData.forEach(function(d){
-        if(!d.tlRetestHeld) return;
+        if(!d.tlRetestHeld && !d.resFlipHeld) return;
         var k = d.sym + '_' + TF;
         if(_tlSeen[k] && (_tlNow - _tlSeen[k]) < 12*3600000) return;
         _tlSeen[k] = _tlNow; _tlChanged = true;
-        var msg = '🔄 ' + d.pair + ' — broken trendline is HOLDING as support ('
-                + (d.tlTouches||0) + ' touches, retest ' + (d.tlRetestBarsAgo||0) + ' bars ago)';
+        var msg = d.resFlipHeld
+          ? '🧱 ' + d.pair + ' — broken RESISTANCE at ' + fE(d.resFlipLevel)
+            + ' is now HOLDING as support (retest ' + (d.resFlipBarsAgo||0) + ' bars ago)'
+          : '🔄 ' + d.pair + ' — broken trendline is HOLDING as support ('
+            + (d.tlTouches||0) + ' touches, retest ' + (d.tlRetestBarsAgo||0) + ' bars ago)';
         try { showToast(d, 'strong', msg); } catch(e){}
         try { addAlHistory(d, 'tl_flip', msg); } catch(e){}
         try { sendBrowserNotif(d, msg); } catch(e){}
       });
       if(_tlChanged) localStorage.setItem('tl_flip_seen', JSON.stringify(_tlSeen));
     } catch(e){}
+    try { checkPartialReadiness(allData); } catch(e){} // "almost ready" alerts naming what is missing
     try { checkChartStates(allData); } catch(e){}    // chart-state reads + BTC flip alert
     try { checkWatchers(allData); } catch(e){}       // user-defined coin watchers
     try { checkAIMemoAlerts(allData); } catch(e){}   // AI entry-zone watches
@@ -4046,6 +4081,95 @@ function fetchText(url,ms){return new Promise(function(ok,fail){var done=false,t
 // other decision in this tool (regime, alt weather, coil edge, chart-state
 // alerts), so it deserves its own detail view rather than one card among five.
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BTC AUTO-ANALYST — re-runs the AI on BTC when a 4h or 1d candle closes,
+// so the Macro plan is never stale. Opt-in, because it spends API quota.
+//
+// Two design decisions worth stating:
+//  1. It fires on CANDLE CLOSE, not on a timer. A plan built mid-candle is
+//     built on a bar that can still change; a closed candle is final.
+//  2. It reports PARTIAL readiness, naming what is still missing. An alert that
+//     only fires at 100% tells you nothing while you wait; naming the one
+//     unmet condition tells you exactly what to watch for.
+// ═══════════════════════════════════════════════════════════════════════════
+var BTC_AUTO_KEY = 'btc_auto_ai';
+
+function btcAutoEnabled(){ return localStorage.getItem(BTC_AUTO_KEY) === '1'; }
+function toggleBtcAuto(on){
+  localStorage.setItem(BTC_AUTO_KEY, on ? '1' : '0');
+  var s = document.getElementById('btc-auto-status');
+  if(s) s.textContent = on ? 'On — will refresh on each 4h and 1d close' : 'Off';
+}
+
+// Called by the candle-close watcher.
+function btcAutoAnalyse(tf){
+  if(!btcAutoEnabled()) return;
+  if(tf !== '4h' && tf !== '1d') return;
+  var key = localStorage.getItem('ai_api_key') || localStorage.getItem('anthropic_api_key');
+  if(!key) return;
+  var d = (allData||[]).find(function(x){ return x.sym==='BTCUSDT'||x.sym==='BTCJPY'; });
+  if(!d) return;
+  // don't burn quota twice for the same close
+  var stamp = tf + '_' + Math.floor(Date.now()/(tf==='4h'?14400000:86400000));
+  if(localStorage.getItem('btc_auto_last') === stamp) return;
+  try { localStorage.setItem('btc_auto_last', stamp); } catch(e){}
+  // askClaude() renders into the modal's answer element, so the modal must exist.
+  // Open it invisibly for BTC, run, then restore whatever the user was viewing.
+  try {
+    var wasOpen = document.getElementById('coin-modal');
+    var hadShow = wasOpen && wasOpen.classList.contains('show');
+    if(!hadShow){ try { openModal(d.sym); } catch(e){} }
+    setTimeout(function(){
+      try { askClaude(d.sym); } catch(e){}
+      if(!hadShow){
+        setTimeout(function(){
+          try { if(wasOpen) wasOpen.classList.remove('show'); } catch(e){}
+        }, 400);
+      }
+      try {
+        showToast(d, 'info', '🤖 BTC plan refreshed on the ' + tf + ' close');
+        addAlHistory(d, 'auto_ai', 'BTC AI plan auto-refreshed on ' + tf + ' candle close');
+      } catch(e){}
+    }, 600);
+  } catch(e){}
+}
+
+// ── PARTIAL READINESS — the "almost ready, waiting on X" alert ──────────────
+// Fires once when a memo crosses a readiness threshold, naming the unmet
+// conditions. Deliberately NOT a buy signal: it is a heads-up that the setup is
+// close, so you can look before it completes rather than after.
+function checkPartialReadiness(data){
+  var memos = [];
+  try { memos = loadAIMemos() || []; } catch(e){ return; }
+  if(!memos.length) return;
+  var seen = {};
+  try { seen = JSON.parse(localStorage.getItem('partial_seen')||'{}'); } catch(e){}
+  var now = Date.now(), changed = false;
+  memos.forEach(function(m){
+    var d = (data||[]).find(function(x){ return x.sym === m.sym; });
+    if(!d || m.skip) return;
+    var ev = null;
+    try { ev = _evalMemoConditions(m, d); } catch(e){}
+    if(!ev || !ev.items.length) return;
+    var frac = ev.met / ev.total;
+    // only interesting between "most of the way" and "not yet complete"
+    if(frac < 0.6 || ev.allMet) return;
+    var bucket = ev.met + '/' + ev.total;
+    var key = m.sym + '_' + m.tf + '_' + bucket;
+    if(seen[key] && (now - seen[key]) < 8*3600000) return;
+    seen[key] = now; changed = true;
+    var missing = ev.items.filter(function(i){ return !i.met; })
+                          .map(function(i){ return i.label + (i.actual ? ' (now '+i.actual+')' : ''); });
+    var msg = '⏳ ' + m.pair + ' — ' + ev.met + '/' + ev.total + ' of the AI conditions are met. '
+            + 'Still waiting on: ' + missing.join('; ') + '.';
+    try { showToast(d, 'sweep', msg); } catch(e){}
+    try { addAlHistory(d, 'partial', msg); } catch(e){}
+    try { sendBrowserNotif(d, msg); } catch(e){}
+  });
+  if(changed){ try { localStorage.setItem('partial_seen', JSON.stringify(seen)); } catch(e){} }
+}
+
 function buildBTCPanel(){
   var d = (allData||[]).find(function(x){ return x.sym==='BTCUSDT'||x.sym==='BTCJPY'; });
   if(!d) return '<div style="font-size:11px;color:var(--t3)">BTC not loaded yet.</div>';
@@ -4255,6 +4379,31 @@ function buildBTCPanel(){
          + (Math.abs(moved) > 4 ? ' — enough that the plan may need refreshing.' : '.')+'</div>';
     }
   }
+  // ── LIQUIDITY — where stops and resting orders cluster ──
+  var pools = [];
+  if(d.liqAbove) pools.push({ px:d.liqAbove, side:'above', note:'stops of shorts / breakout buy orders' });
+  if(d.liqBelow) pools.push({ px:d.liqBelow, side:'below', note:'stops of longs — the flush target' });
+  if(pools.length){
+    h += '<div style="font-size:10px;font-weight:700;color:var(--t2);margin:11px 0 4px">7 · LIQUIDITY POOLS</div>';
+    pools.forEach(function(p){
+      var dist = (p.px - d.price)/d.price*100;
+      h += '<div style="display:flex;gap:8px;align-items:baseline;font-size:10px;padding:2px 0">'
+         + '<span style="font-weight:700;color:'+(p.side==='above'?'var(--g)':'var(--r)')+'">'+fE(p.px)+'</span>'
+         + '<span style="color:var(--t3)">'+(dist>=0?'+':'')+dist.toFixed(1)+'% — '+p.note+'</span></div>';
+    });
+    h += '<div style="font-size:9px;color:var(--t3);margin-top:3px;font-style:italic">Order clustering at prior highs/lows is documented (Osler). Price often reaches for these before reversing — useful for stop placement, not for prediction.</div>';
+  }
+
+  // ── AUTO-REFRESH ──
+  h += '<div style="margin-top:11px;padding-top:9px;border-top:.5px solid var(--bd)">';
+  h += '<label style="display:flex;gap:7px;align-items:center;font-size:11px;cursor:pointer">'
+     + '<input type="checkbox" '+(btcAutoEnabled()?'checked':'')+' onchange="toggleBtcAuto(this.checked)" style="cursor:pointer">'
+     + '<span style="font-weight:700">Auto-refresh this plan on every 4h and 1d close</span></label>';
+  h += '<div id="btc-auto-status" style="font-size:10px;color:var(--t3);margin-top:3px">'
+     + (btcAutoEnabled()?'On — will refresh on each 4h and 1d close':'Off')+'</div>';
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:4px;line-height:1.5">Costs roughly 7 AI calls a day (six 4h closes plus one daily). Runs on the CLOSED candle, never mid-bar — a plan built on a bar that can still change is built on nothing.</div>';
+  h += '</div>';
+
   h += '<button onclick="openModal(\''+d.sym+'\')" style="margin-top:9px;padding:6px 14px;border-radius:7px;border:none;background:var(--acc);color:#fff;font-weight:700;font-size:11px;cursor:pointer;font-family:inherit">'
      + (memo ? 'Open BTC → re-run analysis' : 'Open BTC → 🤖 run AI analysis') + '</button>';
   h += '</div>';
@@ -6975,7 +7124,7 @@ function renderJournal(){
 }
 
 function renderCoach(){
-  var _agentHTML = (function(){ try { return buildResearchAgentPanel() + buildABPanel() + buildGateBlockPanel() + buildEarlyAuditPanel() + buildLatenessPanel(); } catch(e){ return ''; } })();
+  var _agentHTML = (function(){ try { return buildResearchAgentPanel() + buildExportPanel() + buildABPanel() + buildGateBlockPanel() + buildEarlyAuditPanel() + buildLatenessPanel(); } catch(e){ return ''; } })();
   var body=document.getElementById('journal-body');
   if(!body) return;
   var C = buildCoachAdvice();
@@ -8479,6 +8628,7 @@ var WATCH_TYPES = {
   accumZone:    { label:'Enters accumulation zone (near range low, volatility contracting)', icon:'🟦' },
   trendlineBrk: { label:'Trendline break (validated downtrend line, fresh)', icon:'⚡' },
   trendlineFlip:{ label:'Broken trendline now HOLDING as support (retest held)', icon:'🔄' },
+  levelFlip:    { label:'Broken RESISTANCE now HOLDING as support (the wall flipped)', icon:'🧱' },
   liqSweep:     { label:'Liquidity sweep + reclaim', icon:'💧' },
   emaRetest:    { label:'Pulls back to EMA20/50 and holds', icon:'📉' },
   rsiOversold:  { label:'RSI drops below 35', icon:'📊' },
@@ -8514,6 +8664,7 @@ function _evalWatchCondition(type, w, d){
                 (d.atrPct||99) < 6 && (d.rsi||0) > 30 && (d.rsi||0) < 55);
     case 'trendlineBrk': return !!d.tlBreakUp;
     case 'trendlineFlip': return !!d.tlRetestHeld;
+    case 'levelFlip': return !!d.resFlipHeld;
     case 'liqSweep':     return d.liq === 'buy_sweep';
     case 'emaRetest':
       return !!(d.emaRetest && d.emaRetest.state === 'retest_completed');
@@ -8641,7 +8792,7 @@ function removeWatcher(sym){
 function buildWatchersPanel(){
   var ws = loadWatchers();
   var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
-  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">👁 My coin watchers</div>';
+  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">👁 My coin watchers' + _expBtn('coin_watchers','Coin watchers','json') + '</div>';
   h += '<div style="font-size:11px;color:var(--t2);margin-bottom:.6rem">Coins you chose to watch, with your own conditions. Open any coin and tap 👁 Watch to add one. Notifications only — nothing is logged or traded.</div>';
   if(!ws.length) return h + '<div style="font-size:11px;color:var(--t3)">No watchers yet.</div></div>';
   ws.forEach(function(w){
@@ -10559,6 +10710,7 @@ var candleWatcher = {
     if (toScan.length > 0) {
       try { localStorage.setItem('cc_last_closed', JSON.stringify(self.lastClosed)); } catch(e) {}
       toScan.forEach(function(tf) { self.runCandleAnalysis(tf); });
+      toScan.forEach(function(tf) { try { btcAutoAnalyse(tf); } catch(e){} });
     }
 
     // Update countdown display
@@ -15774,6 +15926,148 @@ function runTrendlineAB(){
   });
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EXPORT — every dataset the tool measures, downloadable as CSV or JSON.
+// Two purposes: (1) analyse in a spreadsheet or Python, (2) hand the raw data
+// to someone (or something) that can review it, instead of describing it from
+// screenshots. Sensitive keys are NEVER included — see EXPORT_EXCLUDE.
+// ═══════════════════════════════════════════════════════════════════════════
+var EXPORT_EXCLUDE = ['ai_api_key','anthropic_api_key','tg_token','tg_chat'];
+
+function _dl(filename, content, mime){
+  try {
+    var blob = new Blob([content], { type: mime || 'text/plain;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
+  } catch(e){ alert('Export failed: ' + (e.message||e)); }
+}
+
+// Flatten an array of objects into CSV, unioning all keys so nothing is lost
+// when records have different shapes (older log rows lack newer fields).
+function _toCSV(rows){
+  if(!Array.isArray(rows) || !rows.length) return '';
+  var keys = [];
+  rows.forEach(function(r){
+    if(r && typeof r === 'object') Object.keys(r).forEach(function(k){
+      if(keys.indexOf(k) === -1 && typeof r[k] !== 'object') keys.push(k);
+    });
+  });
+  function esc(v){
+    if(v == null) return '';
+    var s = String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+  }
+  var out = [keys.join(',')];
+  rows.forEach(function(r){
+    out.push(keys.map(function(k){
+      var v = r ? r[k] : '';
+      // make timestamps human-readable alongside the raw value
+      if(k === 'ts' && typeof v === 'number') return esc(new Date(v).toISOString());
+      return esc(v);
+    }).join(','));
+  });
+  return out.join('\n');
+}
+
+function _stamp(){
+  var d = new Date();
+  return d.getFullYear() + ('0'+(d.getMonth()+1)).slice(-2) + ('0'+d.getDate()).slice(-2)
+       + '_' + ('0'+d.getHours()).slice(-2) + ('0'+d.getMinutes()).slice(-2);
+}
+
+// Export one localStorage dataset
+function exportSet(key, label, fmt){
+  var raw = null;
+  try { raw = JSON.parse(localStorage.getItem(key)||'null'); } catch(e){}
+  if(!raw || (Array.isArray(raw) && !raw.length)){
+    alert('Nothing to export yet for: ' + label);
+    return;
+  }
+  var name = (label||key).replace(/[^a-z0-9]+/gi,'_').toLowerCase() + '_' + _stamp();
+  if(fmt === 'json' || !Array.isArray(raw)){
+    _dl(name + '.json', JSON.stringify(raw, null, 2), 'application/json');
+  } else {
+    var csv = _toCSV(raw);
+    if(!csv){ _dl(name + '.json', JSON.stringify(raw, null, 2), 'application/json'); return; }
+    _dl(name + '.csv', csv, 'text/csv;charset=utf-8');
+  }
+}
+
+// One button, everything — for a full review elsewhere.
+function exportEverything(){
+  var bundle = { exportedAt: new Date().toISOString(), tf: (typeof TF!=='undefined'?TF:null), datasets: {} };
+  var keys = [];
+  try { for(var i=0;i<localStorage.length;i++) keys.push(localStorage.key(i)); } catch(e){}
+  keys.forEach(function(k){
+    if(EXPORT_EXCLUDE.indexOf(k) !== -1) return;      // never export credentials
+    try { bundle.datasets[k] = JSON.parse(localStorage.getItem(k)); }
+    catch(e){ bundle.datasets[k] = localStorage.getItem(k); }
+  });
+  // a live snapshot of the board, which is not in localStorage
+  try {
+    bundle.board = (allData||[]).map(function(d){
+      return { sym:d.sym, price:d.price, chg:d.chg, vol24:d.vol24, rsi:d.rsi, volR:d.volR,
+               volZ:d.volZ, struct:d.struct, sig:d.sig, score:d.score, opportunity:d.opportunity,
+               chartState:d._cs, earlyState:d.earlyState, earlyScore:d.earlyScore,
+               resilCapture:d.resilCapture, invScore:d.invScore };
+    });
+    bundle.market = { btcState: (typeof btcState!=='undefined'?btcState:null),
+                      breadth: (typeof _breadth!=='undefined'?_breadth:null),
+                      regime: (typeof _regime!=='undefined'&&_regime)?_regime.mode:null,
+                      btcDom: (typeof _btcDom!=='undefined'?_btcDom:null),
+                      usdtDom: (typeof _usdtDom!=='undefined'?_usdtDom:null) };
+  } catch(e){}
+  _dl('screener_full_export_' + _stamp() + '.json', JSON.stringify(bundle, null, 2), 'application/json');
+}
+
+// Small inline button used across panels
+function _expBtn(key, label, fmt){
+  return '<button onclick="exportSet(\''+key+'\',\''+label.replace(/'/g,'')+'\',\''+(fmt||'csv')+'\')" '
+       + 'title="Download '+label+'" '
+       + 'style="padding:3px 9px;border-radius:5px;border:.5px solid var(--bd);background:var(--card);'
+       + 'color:var(--t3);font-size:9px;cursor:pointer;font-family:inherit;margin-left:6px">⬇ export</button>';
+}
+
+function buildExportPanel(){
+  var sets = [
+    ['signal_log','Signal log','csv','Every logged setup with its outcome — the core evidence file'],
+    ['trade_journal','Manual trades','csv','Trades you entered yourself'],
+    ['ai_trades','AI trade log','csv','Trades opened from AI memos'],
+    ['ai_memos','AI memos','json','Saved analyses with levels and conditions'],
+    ['ew_audit','Early Watch audit','csv','Candidates checked 48h later vs the board'],
+    ['gate_blocks','Gate blocks','csv','Setups the market gates suppressed, and why'],
+    ['lateness_blocks','Lateness guard log','csv','Entries blocked for being extended'],
+    ['coin_watchers','Coin watchers','json','Your per-coin conditions'],
+    ['al_hist','Alert history','csv','Every notification fired'],
+    ['dom_history','Dominance history','csv','BTC.D / USDT.D readings over time'],
+    ['regime_hist','Regime history','csv','Regime classifications over time'],
+    ['alt_idx','Alt index history','csv','Equal-weighted alts vs BTC over time']
+  ];
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">⬇ Export data</div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.7rem">Download any dataset as CSV for a spreadsheet, or the whole thing as JSON for a full review elsewhere. API keys and Telegram tokens are never included.</div>';
+  sets.forEach(function(s){
+    var n = 0;
+    try { var v = JSON.parse(localStorage.getItem(s[0])||'null'); n = Array.isArray(v) ? v.length : (v?1:0); } catch(e){}
+    h += '<div style="display:flex;gap:8px;align-items:center;font-size:11px;padding:4px 0;border-top:.5px solid var(--bd)">'
+       + '<div style="flex:1;min-width:0"><div style="font-weight:700">'+s[1]
+       + ' <span style="font-weight:400;color:var(--t3);font-size:10px">'+(n?n+' records':'empty')+'</span></div>'
+       + '<div style="font-size:9px;color:var(--t3)">'+s[3]+'</div></div>'
+       + (n ? '<button onclick="exportSet(\''+s[0]+'\',\''+s[1]+'\',\''+s[2]+'\')" style="padding:4px 11px;border-radius:6px;border:.5px solid var(--acc);background:transparent;color:var(--acc);font-size:10px;cursor:pointer;font-family:inherit">⬇ '+s[2].toUpperCase()+'</button>'
+           : '<span style="font-size:9px;color:var(--t3)">—</span>')
+       + '</div>';
+  });
+  h += '<div style="margin-top:.8rem;padding-top:.7rem;border-top:.5px solid var(--bd)">';
+  h += '<button onclick="exportEverything()" style="padding:7px 15px;border-radius:7px;border:none;background:var(--acc);color:#fff;font-weight:700;font-size:11px;cursor:pointer;font-family:inherit">⬇ Export everything (JSON)</button>';
+  h += '<div style="font-size:10px;color:var(--t2);margin-top:6px;line-height:1.5">Bundles every dataset plus a live board snapshot and the current market state. This is the file to hand over when you want the whole system reviewed rather than described from screenshots.</div>';
+  h += '</div></div>';
+  return h;
+}
+
 function buildABPanel(){
   var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
   h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🧪 Trendline A/B test — does the fitted line beat a simple rule?</div>';
@@ -15981,7 +16275,7 @@ function buildGateBlockPanel(){
   try { a = JSON.parse(localStorage.getItem('gate_blocks')||'[]'); } catch(e){}
   var recent = a.filter(function(x){ return (Date.now() - x.ts) < 72*3600000; });
   var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
-  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🚦 Setups the gates blocked <span style="font-weight:400;color:var(--t3);font-size:10px">last 72h</span></div>';
+  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🚦 Setups the gates blocked <span style="font-weight:400;color:var(--t3);font-size:10px">last 72h</span>' + _expBtn('gate_blocks','Gate blocks','csv') + '</div>';
   h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">Valid setups that were detected but NOT alerted, because a market-condition gate suppressed them. This is the tool working as designed — but you should be able to see it, not just experience silence.</div>';
   if(!recent.length) return h + '<div style="font-size:11px;color:var(--t3)">Nothing blocked in the last 72h.</div></div>';
   recent.slice(0,25).forEach(function(x){
@@ -15999,7 +16293,7 @@ function buildGateBlockPanel(){
 function buildEarlyAuditPanel(){
   var a = _ewLoad(), done = a.filter(function(r){ return r.fwd != null; });
   var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
-  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🌱 Early Watch — does it actually work?</div>';
+  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🌱 Early Watch — does it actually work?' + _expBtn('ew_audit','Early Watch audit','csv') + '</div>';
   h += '<div style="font-size:11px;color:var(--t2);line-height:1.5;margin-bottom:.6rem">Every listed candidate is recorded and checked 48h later, against the <b>median coin on the board</b> at the same moment. Beating zero is meaningless; beating the board is the real test. Also splits results by DNA personality, to show whether the DNA adjustment earns its place.</div>';
   var btBtn = '<div style="margin-top:.7rem;border-top:.5px solid var(--bd);padding-top:.7rem">'
     + '<div style="font-size:11px;font-weight:700;color:var(--t2);margin-bottom:3px">Do not want to wait weeks?</div>'
