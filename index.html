@@ -4301,9 +4301,26 @@ function buildBTCPanel(){
       var stopPct = (entryMid - memo.sl)/entryMid*100;
       if(stopPct > 0){
         var acct = parseFloat(localStorage.getItem('acct_size')||'10000');
-        var pos = Math.min(acct, (acct*0.01)/(stopPct/100));
-        h += '<div style="font-size:10px;color:var(--t2);margin-top:5px;background:var(--card3);border-radius:6px;padding:6px 9px">'
-           + '📐 Stop is <b>'+stopPct.toFixed(1)+'%</b> from the entry zone → at 1% risk, buy about <b>'+pos.toFixed(0)+' USDT</b> ('+(pos/acct*100).toFixed(0)+'% of capital).</div>';
+        // SIZING FIX: a stop tighter than the coin's own noise band gets hit by
+        // ordinary movement, and the naive formula then sizes it to 100% of
+        // capital. Enforce both a volatility floor on the stop and the tool's
+        // own 10% spot cap. Volume-scaled too: high volume = wider expected range.
+        var _vz = (d.volZ != null) ? d.volZ : 0;
+        var noiseBand = (d.atrPct || 2) * (_vz >= 1.5 ? 1.8 : 1.3);
+        var tooTight = stopPct < noiseBand;
+        var effStop = Math.max(stopPct, noiseBand);
+        var volMult = _vz >= 2.5 ? 0.55 : _vz >= 1.5 ? 0.70 : _vz >= 0.8 ? 0.85 : 1;
+        var MAXPCT = 10;                               // spot cap, matches Trade Plan
+        var raw = (acct*0.01*volMult)/(effStop/100);
+        var pos = Math.min(raw, acct*MAXPCT/100);
+        h += '<div style="font-size:10px;color:var(--t2);margin-top:5px;background:var(--card3);border-radius:6px;padding:6px 9px;line-height:1.5">'
+           + '📐 Stop is <b>'+stopPct.toFixed(1)+'%</b> from the entry zone. At 1% risk'
+           + (volMult<1 ? ' (volume-adjusted ×'+volMult.toFixed(2)+')' : '')
+           + ' → buy about <b>'+pos.toFixed(0)+' USDT</b> ('+(pos/acct*100).toFixed(0)+'% of capital, capped at '+MAXPCT+'%).'
+           + (tooTight ? '<br><span style="color:var(--am)">⚠️ That stop is inside this coin\'s normal noise band (~'
+               + noiseBand.toFixed(1)+'% given ATR'+(_vz>=1.5?' and elevated volume':'')
+               + '). Ordinary movement would take it out — size was computed off the wider band instead.</span>' : '')
+           + '</div>';
       }
     }
 
@@ -4341,6 +4358,18 @@ function buildBTCPanel(){
     // alerting logic can never disagree about whether a condition is met.
     var chk = null;
     try { chk = _evalMemoConditions(memo, d); } catch(e){}
+    // A memo saved before conditions were parsed (or one where the AI omitted
+    // CONDITIONS_JSON) has no plan-A list, so section 5 silently vanished. Fall
+    // back to the same default set the memo watcher uses, and say it is a default.
+    var chkIsDefault = false;
+    if((!chk || !chk.items || !chk.items.length) && memo.zone){
+      try {
+        chk = _evalMemoConditions({ zone:memo.zone, sl:memo.sl, conds:[
+          {t:'priceInZone'}, {t:'volRAbove', v:1.0}, {t:'dailyTrendUp'}, {t:'btcOk'}
+        ]}, d);
+        chkIsDefault = true;
+      } catch(e){}
+    }
     if(chk && chk.items && chk.items.length){
       h += '<div style="font-size:10px;font-weight:700;color:var(--t2);margin:11px 0 4px">5 · CONDITIONS THE AI WANTS MET '
          + '<span style="font-weight:400;color:'+(chk.allMet?'var(--g)':'var(--t3)')+'">'
@@ -4352,7 +4381,10 @@ function buildBTCPanel(){
            + (it.actual?'<span style="color:var(--t3)">'+it.actual+'</span>':'')
            + '</div>';
       });
-      h += '<div style="font-size:9px;color:var(--t3);margin-top:4px;font-style:italic">A checklist, not a probability — these are the AI\'s own stated conditions, checked live.</div>';
+      h += '<div style="font-size:9px;color:var(--t3);margin-top:4px;font-style:italic">'
+         + (chkIsDefault ? 'This analysis did not include its own conditions, so these are the tool\'s defaults.'
+                         : 'A checklist, not a probability — these are the AI\'s own stated conditions, checked live.')
+         + '</div>';
     }
     // Plan B, when the AI gave a breakout route
     var chkB = null;
@@ -4372,6 +4404,17 @@ function buildBTCPanel(){
       h += '<div style="font-size:11px;color:var(--text);line-height:1.6;background:var(--card3);border-radius:7px;padding:9px 11px;border-left:3px solid var(--acc)">'
          + String(memo.bottomLine).replace(/</g,'&lt;').slice(0,400) + '</div>';
     }
+    // ── WHAT HAPPENS WHEN IT COMPLETES ──
+    var _armed = !memo.notified && !memo.skip;
+    h += '<div style="font-size:10px;color:var(--t2);margin-top:9px;padding:7px 9px;border-radius:6px;background:var(--card3);line-height:1.5">';
+    if(memo.skip){
+      h += '⏸ <b>Not armed.</b> The AI said skip, so nothing will be logged. If price reaches the pullback zone you get a "re-analyse" prompt instead of an entry.';
+    } else if(memo.notified){
+      h += '✔ <b>Already fired.</b> This memo triggered and was recorded in the AI trade log. Re-run the analysis to arm a fresh one.';
+    } else {
+      h += '🔔 <b>Armed.</b> When every condition above is met, the entry is logged automatically to the AI trade log at that moment\'s price — no action needed from you. You will get a notification at the same time.';
+    }
+    h += '</div>';
     if(memo.priceAtAnalysis){
       var moved = (d.price - memo.priceAtAnalysis)/memo.priceAtAnalysis*100;
       h += '<div style="font-size:9px;color:var(--t3);margin-top:7px">Analysed at '+fE(memo.priceAtAnalysis)
@@ -6449,15 +6492,67 @@ function buildICLab(){
     var mean=rs.reduce(function(a,r){return a+r.ic;},0)/rs.length;
     var pos=rs.filter(function(r){return r.ic>0;}).length;
     var stab=Math.round(pos/rs.length*100);
-    var enough=rs.length>=10;
+    // ── CALIBRATION FIX ─────────────────────────────────────────────────────
+    // The old rule called anything with mean IC ≥0.03 at n≥10 "PREDICTIVE".
+    // That fires inside the noise band: with ~80 coins the per-snapshot standard
+    // error is ~1/sqrt(79) ≈ 0.113, so at n=21 the SE of the mean is ~0.025 and
+    // an IC of +0.032 is barely t≈1.3 — not a finding.
+    // Worse, alt returns are ~0.9 correlated, so 80 coins are NOT 80 independent
+    // observations; effective breadth collapses toward ~1 bet per snapshot. The
+    // clustered t is therefore lower still. A verdict now requires BOTH a
+    // meaningful sample AND a t-stat that clears the noise.
+    var nSnap = rs.length;
+    var sd = nSnap > 1 ? Math.sqrt(rs.reduce(function(a,r){ return a+(r.ic-mean)*(r.ic-mean); },0)/(nSnap-1)) : 0;
+    var se = nSnap > 1 ? sd/Math.sqrt(nSnap) : 0;
+    var tstat = se > 0 ? mean/se : 0;
+    var enough = nSnap >= 30;
+    var significant = Math.abs(tstat) >= 2;
     var icon,col,msg;
-    if(!enough){ icon='⏳ collecting'; col='var(--t3)'; msg=rs.length+'/10 snapshots before a verdict'; }
-    else if(mean>=0.03 && stab>=60){ icon='🟢 PREDICTIVE'; col='var(--g)'; msg='higher score → higher 24h return ('+stab+'% of snapshots agree)'; }
-    else if(mean<=-0.03 && stab<=40){ icon='🔴 INVERTED'; col='var(--r)'; msg='higher score → LOWER 24h return — anti-predictive'; }
+    if(!enough){
+      icon='⏳ collecting'; col='var(--t3)';
+      msg = nSnap+'/30 snapshots'
+          + (nSnap>=8 ? ' · running IC '+(mean>=0?'+':'')+mean.toFixed(3)+' (t='+tstat.toFixed(1)+') — not yet a verdict' : ' before a verdict');
+    }
+    else if(mean>=0.03 && significant && stab>=60){
+      icon='🟢 PREDICTIVE'; col='var(--g)';
+      msg='higher score → higher 24h return · t='+tstat.toFixed(1)+' ('+stab+'% of snapshots agree)';
+    }
+    else if(mean<=-0.03 && significant && stab<=40){
+      icon='🔴 INVERTED'; col='var(--r)';
+      msg='higher score → LOWER 24h return · t='+tstat.toFixed(1)+' — anti-predictive';
+    }
+    else if(Math.abs(mean)>=0.03 && !significant){
+      icon='🟡 UNPROVEN'; col='var(--am)';
+      msg='IC '+(mean>=0?'+':'')+mean.toFixed(3)+' looks interesting but t='+tstat.toFixed(1)+' — inside the noise band, needs more data';
+    }
     else { icon='⚠️ FLAT'; col='var(--am)'; msg='no reliable relationship with forward returns — the score is not predicting'; }
-    h+='<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:.5px solid var(--bd);font-size:11px"><span style="color:var(--t2);white-space:nowrap">'+IC_SCORE_FIELDS[f]+'</span><span style="text-align:right"><span style="font-weight:800;color:'+col+'">'+icon+'</span> <span style="color:var(--t3)">IC '+(mean>=0?'+':'')+mean.toFixed(3)+' · n='+rs.length+'</span><div style="font-size:10px;color:var(--t3)">'+msg+'</div></span></div>';
+    // ── SUB-PERIOD STABILITY — diagnostic that works at LOW n ───────────────
+    // A real edge should show up across sub-windows, not come from two lucky
+    // snapshots. This cannot prove significance, but it CAN expose a mean that
+    // is being carried by outliers — which is the common failure mode when a
+    // score looks promising early.
+    var stabNote = '';
+    if(nSnap >= 8){
+      var half = Math.floor(nSnap/2);
+      var early = rs.slice(0, half), late = rs.slice(half);
+      var mE = early.reduce(function(a,r){return a+r.ic;},0)/early.length;
+      var mL = late.reduce(function(a,r){return a+r.ic;},0)/late.length;
+      // how much of the mean comes from the single biggest snapshot?
+      var sorted = rs.map(function(r){return r.ic;}).slice().sort(function(a,b){return Math.abs(b)-Math.abs(a);});
+      var topShare = (mean !== 0 && nSnap > 1)
+        ? Math.abs(sorted[0]/nSnap) / Math.abs(mean) : 0;
+      var agree = (mE > 0) === (mL > 0);
+      var col2 = agree ? 'var(--t3)' : 'var(--am)';
+      stabNote = '<div style="font-size:9px;color:'+col2+';margin-top:2px">'
+        + 'first half ' + (mE>=0?'+':'') + mE.toFixed(3)
+        + ' · second half ' + (mL>=0?'+':'') + mL.toFixed(3)
+        + (agree ? ' — consistent sign' : ' — ⚠️ sign flips between halves, likely noise')
+        + (topShare > 0.5 ? ' · ⚠️ one snapshot drives ' + Math.round(topShare*100) + '% of the mean' : '')
+        + '</div>';
+    }
+    h+='<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:.5px solid var(--bd);font-size:11px"><span style="color:var(--t2);white-space:nowrap">'+IC_SCORE_FIELDS[f]+'</span><span style="text-align:right"><span style="font-weight:800;color:'+col+'">'+icon+'</span> <span style="color:var(--t3)">IC '+(mean>=0?'+':'')+mean.toFixed(3)+' · n='+rs.length+'</span><div style="font-size:10px;color:var(--t3)">'+msg+'</div>'+stabNote+'</span></div>';
   });
-  h+='<div style="font-size:9px;color:var(--t3);margin-top:8px;font-style:italic">IC = rank correlation between a score and the next 24h return across all ~80 coins. Quant bar: stable +0.05 is strong, ~0 is noise. This grades the SCORES; the trade log still grades the setups. Verdicts need 10+ snapshots.</div>';
+  h+='<div style="font-size:9px;color:var(--t3);margin-top:8px;font-style:italic">IC = rank correlation between a score and the next 24h return across all ~80 coins. A verdict now needs 30+ snapshots AND t≥2 — because with ~80 correlated coins, an IC of +0.03 at n=20 is well inside the noise band. 🟡 UNPROVEN means the number looks interesting but cannot yet be distinguished from chance. This grades the SCORES; the trade log grades the setups.</div>';
   h+='</div>';
   return h;
 }
@@ -7124,7 +7219,7 @@ function renderJournal(){
 }
 
 function renderCoach(){
-  var _agentHTML = (function(){ try { return buildResearchAgentPanel() + buildExportPanel() + buildABPanel() + buildGateBlockPanel() + buildEarlyAuditPanel() + buildLatenessPanel(); } catch(e){ return ''; } })();
+  var _agentHTML = (function(){ try { return buildResearchAgentPanel() + buildConditionValuePanel() + buildExportPanel() + buildABPanel() + buildGateBlockPanel() + buildEarlyAuditPanel() + buildLatenessPanel(); } catch(e){ return ''; } })();
   var body=document.getElementById('journal-body');
   if(!body) return;
   var C = buildCoachAdvice();
@@ -8998,6 +9093,26 @@ function checkAIMemoAlerts(data){
     // if the memo has no conditions at all)
     var trigger = ev ? ev.allMet
                      : !!(mm.zone && d.price >= mm.zone[0]*0.999 && d.price <= mm.zone[1]*1.001);
+    // ── ZONE-ONLY FILL ───────────────────────────────────────────────────────
+    // Price reached the AI's entry zone but not every condition is satisfied.
+    // Logged as a SHADOW entry: tracked and graded exactly like a real one, but
+    // tagged so it never contaminates the endorsed record. This is what lets the
+    // Coach eventually answer "did waiting for the conditions actually pay?"
+    if(!trigger && ev && !ev.allMet && mm.zone && !mm.zoneLogged &&
+       d.price >= mm.zone[0]*0.999 && d.price <= mm.zone[1]*1.001){
+      mm.zoneLogged = true; changed = true;
+      var unmet = ev.items.filter(function(i){ return !i.met; })
+                          .map(function(i){ return i.label; });
+      try {
+        openAITrade(mm, d, { fill:'zone_only', met:ev.met, total:ev.total, unmet:unmet });
+      } catch(e){}
+      var zmsg = '📍 ' + mm.pair + ' — entry zone reached and LOGGED, but only '
+               + ev.met + '/' + ev.total + ' conditions met. Missing: ' + unmet.join('; ')
+               + '. Tracked as a shadow entry — not a recommendation.';
+      try { showToast(d, 'sweep', zmsg); } catch(e){}
+      try { addAlHistory(d, 'ai_zone_only', zmsg); } catch(e){}
+      try { sendBrowserNotif(d, zmsg); } catch(e){}
+    }
     if(trigger){
       mm.notified = true; changed = true;
       var label = ev ? ('✅ ALL '+ev.total+' AI conditions met') : '🎯 AI entry zone reached';
@@ -9025,10 +9140,14 @@ function checkAIMemoAlerts(data){
 function loadAITrades(){ try{ return JSON.parse(localStorage.getItem('ai_trades')||'[]'); }catch(e){ return []; } }
 function saveAITrades(t){ try{ localStorage.setItem('ai_trades', JSON.stringify(t.slice(0,300))); }catch(e){} }
 
-function openAITrade(memo, d){
+function openAITrade(memo, d, opts){
   if(!memo || !memo.sl || !memo.tp1 || !d) return;
+  opts = opts || {};
   var trades = loadAITrades();
-  if(trades.some(function(t){ return t.sym===memo.sym && t.status==='open'; })) return;  // one at a time per coin
+  // one open trade per coin PER FILL TYPE — a shadow entry must not block the
+  // real one, or the comparison would be lost
+  if(trades.some(function(t){ return t.sym===memo.sym && t.status==='open'
+      && (t.fill||'full') === (opts.fill||'full'); })) return;
   var entry = d.price;
   if(entry <= memo.sl) return;                      // already invalid — don't log a dead trade
   var stopPct = (entry - memo.sl)/entry*100;
@@ -9039,7 +9158,14 @@ function openAITrade(memo, d){
     entry: entry, sl: memo.sl, tp: memo.tp1, tp2: memo.tp2||null, tp3: memo.tp3||null,
     rr: Math.round(tpPct/stopPct*100)/100, stopPct: Math.round(stopPct*100)/100,
     ts: Date.now(), status:'open', outcome:null, closePrice:null, closedTs:null,
-    bottomLine: memo.bottomLine||''
+    bottomLine: memo.bottomLine||'',
+    // EXPERIMENT FIELDS — the whole point of logging zone-only fills is to find
+    // out whether the AI's conditions earn their keep. Without the counterfactual
+    // the tool can never answer that.
+    fill: opts.fill || 'full',                        // 'full' | 'zone_only'
+    condsMet: opts.met != null ? opts.met : null,
+    condsTotal: opts.total != null ? opts.total : null,
+    unmet: opts.unmet || null                         // which ones were missing
   });
   saveAITrades(trades);
   console.log('[AI trade] opened', memo.pair, 'entry', entry);
@@ -16030,6 +16156,96 @@ function _expBtn(key, label, fmt){
        + 'title="Download '+label+'" '
        + 'style="padding:3px 9px;border-radius:5px;border:.5px solid var(--bd);background:var(--card);'
        + 'color:var(--t3);font-size:9px;cursor:pointer;font-family:inherit;margin-left:6px">⬇ export</button>';
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONDITION VALUE TEST — do the AI's conditions actually earn their keep?
+// Every AI entry is now tagged either 'full' (all conditions met) or
+// 'zone_only' (price reached the zone with conditions incomplete). Comparing
+// the two answers a question the tool could never answer before: is waiting
+// for confirmation worth the entries it costs you?
+// This is a natural experiment produced by normal use — no extra work.
+// ═══════════════════════════════════════════════════════════════════════════
+function buildConditionValuePanel(){
+  var t = [];
+  try { t = loadAITrades() || []; } catch(e){ return ''; }
+  var done = t.filter(function(x){ return x.status !== 'open' && x.outcome; });
+  if(done.length < 4) {
+    var openN = t.filter(function(x){ return x.status==='open'; }).length;
+    if(!t.length) return '';
+    return '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">'
+      + '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🔬 Do the AI conditions earn their keep?</div>'
+      + '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.5rem">Entries are tagged <b>full</b> (all conditions met) or <b>zone-only</b> (price reached the zone but conditions were incomplete). Comparing them tells you whether waiting for confirmation is worth the entries it costs.</div>'
+      + '<div style="font-size:11px;color:var(--t3)">⏳ '+done.length+' resolved · '+openN+' open — needs 4+ resolved before any comparison.</div></div>';
+  }
+  function stat(rows){
+    if(!rows.length) return null;
+    var wins = rows.filter(function(x){ return x.outcome==='win'; }).length;
+    var R = rows.reduce(function(a,x){
+      return a + (x.outcome==='win' ? (x.rr||1) : -1);
+    }, 0) / rows.length;
+    return { n:rows.length, win:Math.round(wins/rows.length*100), R:R };
+  }
+  var full = stat(done.filter(function(x){ return (x.fill||'full')==='full'; }));
+  var zone = stat(done.filter(function(x){ return x.fill==='zone_only'; }));
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🔬 Do the AI conditions earn their keep?</div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">Every AI entry is tagged by how it filled. If <b>full</b> beats <b>zone-only</b>, waiting for the conditions is worth it. If they match, the conditions are costing you entries for nothing.</div>';
+  h += '<table style="width:100%;font-size:11px;border-collapse:collapse">';
+  h += '<tr style="color:var(--t3);font-size:10px"><th style="text-align:left">Fill type</th><th>win %</th><th>avg R</th><th>n</th></tr>';
+  [['✅ Full — all conditions met', full, 'var(--g)'],
+   ['📍 Zone-only — conditions incomplete', zone, 'var(--am)']].forEach(function(r){
+    if(!r[1]){
+      h += '<tr style="border-top:.5px solid var(--bd)"><td style="padding:5px 0;color:var(--t3)">'+r[0]+'</td>'
+         + '<td colspan="3" style="text-align:center;color:var(--t3);font-size:10px">none resolved yet</td></tr>';
+      return;
+    }
+    h += '<tr style="border-top:.5px solid var(--bd)">'
+       + '<td style="padding:5px 0;color:'+r[2]+';font-weight:700">'+r[0]+'</td>'
+       + '<td style="text-align:center">'+r[1].win+'%</td>'
+       + '<td style="text-align:center;font-weight:700;color:'+(r[1].R>=0?'var(--g)':'var(--r)')+'">'+(r[1].R>=0?'+':'')+r[1].R.toFixed(2)+'</td>'
+       + '<td style="text-align:center;color:var(--t3)">'+r[1].n+'</td></tr>';
+  });
+  h += '</table>';
+  if(full && zone){
+    var diff = full.R - zone.R;
+    var col = diff > 0.3 ? 'var(--g)' : diff < -0.3 ? 'var(--r)' : 'var(--am)';
+    var verdict = (full.n < 10 || zone.n < 10)
+      ? '⏳ '+full.n+' vs '+zone.n+' resolved — directionally '+(diff>0?'favouring the conditions':'favouring zone-only')+', but far too few to trust.'
+      : diff > 0.3 ? '🟢 Waiting for the conditions is paying — full entries beat zone-only by '+diff.toFixed(2)+'R.'
+      : diff < -0.3 ? '🔴 Zone-only is BEATING full entries by '+Math.abs(diff).toFixed(2)+'R. The conditions are filtering out good trades, not bad ones.'
+      : '⚠️ No meaningful difference. The conditions are costing you entries without improving outcomes — consider loosening them.';
+    h += '<div style="font-size:11px;font-weight:700;color:'+col+';margin-top:8px;line-height:1.5">'+verdict+'</div>';
+  }
+  // which specific condition, when missing, hurt most
+  var zoneRows = done.filter(function(x){ return x.fill==='zone_only' && x.unmet && x.unmet.length; });
+  if(zoneRows.length >= 4){
+    var byCond = {};
+    zoneRows.forEach(function(x){
+      x.unmet.forEach(function(u){
+        (byCond[u] = byCond[u] || []).push(x.outcome==='win' ? (x.rr||1) : -1);
+      });
+    });
+    var keys = Object.keys(byCond).filter(function(k){ return byCond[k].length >= 3; });
+    if(keys.length){
+      h += '<div style="font-size:10px;font-weight:700;color:var(--t2);margin:9px 0 3px">When this condition was MISSING, the trade did:</div>';
+      keys.sort(function(a,b){
+        var ma = byCond[a].reduce(function(p,q){return p+q;},0)/byCond[a].length;
+        var mb = byCond[b].reduce(function(p,q){return p+q;},0)/byCond[b].length;
+        return ma - mb;
+      }).forEach(function(k){
+        var arr = byCond[k], m = arr.reduce(function(p,q){return p+q;},0)/arr.length;
+        h += '<div style="display:flex;gap:8px;font-size:10px;padding:2px 0;color:var(--t3)">'
+           + '<span style="flex:1">'+k+'</span>'
+           + '<span style="font-weight:700;color:'+(m>=0?'var(--g)':'var(--r)')+'">'+(m>=0?'+':'')+m.toFixed(2)+'R</span>'
+           + '<span>n='+arr.length+'</span></div>';
+      });
+      h += '<div style="font-size:9px;color:var(--t3);margin-top:4px;font-style:italic">The most negative row is the condition worth enforcing most strictly. A positive row means that condition may be filtering out winners.</div>';
+    }
+  }
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:9px;font-style:italic;line-height:1.5">Zone-only entries are SHADOW records — logged and graded so this comparison is possible, but never presented as recommendations. They are the counterfactual, not a strategy.</div>';
+  return h + '</div>';
 }
 
 function buildExportPanel(){
