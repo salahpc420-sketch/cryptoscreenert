@@ -3458,7 +3458,8 @@ function loadAll() {
           ? '🧱 ' + d.pair + ' — broken RESISTANCE at ' + fE(d.resFlipLevel)
             + ' is now HOLDING as support (retest ' + (d.resFlipBarsAgo||0) + ' bars ago)'
           : '🔄 ' + d.pair + ' — broken trendline is HOLDING as support ('
-            + (d.tlTouches||0) + ' touches, retest ' + (d.tlRetestBarsAgo||0) + ' bars ago)';
+            + (d.tlTouches||0) + ' touches, retest ' + (d.tlRetestBarsAgo||0) + ' bars ago)'
+            + (retestOnly() ? ' — CONFIRMED break, this is the one that matters' : '');
         try { showToast(d, 'strong', msg); } catch(e){}
         try { addAlHistory(d, 'tl_flip', msg); } catch(e){}
         try { sendBrowserNotif(d, msg); } catch(e){}
@@ -7219,7 +7220,7 @@ function renderJournal(){
 }
 
 function renderCoach(){
-  var _agentHTML = (function(){ try { return buildResearchAgentPanel() + buildConditionValuePanel() + buildExportPanel() + buildABPanel() + buildGateBlockPanel() + buildEarlyAuditPanel() + buildLatenessPanel(); } catch(e){ return ''; } })();
+  var _agentHTML = (function(){ try { return buildResearchAgentPanel() + buildBreakVsRetestPanel() + buildConditionValuePanel() + buildExportPanel() + buildABPanel() + buildGateBlockPanel() + buildEarlyAuditPanel() + buildLatenessPanel(); } catch(e){ return ''; } })();
   var body=document.getElementById('journal-body');
   if(!body) return;
   var C = buildCoachAdvice();
@@ -8750,6 +8751,8 @@ function _evalWatchCondition(type, w, d){
       return !!(d.sup && d.liq === 'buy_sweep') ||
              !!(d.sup && d.price > d.sup && d.price <= d.sup * 1.015 && d.rsiRising);
     case 'breakRes':
+      // same rule: in retest-only mode, wait for the level to be retested
+      if(retestOnly()) return !!d.resFlipHeld;
       return !!(d.res && d.price > d.res && (d.volR||0) >= 1.2);
     case 'accumZone':
       // OHLCV-visible accumulation: near the lower part of recent range, volatility
@@ -8757,7 +8760,8 @@ function _evalWatchCondition(type, w, d){
       return !!(d.sup && d.res && d.res > d.sup &&
                 (d.price - d.sup)/(d.res - d.sup) < 0.3 &&
                 (d.atrPct||99) < 6 && (d.rsi||0) > 30 && (d.rsi||0) < 55);
-    case 'trendlineBrk': return !!d.tlBreakUp;
+    // In retest-only mode a bare break does not fire; the flip conditions do.
+    case 'trendlineBrk': return !!d.tlBreakUp && !retestOnly();
     case 'trendlineFlip': return !!d.tlRetestHeld;
     case 'levelFlip': return !!d.resFlipHeld;
     case 'liqSweep':     return d.liq === 'buy_sweep';
@@ -8781,6 +8785,25 @@ function _evalWatchCondition(type, w, d){
     }
   }
   return false;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RETEST-ONLY MODE — suppress alerts on a BARE trendline/resistance break, and
+// notify only once the level has been retested and HELD.
+// Evidence: the research audit (E2) found a break WITH a held retest is
+// materially better than a bare break, which fails 60%+ of the time in crypto.
+// Murphy M3 says the same in classical terms: the held retest is the entry.
+// The bare break is still LOGGED silently, so the Coach can later compare the
+// two and tell you whether waiting actually paid — the same counterfactual
+// principle as the zone-only shadow entries.
+// ═══════════════════════════════════════════════════════════════════════════
+function retestOnly(){ return localStorage.getItem('tl_retest_only') !== '0'; }   // default ON
+function toggleRetestOnly(on){
+  localStorage.setItem('tl_retest_only', on ? '1' : '0');
+  var s = document.getElementById('retest-only-status');
+  if(s) s.textContent = on ? 'On — alerts only after the level is retested and held'
+                           : 'Off — alerts on the bare break too';
 }
 
 function checkWatchers(data){
@@ -8830,6 +8853,15 @@ function renderWatchPanel(sym){
   var _st = d && d._cs ? CHART_STATES[d._cs] : null;
   var h = _st ? '<div style="font-size:11px;font-weight:800;margin-bottom:4px">'+_st.icon+' Chart right now: '+_st.label+' <span style="font-weight:400;color:var(--t3)">(describes the present — not a prediction)</span></div>' : '';
   h += '<div style="font-size:11px;color:var(--t2);margin-bottom:6px">Tell me when ANY of these happens on <b>'+(d?d.pair:sym)+'</b> — you get a notification, nothing is logged or traded.</div>';
+  h += '<label style="display:flex;gap:7px;align-items:flex-start;font-size:11px;cursor:pointer;background:var(--card3);border-radius:6px;padding:7px 9px;margin-bottom:8px">'
+     + '<input type="checkbox" '+(retestOnly()?'checked':'')+' onchange="toggleRetestOnly(this.checked)" style="cursor:pointer;margin-top:2px">'
+     + '<span><b>Only alert me once the break is RETESTED and held</b>'
+     + '<span style="display:block;font-size:10px;color:var(--t3);margin-top:2px" id="retest-only-status">'
+     + (retestOnly() ? 'On — a bare break stays silent; you are told when the level flips to support'
+                     : 'Off — alerts on the bare break too')
+     + '</span>'
+     + '<span style="display:block;font-size:9px;color:var(--t3);margin-top:3px;font-style:italic">A bare break fails 60%+ of the time in crypto; a break with a held retest is materially better. Bare breaks are still logged silently so the Coach can compare the two.</span>'
+     + '</span></label>';
   h += '<div style="font-size:10px;color:var(--t3);margin-bottom:7px;line-height:1.5">🎯 <b>Touch</b> fires the moment price tags your level, wick included — good for "my zone is live now". ✅🔻 <b>Close</b> fires only when a candle finishes beyond it on the <b>'+TF+'</b> chart — that is acceptance rather than a probe, and it is what usually matters for a decision.</div>';
   Object.keys(WATCH_TYPES).forEach(function(t){
     var def = WATCH_TYPES[t], on = (w.types||[]).indexOf(t) >= 0;
@@ -13902,7 +13934,8 @@ function checkAlerts(data){
     else if(alPrefs.sweepSell&&d.liq==='sell_sweep')sig='sweepSell';
     else if(alPrefs.sweep&&d.liq==='buy_sweep')sig='sweep';
     else if(alPrefs.buy&&d.buySignal&&!d.strongBuy)sig='buy';
-    else if(alPrefs.breakout&&d.struct==='breakout'&&d.score>=58)sig='breakout';
+    else if(alPrefs.breakout&&d.struct==='breakout'&&d.score>=58
+            && !(retestOnly() && d.tlBreakUp && !d.tlRetestHeld && !d.resFlipHeld))sig='breakout';
     else if(alPrefs.oversold&&d.rsi<30)sig='oversold';
     else if(alPrefs.rsiDiv&&d._rsiDiv==='bull')sig='rsiDiv';
     else if(alPrefs.emaCross&&d._emaCross==='bull')sig='emaCross';
@@ -16167,6 +16200,52 @@ function _expBtn(key, label, fmt){
 // for confirmation worth the entries it costs you?
 // This is a natural experiment produced by normal use — no extra work.
 // ═══════════════════════════════════════════════════════════════════════════
+
+// Compares the two trendline setups the log now records separately, so the
+// retest-only default has to justify itself rather than being assumed correct.
+function buildBreakVsRetestPanel(){
+  var log = [];
+  try { log = JSON.parse(localStorage.getItem('signal_log')||'[]'); } catch(e){ return ''; }
+  var done = log.filter(function(s){ return s.result && s.result !== 'open'; });
+  var bare = done.filter(function(s){ return s.setup === 'Trendline break'; });
+  var held = done.filter(function(s){ return s.setup === 'TL retest hold'; });
+  if(bare.length + held.length < 3) return '';
+  function stat(rows){
+    if(!rows.length) return null;
+    var w = rows.filter(function(s){ return s.result === 'win'; }).length;
+    var R = rows.reduce(function(a,s){ return a + (s.result==='win' ? (s.rr||1) : -1); }, 0)/rows.length;
+    return { n:rows.length, win:Math.round(w/rows.length*100), R:R };
+  }
+  var b = stat(bare), hh = stat(held);
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">⚡ Bare break vs held retest</div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">Alerts default to retest-only because the research says a bare break fails most of the time. Bare breaks are still logged silently — this is where that default gets tested rather than assumed.</div>';
+  h += '<table style="width:100%;font-size:11px;border-collapse:collapse">';
+  h += '<tr style="color:var(--t3);font-size:10px"><th style="text-align:left">Setup</th><th>win %</th><th>avg R</th><th>n</th></tr>';
+  [['⚡ Bare trendline break', b, 'var(--t2)'], ['🔄 Retested and held', hh, 'var(--g)']].forEach(function(r){
+    if(!r[1]){
+      h += '<tr style="border-top:.5px solid var(--bd)"><td style="padding:5px 0;color:var(--t3)">'+r[0]+'</td>'
+         + '<td colspan="3" style="text-align:center;color:var(--t3);font-size:10px">none resolved</td></tr>';
+      return;
+    }
+    h += '<tr style="border-top:.5px solid var(--bd)"><td style="padding:5px 0;color:'+r[2]+';font-weight:700">'+r[0]+'</td>'
+       + '<td style="text-align:center">'+r[1].win+'%</td>'
+       + '<td style="text-align:center;font-weight:700;color:'+(r[1].R>=0?'var(--g)':'var(--r)')+'">'+(r[1].R>=0?'+':'')+r[1].R.toFixed(2)+'</td>'
+       + '<td style="text-align:center;color:var(--t3)">'+r[1].n+'</td></tr>';
+  });
+  h += '</table>';
+  if(b && hh){
+    var diff = hh.R - b.R;
+    var msg = (b.n < 10 || hh.n < 10)
+      ? '⏳ '+b.n+' vs '+hh.n+' resolved — leaning '+(diff>0?'toward the retest':'toward the bare break')+', but too few to decide.'
+      : diff > 0.3 ? '🟢 Waiting for the retest is paying (+'+diff.toFixed(2)+'R). Keep retest-only on.'
+      : diff < -0.3 ? '🔴 The BARE break is outperforming by '+Math.abs(diff).toFixed(2)+'R — turn retest-only OFF.'
+      : '⚠️ No difference. Retest-only is costing you entries without improving outcomes.';
+    h += '<div style="font-size:11px;font-weight:700;margin-top:8px;color:'+(diff>0.3?'var(--g)':diff<-0.3?'var(--r)':'var(--am)')+'">'+msg+'</div>';
+  }
+  return h + '</div>';
+}
+
 function buildConditionValuePanel(){
   var t = [];
   try { t = loadAITrades() || []; } catch(e){ return ''; }
@@ -16530,6 +16609,44 @@ function buildEarlyAuditPanel(){
              hit: Math.round(win/rows.length*100) };
   }
   var all = stat(done);
+  // ── CLUSTERING FIX ───────────────────────────────────────────────────────
+  // Picks from the same snapshot are NOT independent — crypto moves together,
+  // so 31 picks taken across 7 days carry roughly the weight of 7 observations,
+  // not 31. Average within each day first, then judge on the daily series.
+  // Also track outlier dependence: an edge that vanishes when the top three
+  // picks are removed is a skew-driven result, not a consistent one.
+  var _clust = (function(){
+    if(!done.length) return null;
+    var byDay = {};
+    done.forEach(function(r){
+      if(r.edge == null && r.boardFwd == null) return;
+      var e = (r.boardFwd != null) ? (r.fwd - r.boardFwd) : null;
+      if(e == null) return;
+      var k = new Date(r.ts).toISOString().slice(0,10);
+      (byDay[k] = byDay[k] || []).push(e);
+    });
+    var keys = Object.keys(byDay);
+    if(keys.length < 2) return null;
+    var daily = keys.map(function(k){
+      var v = byDay[k]; return v.reduce(function(a,b){return a+b;},0)/v.length;
+    });
+    var n = daily.length;
+    var m = daily.reduce(function(a,b){return a+b;},0)/n;
+    var sd = Math.sqrt(daily.reduce(function(a,b){return a+(b-m)*(b-m);},0)/(n-1));
+    var se = sd/Math.sqrt(n);
+    var t = se > 0 ? m/se : 0;
+    // outlier dependence
+    var allE = done.filter(function(r){ return r.boardFwd != null; })
+                   .map(function(r){ return r.fwd - r.boardFwd; });
+    var sorted = allE.slice().sort(function(a,b){ return Math.abs(b)-Math.abs(a); });
+    var trimmed = sorted.slice(3);
+    var meanAll = allE.reduce(function(a,b){return a+b;},0)/allE.length;
+    var meanTrim = trimmed.length ? trimmed.reduce(function(a,b){return a+b;},0)/trimmed.length : null;
+    var med = allE.slice().sort(function(a,b){return a-b;})[Math.floor(allE.length/2)];
+    var posDays = daily.filter(function(x){ return x > 0; }).length;
+    return { days:n, mean:m, se:se, t:t, lo:m-1.96*se, hi:m+1.96*se,
+             meanAll:meanAll, meanTrim:meanTrim, median:med, posDays:posDays };
+  })();
   var edgeCol = (all.edge!=null && all.edge > 0.5) ? 'var(--g)' : (all.edge!=null && all.edge < -0.5) ? 'var(--r)' : 'var(--am)';
   h += '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:.6rem">';
   h += '<div><div style="font-size:19px;font-weight:800;color:var(--text)">'+(all.avg>=0?'+':'')+all.avg.toFixed(1)+'%</div><div style="font-size:10px;color:var(--t3)">listed coins, 48h</div></div>';
@@ -16537,12 +16654,52 @@ function buildEarlyAuditPanel(){
   if(all.edge!=null) h += '<div><div style="font-size:19px;font-weight:800;color:'+edgeCol+'">'+(all.edge>=0?'+':'')+all.edge.toFixed(1)+'%</div><div style="font-size:10px;color:var(--t3)">EDGE vs board</div></div>';
   h += '<div><div style="font-size:19px;font-weight:800;color:var(--t2)">'+all.n+'</div><div style="font-size:10px;color:var(--t3)">resolved</div></div>';
   h += '</div>';
-  var verdict = all.edge == null ? 'No benchmark yet.'
-    : all.n < 30 ? '⏳ '+all.n+' resolved — directionally '+(all.edge>0?'positive':'negative')+', but far too few to trust.'
-    : all.edge > 0.5 ? '🟢 Listed coins are beating the board — the ranking is showing edge.'
-    : all.edge < -0.5 ? '🔴 Listed coins are UNDERPERFORMING the board — the ranking is not working as built.'
-    : '⚠️ No edge over simply picking the median coin — the ranking is not adding value.';
-  h += '<div style="font-size:11px;font-weight:700;color:'+edgeCol+';margin-bottom:.6rem">'+verdict+'</div>';
+  // ── VERDICT — now judged on the CLUSTERED daily series, not the raw picks ──
+  var verdict, vcol = edgeCol;
+  if(all.edge == null){ verdict = 'No benchmark yet.'; }
+  else if(!_clust){ verdict = '⏳ '+all.n+' resolved on too few separate days to judge.'; }
+  else if(_clust.days < 15){
+    verdict = '⏳ '+all.n+' picks across only '+_clust.days+' snapshot days. Clustered mean '
+            + (_clust.mean>=0?'+':'')+_clust.mean.toFixed(2)+'%, t='+_clust.t.toFixed(2)
+            + (_clust.lo > 0 ? ' — CI excludes zero, but the day count is still low.'
+                             : ' — the 95% interval still includes zero, so this is promising, not proven.');
+    vcol = 'var(--am)';
+  }
+  else if(_clust.lo > 0.3){
+    verdict = '🟢 Listed coins are beating the board — clustered edge '+_clust.mean.toFixed(2)
+            + '% (t='+_clust.t.toFixed(2)+'), interval excludes zero across '+_clust.days+' days.';
+    vcol = 'var(--g)';
+  }
+  else if(_clust.hi < -0.3){
+    verdict = '🔴 Listed coins are UNDERPERFORMING the board — clustered edge '+_clust.mean.toFixed(2)+'% (t='+_clust.t.toFixed(2)+').';
+    vcol = 'var(--r)';
+  }
+  else {
+    verdict = '⚠️ No established edge. Clustered mean '+(_clust.mean>=0?'+':'')+_clust.mean.toFixed(2)
+            + '% but t='+_clust.t.toFixed(2)+' and the 95% interval spans zero.';
+    vcol = 'var(--am)';
+  }
+  h += '<div style="font-size:11px;font-weight:700;color:'+vcol+';margin-bottom:.5rem;line-height:1.5">'+verdict+'</div>';
+
+  // ── HONEST STATISTICS BOX ──
+  if(_clust){
+    h += '<div style="background:var(--card3);border-radius:7px;padding:8px 10px;margin-bottom:.6rem;font-size:10px;color:var(--t2);line-height:1.7">';
+    h += '<b>Why the headline number overstates it:</b><br>';
+    h += '• '+all.n+' picks came from only <b>'+_clust.days+' snapshot days</b> — coins move together, so the honest sample is the day count, not the pick count.<br>';
+    h += '• Clustered daily edge <b>'+(_clust.mean>=0?'+':'')+_clust.mean.toFixed(2)+'%</b>, SE '+_clust.se.toFixed(2)
+       + ', <b>t='+_clust.t.toFixed(2)+'</b> · 95% CI '+_clust.lo.toFixed(2)+'% to '+_clust.hi.toFixed(2)+'%'
+       + (_clust.lo > 0 ? ' (excludes zero)' : ' <b>(includes zero)</b>')+'<br>';
+    h += '• '+_clust.posDays+' of '+_clust.days+' days were positive.<br>';
+    if(_clust.meanTrim != null){
+      var collapse = Math.abs(_clust.meanAll) > 0.01 ? (1 - _clust.meanTrim/_clust.meanAll) * 100 : 0;
+      h += '• Mean edge '+(_clust.meanAll>=0?'+':'')+_clust.meanAll.toFixed(2)+'% → <b>'
+         + (_clust.meanTrim>=0?'+':'')+_clust.meanTrim.toFixed(2)+'%</b> once the top 3 picks are removed'
+         + (collapse > 60 ? ' — <span style="color:var(--am)">the result is carried by a few large winners, not consistent performance</span>' : '')+'<br>';
+      h += '• Median edge <b>'+(_clust.median>=0?'+':'')+_clust.median.toFixed(2)+'%</b> vs mean '
+         + (_clust.meanAll>=0?'+':'')+_clust.meanAll.toFixed(2)+'% — the gap is the skew.';
+    }
+    h += '</div>';
+  }
 
   // by state
   h += '<div style="font-size:11px;font-weight:700;color:var(--t2);margin-bottom:3px">By base type</div>';
