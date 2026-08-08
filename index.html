@@ -3454,12 +3454,18 @@ function loadAll() {
         var k = d.sym + '_' + TF;
         if(_tlSeen[k] && (_tlNow - _tlSeen[k]) < 12*3600000) return;
         _tlSeen[k] = _tlNow; _tlChanged = true;
+        // WORDING: "confirmed break" was ambiguous — it read as "yes, it broke".
+        // Spell out the three-step sequence so there is no doubt which stage
+        // fired: broke → came back → held. The break alone never sends this.
         var msg = d.resFlipHeld
-          ? '🧱 ' + d.pair + ' — broken RESISTANCE at ' + fE(d.resFlipLevel)
-            + ' is now HOLDING as support (retest ' + (d.resFlipBarsAgo||0) + ' bars ago)'
-          : '🔄 ' + d.pair + ' — broken trendline is HOLDING as support ('
-            + (d.tlTouches||0) + ' touches, retest ' + (d.tlRetestBarsAgo||0) + ' bars ago)'
-            + (retestOnly() ? ' — CONFIRMED break, this is the one that matters' : '');
+          ? '🧱 ' + d.pair + ' — RETEST HELD at ' + fE(d.resFlipLevel) + '\n'
+            + 'Step 1: price closed above this resistance. '
+            + 'Step 2: it came back down and touched the level. '
+            + 'Step 3: it closed back above and is still holding — the level has flipped to support.'
+          : '🔄 ' + d.pair + ' — RETEST HELD on the trendline\n'
+            + 'Step 1: price closed above a validated downtrend line (' + (d.tlTouches||0) + ' touches). '
+            + 'Step 2: it came back to the line ' + (d.tlRetestBarsAgo||0) + ' bars ago. '
+            + 'Step 3: it closed back above and is still holding — the line has flipped to support.';
         try { showToast(d, 'strong', msg); } catch(e){}
         try { addAlHistory(d, 'tl_flip', msg); } catch(e){}
         try { sendBrowserNotif(d, msg); } catch(e){}
@@ -8722,9 +8728,9 @@ var WATCH_TYPES = {
   holdSupport:  { label:'Holds support (wick down, closes back above)', icon:'🛡' },
   breakRes:     { label:'Breaks resistance (candle CLOSE above, volume ≥1.2×)', icon:'🚀' },
   accumZone:    { label:'Enters accumulation zone (near range low, volatility contracting)', icon:'🟦' },
-  trendlineBrk: { label:'Trendline break (validated downtrend line, fresh)', icon:'⚡' },
-  trendlineFlip:{ label:'Broken trendline now HOLDING as support (retest held)', icon:'🔄' },
-  levelFlip:    { label:'Broken RESISTANCE now HOLDING as support (the wall flipped)', icon:'🧱' },
+  trendlineBrk: { label:'Trendline BREAKS (the break itself — no retest yet)', icon:'⚡' },
+  trendlineFlip:{ label:'Trendline break RETESTED and HELD (broke → came back → held)', icon:'🔄' },
+  levelFlip:    { label:'Resistance break RETESTED and HELD (the wall flipped to support)', icon:'🧱' },
   liqSweep:     { label:'Liquidity sweep + reclaim', icon:'💧' },
   emaRetest:    { label:'Pulls back to EMA20/50 and holds', icon:'📉' },
   rsiOversold:  { label:'RSI drops below 35', icon:'📊' },
@@ -8855,10 +8861,10 @@ function renderWatchPanel(sym){
   h += '<div style="font-size:11px;color:var(--t2);margin-bottom:6px">Tell me when ANY of these happens on <b>'+(d?d.pair:sym)+'</b> — you get a notification, nothing is logged or traded.</div>';
   h += '<label style="display:flex;gap:7px;align-items:flex-start;font-size:11px;cursor:pointer;background:var(--card3);border-radius:6px;padding:7px 9px;margin-bottom:8px">'
      + '<input type="checkbox" '+(retestOnly()?'checked':'')+' onchange="toggleRetestOnly(this.checked)" style="cursor:pointer;margin-top:2px">'
-     + '<span><b>Only alert me once the break is RETESTED and held</b>'
+     + '<span><b>Only alert me at the RETEST, not at the break</b>'
      + '<span style="display:block;font-size:10px;color:var(--t3);margin-top:2px" id="retest-only-status">'
-     + (retestOnly() ? 'On — a bare break stays silent; you are told when the level flips to support'
-                     : 'Off — alerts on the bare break too')
+     + (retestOnly() ? 'On — the break itself stays silent. You are alerted only after price returns to the level and holds it.'
+                     : 'Off — you are alerted at the break, before any retest')
      + '</span>'
      + '<span style="display:block;font-size:9px;color:var(--t3);margin-top:3px;font-style:italic">A bare break fails 60%+ of the time in crypto; a break with a held retest is materially better. Bare breaks are still logged silently so the Coach can compare the two.</span>'
      + '</span></label>';
@@ -9112,11 +9118,24 @@ function checkAIMemoAlerts(data){
     if(mm.skip){
       if(!mm.zone) return;
       var _lo = mm.zone[0]*0.999, _hi = mm.zone[1]*1.001;
-      if(d.price >= _lo && d.price <= _hi){
-        mm.notified = true; changed = true;
-        var pl = '⏳ Pullback zone reached — re-analyse ' + mm.pair;
+      if(d.price >= _lo && d.price <= _hi && !mm.zoneLogged){
+        mm.notified = true; mm.zoneLogged = true; changed = true;
+        // LOG IT ANYWAY. The AI said skip, so this is not a recommendation —
+        // but recording what actually happened at the level is the only way to
+        // find out whether its skips were right. Tagged 'zone_only' so it never
+        // mixes with endorsed entries, and the unmet conditions are stored with
+        // the record so the Coach can attribute outcomes to specific gates.
+        var _unmet = (ev && ev.items) ? ev.items.filter(function(i){ return !i.met; })
+                                                .map(function(i){ return i.label; }) : ['AI verdict was SKIP'];
+        try {
+          openAITrade(mm, d, { fill:'zone_only', met: ev?ev.met:0, total: ev?ev.total:0,
+                               unmet:_unmet, skipVerdict:true });
+        } catch(e){}
+        var pl = '📍 ' + mm.pair + ' — entry level reached and LOGGED.\n'
+               + 'The AI said SKIP, so this is a tracked record, not a recommendation.\n'
+               + 'Not filled: ' + _unmet.join('; ') + '.';
         try { showToast(d, 'sweep', pl); } catch(e){}
-        try { addAlHistory(d, 'ai_pullback', pl); } catch(e){}
+        try { addAlHistory(d, 'ai_zone_only', pl); } catch(e){}
         try { sendBrowserNotif(d, pl); } catch(e){}
       }
       return;
@@ -9185,6 +9204,20 @@ function openAITrade(memo, d, opts){
   var stopPct = (entry - memo.sl)/entry*100;
   var tpPct   = (memo.tp1 - entry)/entry*100;
   if(tpPct <= 0 || stopPct <= 0) return;
+  // ── QUALITY GUARDS (added after a real case) ──────────────────────────────
+  // A TRX entry logged with TP just +0.03% away — R:R 0.02 — "won" in 4 minutes
+  // because a target that close is hit by ordinary noise. It then sat in the log
+  // inflating the win rate while representing nothing. Since every measurement
+  // layer runs on this log, junk entries defeat the whole point.
+  var _atrPct = d.atrPct || 2;
+  if(tpPct < _atrPct * 0.5){
+    try { console.log('AI trade skipped: TP only +'+tpPct.toFixed(2)+'% — inside the noise band (~'+(_atrPct*0.5).toFixed(2)+'%)'); } catch(e){}
+    return;
+  }
+  if((tpPct/stopPct) < 1.0){
+    try { console.log('AI trade skipped: R:R '+(tpPct/stopPct).toFixed(2)+' — reward below risk'); } catch(e){}
+    return;
+  }
   trades.unshift({
     id: memo.sym+'_ai_'+Date.now(), sym: memo.sym, pair: memo.pair, tf: memo.tf,
     entry: entry, sl: memo.sl, tp: memo.tp1, tp2: memo.tp2||null, tp3: memo.tp3||null,
@@ -9197,7 +9230,8 @@ function openAITrade(memo, d, opts){
     fill: opts.fill || 'full',                        // 'full' | 'zone_only'
     condsMet: opts.met != null ? opts.met : null,
     condsTotal: opts.total != null ? opts.total : null,
-    unmet: opts.unmet || null                         // which ones were missing
+    unmet: opts.unmet || null,                        // which ones were missing
+    skipVerdict: !!opts.skipVerdict                   // the AI had refused this setup
   });
   saveAITrades(trades);
   console.log('[AI trade] opened', memo.pair, 'entry', entry);
