@@ -2396,6 +2396,7 @@ function processSymbol(ticker) {
     // FIX 1: Full-history EMAs (on closed candles)
     var e20  = calcEMA(c, 20);
     var e50  = calcEMA(c, 50);
+    var e100 = calcEMA(c, Math.min(100, c.length));
     var e200 = calcEMA(c, Math.min(200, c.length));
 
     // FIX 2: RSI with flat-market guard (on closed candles)
@@ -2904,7 +2905,7 @@ function processSymbol(ticker) {
       tlRetestHeld: !!(_tl.down && _tl.down.retestHeld),
       tlRetestBarsAgo: (_tl.down && _tl.down.retestBarsAgo != null) ? _tl.down.retestBarsAgo : null, liqAbove:_liqUp, liqBelow:_liqDn, _ew:_ew,
       tlBounceUp:tlBounceUp, tlUpTouches:tlUpTouches, tlBreakDown:tlBreakDown,
-      rsi:rsi, ema20:e20, ema50:e50, ema200:e200,
+      rsi:rsi, ema20:e20, ema50:e50, ema100:e100, ema200:e200,
       trend:trend, volR:volR, atrPct:atrPct,
       fromHigh: (function(){ var hi=Math.max.apply(null,c.slice(-30)); return hi>0?(price-hi)/hi*100:0; })(),
       volZ: Math.round(volZ*100)/100,
@@ -4334,19 +4335,16 @@ function monitorAnalyse(sym, why){
     + '6. Respect the market gate. If the regime is risk_off or btc_season, alt setups have a documented negative edge in this traders own backtest (minus 0.34 percent when BTC falls versus plus 0.88 percent when it rises). In those regimes the honest verdict is almost always WAIT, and you must say why.\n'
     + '7. If the higher timeframe disagrees with the lower one, say so plainly. This traders own log shows counter-daily-trend entries won 14 percent versus 39 percent for aligned ones.\n'
     + '8. Before giving any plan, state the strongest argument AGAINST it in one line.\n\n'
-    + 'FORMAT — use these exact headings, keep the whole thing under 200 words:\n'
-    + 'PHASE: one of ACCUMULATION / MARKUP / EXTENDED / DISTRIBUTION / RANGE, with one line of evidence.\n'
-    + 'WHAT CHANGED: what is different since the last update. If nothing material, say so.\n'
-    + 'VERDICT: BUY ZONE / WAIT / NO SETUP.\n'
-    + 'If BUY ZONE, then also:\n'
-    + 'ENTRY: a price RANGE, anchored to a named level.\n'
-    + 'STOP: below the entry, outside the noise band, at a level that genuinely invalidates the idea.\n'
-    + 'TARGETS: T1 and T2 at named resistance or liquidity, each with its R multiple.\n'
-    + 'INVALIDATION: the price at which the thesis is dead, in words.\n'
-    + 'CASE AGAINST: the strongest reason this fails.\n'
-    + 'If WAIT or NO SETUP, then instead:\n'
-    + 'WHAT WOULD CHANGE IT: the specific, observable thing you need to see.\n\n'
-    + 'End with LEVELS_JSON on its own line containing only the numbers you named, or an empty object if there is no setup: {"entry":[lo,hi],"sl":x,"tp1":y,"tp2":z}';
+    + 'FORMAT — use these exact headings. Be SPECIFIC: name prices, not adjectives. Under 260 words.\n\n'
+    + 'PHASE: ACCUMULATION / MARKUP / EXTENDED / DISTRIBUTION / RANGE, with the evidence that decides it.\n\n'
+    + 'STRUCTURE: where price sits against each EMA (name the numbers), whether the stack is bullish or bearish, and what the swing structure is doing. If price is between two EMAs, say which one it is fighting.\n\n'
+    + 'LEVELS: the nearest resistance ABOVE and support BELOW with the distance in percent, and say what each one is made of — a moving average, a prior high, a liquidity pool, or several stacked together. A level backed by three things matters more than one backed by one.\n\n'
+    + 'VOLUME: what the volume is doing relative to normal, and whether it confirms or contradicts the price action. Rising price on falling volume is a warning; state it if you see it.\n\n'
+    + 'WHAT CHANGED: since the last update. If nothing material, say so in one line.\n\n'
+    + 'VERDICT: BUY ZONE / WAIT / NO SETUP.\n\n'
+    + 'If BUY ZONE:\nENTRY: a price range anchored to a named level.\nSTOP: below entry, outside the noise band, at genuine invalidation.\nTARGETS: T1 and T2 at named levels, each with its R multiple.\nCASE AGAINST: the strongest reason this fails.\n\n'
+    + 'If WAIT or NO SETUP:\nWHAT WOULD CHANGE IT: be precise and CHECKABLE. Name the price and the condition — for example "a 4h close above 0.7160 with volume above 1.5x" — never a vague state change. Do NOT list a condition that is already true; check the supplied market data first, and if a condition you were about to name is already satisfied, say so and move to the next one that is not.\n\n'
+    + 'End with LEVELS_JSON on its own line containing only the numbers you named, or {} if there is no setup: {"entry":[lo,hi],"sl":x,"tp1":y,"tp2":z}';
 
   var _lvl = function(v){ return (v!=null && isFinite(v)) ? fE(v) : 'n/a'; };
   var usr = 'COIN: ' + d.pair + ' on ' + (mon.tf||TF) + '\n'
@@ -4354,7 +4352,7 @@ function monitorAnalyse(sym, why){
     + 'ATR ' + (d.atrPct||0).toFixed(2) + '% — a stop tighter than ' + ((d.atrPct||2)*1.3).toFixed(2) + '% is inside the noise band\n'
     + 'Chart state: ' + st + '\n\n'
     + 'LEVELS\n'
-    + '  EMA20 ' + _lvl(d.ema20) + ' · EMA50 ' + _lvl(d.ema50) + ' · EMA200 ' + _lvl(d.ema200) + '\n'
+    + '  EMA20 ' + _lvl(d.ema20) + ' · EMA50 ' + _lvl(d.ema50) + ' · EMA100 ' + _lvl(d.ema100) + ' · EMA200 ' + _lvl(d.ema200) + '\n'
     + '  support ' + _lvl(d.sup) + ' · resistance ' + _lvl(d.res) + '\n'
     + (d.liqAbove ? '  liquidity above ' + _lvl(d.liqAbove) + ' (short stops / breakout orders)\n' : '')
     + (d.liqBelow ? '  liquidity below ' + _lvl(d.liqBelow) + ' (long stops — the flush target)\n' : '')
@@ -4368,8 +4366,12 @@ function monitorAnalyse(sym, why){
     + (d.earlyState ? '  Early Watch: ' + d.earlyState + (d.earlyBars ? ' (based ' + d.earlyBars + ' bars)' : '') + '\n' : '')
     + (d.resil ? '  on BTC down-bars this coin absorbed ' + Math.round(d.resil.capture*100) + '% of the fall\n' : '')
     + (d.earlyDna ? '  DNA: ' + d.earlyDna + (d.earlyGiveback!=null ? ' (' + d.earlyGiveback + '% average giveback after spikes)' : '') + '\n' : '')
-    + '\nMARKET\n'
-    + '  BTC ' + btcState + ' · breadth ' + _breadth + '% · regime ' + (_regime?_regime.mode:'n/a') + '\n'
+    + '\nMARKET RIGHT NOW (this is current — do not describe these as things that still need to happen)\n'
+    + '  regime: ' + (_regime?_regime.mode.toUpperCase():'n/a')
+    + (_regime && _regime.mode==='altseason' ? '  ← risk-on, alt entries are permitted' :
+       _regime && _regime.mode==='neutral' ? '  ← mixed, only high-quality setups' :
+       '  ← alt entries are gated off in this regime') + '\n'
+    + '  BTC ' + btcState + ' · breadth ' + _breadth + '%\n'
     + (_btcDom!=null ? '  BTC.D ' + _btcDom.toFixed(2) + '% · USDT.D ' + (_usdtDom!=null?_usdtDom.toFixed(2)+'%':'n/a') + '\n' : '')
     + (d.unlock && d.unlock.days <= 30 ? '  ⚠️ token unlock in ' + Math.round(d.unlock.days) + ' days ('
         + ((d.unlock.pctMcap!=null?d.unlock.pctMcap:d.unlock.pctSupply)||0).toFixed(1) + '% of market cap)\n' : '')
@@ -4392,7 +4394,13 @@ function monitorAnalyse(sym, why){
       }
     } catch(e){}
     var shown = String(txt||'').replace(/LEVELS_JSON[\s\S]*$/i, '').trim();
-    mon.updates.unshift({ ts:Date.now(), price:d.price, trigger:'ai', txt:(why||'manual update'), ai:shown.slice(0,1100) });
+    // Snapshot the market state this update was reasoning about. Without it,
+    // an update that said "wait for the regime to turn" still reads as current
+    // advice after the regime has already turned.
+    mon.updates.unshift({ ts:Date.now(), price:d.price, trigger:'ai',
+      txt:(why||'manual update'), ai:shown.slice(0,1400),
+      ctx: { regime: _regime?_regime.mode:null, btc: btcState, breadth: _breadth,
+             state: d._cs, price: d.price } });
     mon.updates = mon.updates.slice(0,40);
     mon.lastAnalysis = Date.now();
     var all = loadMonitors().map(function(x){ return x.sym===sym ? mon : x; });
@@ -4655,7 +4663,29 @@ function renderAgent(){
            + '<span>'+icon+'</span><span style="color:var(--t2);flex:1">'+u.txt+'</span>'
            + '<span style="color:var(--t3);white-space:nowrap">'+when+' · '+fE(u.price)+'</span></div>';
         if(u.ai){
-          h += '<div style="font-size:11px;color:var(--text);line-height:1.6;white-space:pre-wrap;margin-top:4px;background:var(--card3);border-radius:6px;padding:7px 9px">'
+          // STALENESS CHECK — has the world moved since this was written?
+          var stale = [];
+          if(u.ctx){
+            if(u.ctx.regime && _regime && u.ctx.regime !== _regime.mode)
+              stale.push('regime was ' + u.ctx.regime + ', now ' + _regime.mode);
+            if(u.ctx.btc && typeof btcState !== 'undefined' && u.ctx.btc !== btcState)
+              stale.push('BTC was ' + u.ctx.btc + ', now ' + btcState);
+            if(u.ctx.state && d && d._cs && u.ctx.state !== d._cs)
+              stale.push('chart state was ' + ((CHART_STATES[u.ctx.state]||{}).label||u.ctx.state)
+                       + ', now ' + ((CHART_STATES[d._cs]||{}).label||d._cs));
+            if(u.ctx.price && d && d.price){
+              var mv = (d.price - u.ctx.price)/u.ctx.price*100;
+              if(Math.abs(mv) >= (d.atrPct||2))
+                stale.push('price has moved ' + (mv>=0?'+':'') + mv.toFixed(1) + '% since');
+            }
+          }
+          if(stale.length){
+            h += '<div style="font-size:10px;color:var(--am);background:rgba(245,158,11,.10);border-left:3px solid var(--am);border-radius:5px;padding:6px 9px;margin-top:4px;line-height:1.5">'
+               + '⚠️ <b>This update is out of date</b> — ' + stale.join('; ')
+               + '. Re-run it before acting on anything below.</div>';
+          }
+          h += '<div style="font-size:11px;color:'+(stale.length?'var(--t2)':'var(--text)')+';line-height:1.6;white-space:pre-wrap;margin-top:4px;background:var(--card3);border-radius:6px;padding:7px 9px'
+             + (stale.length?';opacity:.72':'') + '">'
              + String(u.ai).replace(/</g,'&lt;') + '</div>';
         }
         h += '</div>';
@@ -4720,6 +4750,7 @@ function buildBTCPanel(){
   h += lvl('support', d.sup);
   h += lvl('EMA20', d.ema20);
   h += lvl('EMA50', d.ema50);
+  h += lvl('EMA100', d.ema100);
   h += lvl('EMA200', d.ema200);
   h += '</div></div>';
 
@@ -12827,6 +12858,7 @@ function _drawChartNow() {
     bearBody: '#ef5350',    // solid body: filled red
     ema20:    '#f7525f',    // red (TV default)
     ema50:    '#ff9800',    // orange
+    ema100:   '#b388ff',    // purple — the mid-term line between 50 and 200
     ema200:   '#43a0f7',    // blue
     volBull:  'rgba(38,166,154,.5)',
     volBear:  'rgba(239,83,80,.5)',
@@ -12922,6 +12954,7 @@ function _drawChartNow() {
   var closes  = klines.map(function(k) { return parseFloat(k[4]); });
   var ema20s  = calcEMAArr(closes, 20);
   var ema50s  = calcEMAArr(closes, 50);
+  var ema100s = calcEMAArr(closes, 100);
   var ema200s = calcEMAArr(closes, 200);
 
   // ════════════════════════════════════════════════════════════════════════
@@ -13098,7 +13131,7 @@ function _drawChartNow() {
 
   // 5. EMA lines
   if (ind.ema) {
-    [[ema20s, C.ema20, 1], [ema50s, C.ema50, 1], [ema200s, C.ema200, 1]].forEach(function(e) {
+    [[ema200s, C.ema200, 1], [ema100s, C.ema100, 1], [ema50s, C.ema50, 1], [ema20s, C.ema20, 1]].forEach(function(e) {
       var arr = e[0], col = e[1];
       ctx.strokeStyle = col;
       ctx.lineWidth = e[2];
@@ -13194,6 +13227,7 @@ function _drawChartNow() {
     var emaLabels = [
       {name:'EMA 20', col:C.ema20,  val: ema20s[offset+visible.length-1]},
       {name:'EMA 50', col:C.ema50,  val: ema50s[offset+visible.length-1]},
+      {name:'EMA 100',col:C.ema100, val: ema100s[offset+visible.length-1]},
       {name:'EMA 200',col:C.ema200, val: ema200s[offset+visible.length-1]},
     ];
     ctx.font = 'bold 11px -apple-system,sans-serif';
