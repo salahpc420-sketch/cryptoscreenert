@@ -516,6 +516,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
     <button class="intel-tab" id="it-sector" onclick="showIntel('sector')">🔄 Sectors</button>
     <button class="intel-tab" id="it-events" onclick="showIntel('events')">📅 Events <span id="it-events-badge" style="font-size:9px;font-weight:700;padding:0 5px;border-radius:99px"></span></button>
     <button class="intel-tab" id="it-candle" onclick="showIntel('candle')">⏰ Candles</button>
+    <button class="intel-tab" id="it-agent" onclick="showIntel('agent')">🤖 Agent <span id="it-agent-dot" class="idot"></span></button>
     <button class="intel-tab" id="it-moon" onclick="showIntel('moon')">🌙 Moon</button>
     <button class="intel-collapse" id="intel-collapse-btn" onclick="toggleIntelBar()" title="Collapse/expand">▲</button>
   </div>
@@ -587,6 +588,9 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       </div>
     </div>
     <!-- MOON -->
+    <div class="intel-panel" id="ip-agent">
+      <div id="agent-body"><div style="font-size:12px;color:var(--t3)">Loading…</div></div>
+    </div>
     <div class="intel-panel" id="ip-moon">
       <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
         <div style="display:flex;align-items:center;gap:7px">
@@ -3472,6 +3476,7 @@ function loadAll() {
       });
       if(_tlChanged) localStorage.setItem('tl_flip_seen', JSON.stringify(_tlSeen));
     } catch(e){}
+    try { checkMonitors(allData); } catch(e){}       // monitored-coin event detection
     try { checkPartialReadiness(allData); } catch(e){} // "almost ready" alerts naming what is missing
     try { checkChartStates(allData); } catch(e){}    // chart-state reads + BTC flip alert
     try { checkWatchers(allData); } catch(e){}       // user-defined coin watchers
@@ -4175,6 +4180,253 @@ function checkPartialReadiness(data){
     try { sendBrowserNotif(d, msg); } catch(e){}
   });
   if(changed){ try { localStorage.setItem('partial_seen', JSON.stringify(seen)); } catch(e){} }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MONITOR AGENT — "watch this coin and keep me updated."
+//
+// Design decision worth stating: this does NOT re-analyse continuously.
+// Running the AI every scan would burn quota to mostly repeat itself, because
+// nothing material changes minute to minute. Instead it watches for EVENTS and
+// analyses when something actually happened:
+//   • a 4h or 1d candle closed
+//   • the chart state flipped (e.g. neutral → bullish)
+//   • an entry condition was gained or lost
+//   • a key level broke, or a break was retested and held
+//   • price moved more than ~1.5 ATR since the last analysis
+// Each update is appended to a per-coin timeline, and every entry records WHAT
+// TRIGGERED IT — so the log reads as a narrative rather than a pile of snapshots.
+// ═══════════════════════════════════════════════════════════════════════════
+function loadMonitors(){ try{ return JSON.parse(localStorage.getItem('ai_monitors')||'[]'); }catch(e){ return []; } }
+function saveMonitors(m){ try{ localStorage.setItem('ai_monitors', JSON.stringify(m.slice(0,8))); }catch(e){} }
+
+function addMonitor(sym){
+  if(!sym) return;
+  var m = loadMonitors();
+  if(m.some(function(x){ return x.sym===sym; })) return;
+  if(m.length >= 6){ alert('Six coins is the practical limit — more than that and the updates stop being readable (and cost more than they inform).'); return; }
+  var d = (allData||[]).find(function(x){ return x.sym===sym; });
+  m.unshift({ sym:sym, pair:d?d.pair:sym, added:Date.now(), tf:TF,
+              lastPrice:d?d.price:null, lastState:d?d._cs:null, lastAnalysis:0,
+              lastReady:null, updates:[] });
+  saveMonitors(m); renderAgent();
+}
+function removeMonitor(sym){
+  saveMonitors(loadMonitors().filter(function(x){ return x.sym!==sym; }));
+  renderAgent();
+}
+
+// What changed since the last look? Returns a list of human-readable triggers.
+function _monitorTriggers(mon, d){
+  var t = [];
+  if(!d) return t;
+  if(mon.lastState && d._cs && mon.lastState !== d._cs){
+    var a = CHART_STATES[mon.lastState], b = CHART_STATES[d._cs];
+    t.push({ k:'state', txt:'chart state moved from ' + (a?a.label:mon.lastState) + ' to ' + (b?b.label:d._cs) });
+  }
+  if(mon.lastPrice && d.price){
+    var movePct = (d.price - mon.lastPrice)/mon.lastPrice*100;
+    var band = (d.atrPct||2) * 1.5;
+    if(Math.abs(movePct) >= band)
+      t.push({ k:'move', txt:'price moved ' + (movePct>=0?'+':'') + movePct.toFixed(1) + '% (more than 1.5 ATR) since the last update' });
+  }
+  if(d.tlRetestHeld) t.push({ k:'flip', txt:'a broken trendline was retested and HELD as support' });
+  if(d.resFlipHeld)  t.push({ k:'flip', txt:'broken resistance at ' + fE(d.resFlipLevel) + ' was retested and HELD' });
+  if(d.liq === 'buy_sweep') t.push({ k:'sweep', txt:'a liquidity sweep and reclaim occurred' });
+  // condition count changed on this coin's memo
+  try {
+    var memo = (loadAIMemos()||[]).find(function(x){ return x.sym===mon.sym; });
+    if(memo){
+      var ev = _evalMemoConditions(memo, d);
+      if(ev && mon.lastReady != null && ev.met !== mon.lastReady){
+        t.push({ k:'conds', txt:'entry conditions moved from ' + mon.lastReady + '/' + ev.total
+                 + ' to ' + ev.met + '/' + ev.total + (ev.met > mon.lastReady ? ' — closer' : ' — further away') });
+      }
+    }
+  } catch(e){}
+  return t;
+}
+
+// Runs every scan. Cheap checks only; the AI is called sparingly.
+function checkMonitors(data){
+  var mons = loadMonitors();
+  if(!mons.length) return;
+  var changed = false, now = Date.now();
+  mons.forEach(function(mon){
+    var d = (data||[]).find(function(x){ return x.sym===mon.sym; });
+    if(!d) return;
+    var trigs = _monitorTriggers(mon, d);
+    if(trigs.length){
+      trigs.forEach(function(tr){
+        mon.updates.unshift({ ts:now, price:d.price, trigger:tr.k, txt:tr.txt, ai:null });
+      });
+      mon.updates = mon.updates.slice(0, 40);
+      changed = true;
+      // notify on the material ones only
+      var loud = trigs.filter(function(x){ return x.k==='flip' || x.k==='state' || x.k==='sweep'; });
+      if(loud.length){
+        var msg = '👁 ' + mon.pair + ' — ' + loud.map(function(x){ return x.txt; }).join('; ');
+        try { showToast(d, 'strong', msg); } catch(e){}
+        try { addAlHistory(d, 'monitor', msg); } catch(e){}
+        try { sendBrowserNotif(d, msg); } catch(e){}
+      }
+    }
+    mon.lastPrice = d.price; mon.lastState = d._cs;
+    try {
+      var memo = (loadAIMemos()||[]).find(function(x){ return x.sym===mon.sym; });
+      if(memo){ var ev = _evalMemoConditions(memo, d); if(ev) mon.lastReady = ev.met; }
+    } catch(e){}
+  });
+  if(changed) saveMonitors(mons);
+  var dot = document.getElementById('it-agent-dot');
+  if(dot){
+    var fresh = mons.some(function(m){ return m.updates[0] && (now - m.updates[0].ts) < 3600000; });
+    dot.style.background = fresh ? 'var(--g)' : 'transparent';
+  }
+}
+
+// Called on candle close, and on demand. Costs one AI call.
+function monitorAnalyse(sym, why){
+  var mons = loadMonitors();
+  var mon = mons.find(function(x){ return x.sym===sym; });
+  var d = (allData||[]).find(function(x){ return x.sym===sym; });
+  if(!mon || !d) return;
+  var key = localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key');
+  if(!key){ alert('Add an AI key first (any coin → 🤖 Analyst → change key).'); return; }
+  var out = document.getElementById('mon-ai-'+sym);
+  if(out) out.innerHTML = '<span style="color:var(--t3);font-size:10px">Thinking…</span>';
+
+  var recent = mon.updates.slice(0,6).map(function(u){
+    return '- ' + new Date(u.ts).toLocaleString() + ' @ ' + fE(u.price) + ': ' + u.txt;
+  }).join('\n');
+  var st = d._cs ? (CHART_STATES[d._cs]||{}).label : 'unknown';
+  var memo = null;
+  try { memo = (loadAIMemos()||[]).find(function(x){ return x.sym===sym; }); } catch(e){}
+
+  var sys = 'You are monitoring one coin for a SPOT-ONLY trader (no leverage, no shorting, holds days to weeks, based in Japan).\n\n'
+    + 'You are giving an UPDATE, not a fresh analysis. The trader has been watching this coin and wants to know what changed and what it means.\n\n'
+    + 'RULES:\n'
+    + '1. Lead with what CHANGED since the last update. If nothing material changed, say exactly that in one line and stop.\n'
+    + '2. No price predictions, no probability percentages.\n'
+    + '3. Describe the chart as it IS. Distinguish clearly between what is observable and what is interpretation.\n'
+    + '4. If the honest answer is "still waiting, nothing to do", say it plainly. That is a useful update, not a failure.\n'
+    + '5. Name the specific level that would change your read, in both directions.\n'
+    + '6. Keep it under 120 words. This is a status update the trader will read on a phone.\n\n'
+    + 'FORMAT:\nWHAT CHANGED: one or two lines.\nWHAT IT MEANS: one or two lines for a spot trader.\nWATCHING: the level that matters next, up and down.';
+
+  var usr = 'COIN: ' + d.pair + ' on ' + (mon.tf||TF) + '\n'
+    + 'Price ' + fE(d.price) + ' (' + ((d.chg||0)>=0?'+':'') + (d.chg||0).toFixed(2) + '% 24h)\n'
+    + 'Chart state: ' + st + '\n'
+    + 'EMA20 ' + fE(d.ema20) + ' · EMA50 ' + fE(d.ema50) + ' · EMA200 ' + fE(d.ema200) + '\n'
+    + 'Support ' + fE(d.sup) + ' · Resistance ' + fE(d.res) + '\n'
+    + 'RSI ' + (d.rsi||0).toFixed(1) + ' · volume ' + (d.volR||0).toFixed(2) + 'x · structure ' + (d.struct||'-') + '\n'
+    + 'Market: BTC ' + btcState + ', breadth ' + _breadth + '%, regime ' + (_regime?_regime.mode:'n/a') + '\n'
+    + (memo && memo.zone ? 'Existing plan: entry ' + fE(memo.zone[0]) + '-' + fE(memo.zone[1]) + ', stop ' + fE(memo.sl) + '\n' : '')
+    + (recent ? '\nRECENT EVENTS ON THIS COIN:\n' + recent + '\n' : '')
+    + '\nTRIGGER FOR THIS UPDATE: ' + (why||'manual request');
+
+  _aiCallModel(sys, [{role:'user', content:usr}], null).then(function(txt){
+    mon.updates.unshift({ ts:Date.now(), price:d.price, trigger:'ai', txt:(why||'manual update'), ai:(txt||'').slice(0,900) });
+    mon.updates = mon.updates.slice(0,40);
+    mon.lastAnalysis = Date.now();
+    var all = loadMonitors().map(function(x){ return x.sym===sym ? mon : x; });
+    saveMonitors(all);
+    renderAgent();
+  }).catch(function(e){
+    if(out) out.innerHTML = '<span style="color:var(--r);font-size:10px">Failed: '+(e.message||e)+'</span>';
+  });
+}
+
+// Candle-close hook — analyse monitored coins when a bar closes.
+function monitorsOnCandleClose(tf){
+  if(tf !== '4h' && tf !== '1d') return;
+  var mons = loadMonitors();
+  mons.forEach(function(mon, i){
+    if(!mon.auto) return;
+    setTimeout(function(){ monitorAnalyse(mon.sym, tf + ' candle closed'); }, i * 3000);
+  });
+}
+function toggleMonitorAuto(sym, on){
+  var m = loadMonitors();
+  var mon = m.find(function(x){ return x.sym===sym; });
+  if(mon){ mon.auto = !!on; saveMonitors(m); }
+}
+
+
+function renderAgent(){
+  var body = document.getElementById('agent-body');
+  if(!body) return;
+  var mons = loadMonitors();
+  var h = '';
+
+  // ── add a coin ──
+  h += '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:.8rem">';
+  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🤖 Monitor agent</div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.7rem">Tell it which coins to watch and it keeps a running timeline: what changed, when, and what it means. It analyses on <b>events</b> — a candle closing, the chart state flipping, a level breaking, conditions gained or lost — not continuously, because re-running the AI when nothing has changed costs quota to repeat itself.</div>';
+  var opts = (allData||[]).slice().sort(function(a,b){ return (b.vol24||0)-(a.vol24||0); }).slice(0,80);
+  h += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">';
+  h += '<select id="mon-add" style="flex:1;min-width:150px;padding:6px 9px;border-radius:7px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:11px;font-family:inherit">';
+  h += '<option value="">Choose a coin to monitor…</option>';
+  opts.forEach(function(d){
+    if(mons.some(function(m){ return m.sym===d.sym; })) return;
+    h += '<option value="'+d.sym+'">'+d.pair+'</option>';
+  });
+  h += '</select>';
+  h += '<button onclick="var s=document.getElementById(\'mon-add\'); if(s&&s.value) addMonitor(s.value);" style="padding:6px 14px;border-radius:7px;border:none;background:var(--acc);color:#fff;font-weight:700;font-size:11px;cursor:pointer;font-family:inherit">Monitor this coin</button>';
+  h += '</div></div>';
+
+  if(!mons.length){
+    h += '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;font-size:11px;color:var(--t3);line-height:1.6">Nothing monitored yet. Pick a coin above and the agent starts tracking it — you will get a timeline of what changed, plus an AI read on each material event.<br><br>Six coins is the practical limit. Beyond that the updates stop being readable, and most of them will be noise.</div>';
+    body.innerHTML = h; return;
+  }
+
+  mons.forEach(function(mon){
+    var d = (allData||[]).find(function(x){ return x.sym===mon.sym; });
+    var st = (d && d._cs) ? CHART_STATES[d._cs] : null;
+    h += '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:.8rem">';
+    // header
+    h += '<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:.5rem">';
+    h += '<b style="font-size:14px">'+mon.pair+'</b>';
+    if(d) h += '<span style="font-size:12px;font-weight:700">'+fE(d.price)+'</span>'
+             + '<span style="font-size:11px;color:'+((d.chg||0)>=0?'var(--g)':'var(--r)')+'">'+((d.chg||0)>=0?'+':'')+(d.chg||0).toFixed(2)+'%</span>';
+    if(st) h += '<span style="font-size:11px;color:'+(d._cs==='bullish'?'var(--g)':d._cs==='bearish'?'var(--r)':'var(--t2)')+'">'+st.icon+' '+st.label+'</span>';
+    h += '<button onclick="removeMonitor(\''+mon.sym+'\')" style="margin-left:auto;padding:3px 9px;border-radius:5px;border:.5px solid var(--bd);background:var(--card);color:var(--t3);font-size:9px;cursor:pointer;font-family:inherit">stop watching</button>';
+    h += '</div>';
+    // controls
+    h += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:.6rem">';
+    h += '<button onclick="monitorAnalyse(\''+mon.sym+'\',\'manual request\')" style="padding:5px 12px;border-radius:6px;border:.5px solid var(--acc);background:transparent;color:var(--acc);font-size:10px;font-weight:700;cursor:pointer;font-family:inherit">🤖 Update now</button>';
+    h += '<label style="display:flex;gap:5px;align-items:center;font-size:10px;color:var(--t2);cursor:pointer">'
+       + '<input type="checkbox" '+(mon.auto?'checked':'')+' onchange="toggleMonitorAuto(\''+mon.sym+'\',this.checked)" style="cursor:pointer">'
+       + 'auto-update on 4h / 1d close</label>';
+    h += '<span id="mon-ai-'+mon.sym+'" style="font-size:10px"></span>';
+    h += '</div>';
+    // timeline
+    if(!mon.updates.length){
+      h += '<div style="font-size:11px;color:var(--t3)">Watching. Nothing has changed since you added it — the first update appears when something does.</div>';
+    } else {
+      h += '<div style="font-size:10px;font-weight:700;color:var(--t2);margin-bottom:4px">Timeline</div>';
+      mon.updates.slice(0,8).forEach(function(u){
+        var ago = Math.round((Date.now()-u.ts)/60000);
+        var when = ago < 60 ? ago+'m ago' : ago < 1440 ? Math.round(ago/60)+'h ago' : Math.round(ago/1440)+'d ago';
+        var icon = { state:'📊', move:'📈', flip:'🔄', sweep:'💧', conds:'✅', ai:'🤖' }[u.trigger] || '•';
+        h += '<div style="border-left:2px solid '+(u.ai?'var(--acc)':'var(--bd)')+';padding:4px 0 4px 9px;margin-bottom:4px">';
+        h += '<div style="display:flex;gap:7px;align-items:baseline;font-size:10px">'
+           + '<span>'+icon+'</span><span style="color:var(--t2);flex:1">'+u.txt+'</span>'
+           + '<span style="color:var(--t3);white-space:nowrap">'+when+' · '+fE(u.price)+'</span></div>';
+        if(u.ai){
+          h += '<div style="font-size:11px;color:var(--text);line-height:1.6;white-space:pre-wrap;margin-top:4px;background:var(--card3);border-radius:6px;padding:7px 9px">'
+             + String(u.ai).replace(/</g,'&lt;') + '</div>';
+        }
+        h += '</div>';
+      });
+      if(mon.updates.length > 8)
+        h += '<div style="font-size:9px;color:var(--t3)">+'+(mon.updates.length-8)+' older entries</div>';
+    }
+    h += '</div>';
+  });
+  h += '<div style="font-size:9px;color:var(--t3);font-style:italic;line-height:1.5;padding:0 .3rem">The agent reports what changed and what it means. It does not predict, and "nothing material changed" is a legitimate update — most of them should be.</div>';
+  body.innerHTML = h;
 }
 
 function buildBTCPanel(){
@@ -7226,7 +7478,7 @@ function renderJournal(){
 }
 
 function renderCoach(){
-  var _agentHTML = (function(){ try { return buildResearchAgentPanel() + buildBreakVsRetestPanel() + buildConditionValuePanel() + buildExportPanel() + buildABPanel() + buildGateBlockPanel() + buildEarlyAuditPanel() + buildLatenessPanel(); } catch(e){ return ''; } })();
+  var _agentHTML = (function(){ try { return buildBreakVsRetestPanel() + buildConditionValuePanel() + buildExportPanel() + buildABPanel() + buildGateBlockPanel() + buildEarlyAuditPanel() + buildLatenessPanel(); } catch(e){ return ''; } })();
   var body=document.getElementById('journal-body');
   if(!body) return;
   var C = buildCoachAdvice();
@@ -10751,7 +11003,7 @@ function togglePanel(id){
 
 // ── Market Intel tabbed bar ──────────────────────────────────────────────────
 function showIntel(which){
-  var tabs = ['macro','marketread','buyzone','regime','narr','sector','events','candle','moon'];
+  var tabs = ['macro','marketread','buyzone','regime','narr','sector','events','candle','moon','agent'];
   tabs.forEach(function(t){
     var tab = document.getElementById('it-'+t);
     var panel = document.getElementById('ip-'+t);
@@ -10760,6 +11012,7 @@ function showIntel(which){
   });
   if(which==='buyzone') renderBuyZone();
   if(which==='marketread') renderMarketRead();
+  if(which==='agent') renderAgent();
   // Make sure body is expanded when a tab is clicked
   var body = document.getElementById('intel-body');
   var btn = document.getElementById('intel-collapse-btn');
@@ -10903,6 +11156,7 @@ var candleWatcher = {
       try { localStorage.setItem('cc_last_closed', JSON.stringify(self.lastClosed)); } catch(e) {}
       toScan.forEach(function(tf) { self.runCandleAnalysis(tf); });
       toScan.forEach(function(tf) { try { btcAutoAnalyse(tf); } catch(e){} });
+      toScan.forEach(function(tf) { try { monitorsOnCandleClose(tf); } catch(e){} });
     }
 
     // Update countdown display
@@ -16873,15 +17127,8 @@ function renderMarketRead(){
   try { h += buildEarlyWatchPanel(); } catch(e){}
   // ── AI MARKET BRIEFING — one AI call summarizing the whole board on demand ──
   var hasKey = !!(localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key'));
-  h += '<div style="background:linear-gradient(135deg,rgba(124,77,255,.10),rgba(124,77,255,.02));border:.5px solid rgba(124,77,255,.35);border-radius:var(--rad-lg);padding:1rem;margin-bottom:1rem">';
-  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.5rem"><span style="font-size:16px">🤖</span><span style="font-size:13px;font-weight:800">AI Best-Setup Agent</span><span style="margin-left:auto;font-size:9px;color:var(--t3)">one call · rules scan 80 coins, AI ranks the survivors</span></div>';
-  if(hasKey){
-    h += '<button onclick="runMarketBriefing()" style="padding:9px 18px;border-radius:8px;border:none;background:#7c4dff;color:#fff;font-weight:800;cursor:pointer;font-family:inherit;font-size:13px">🤖 Rank the best setups now</button>';
-  } else {
-    h += '<div style="font-size:11px;color:var(--t2)">Add your free Gemini key (in any coin\'s Analyst tab) to enable the AI briefing.</div>';
-  }
-  h += '<div id="briefing-out" style="margin-top:.6rem"></div>';
-  h += '</div>';
+  // AI Best-Setup Agent removed — superseded by the Monitor Agent tab.
+  
   // ── ALT-WEATHER BANNER — shows WHY alt entries may be suppressed right now ──
   var altSuppress = _ethWeak || _btcDominanceRising || _breadthWeak;
   var reasons = [];
