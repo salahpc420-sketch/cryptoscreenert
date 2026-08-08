@@ -4458,10 +4458,12 @@ function verifyCatalysts(sym){
     + 'LAST 7 DAYS: anything material that happened — exploit, delisting, partnership, major announcement.\n'
     + 'NOTHING FOUND: list which of the above you could not verify.';
 
-  var usr = 'Coin: ' + name + ' (' + coin + '), currently trading at ' + fE(d.price) + '.\n'
-    + 'Today is ' + new Date().toISOString().slice(0,10) + '.\n'
-    + (d.unlock ? 'My data source says an unlock is due in ' + Math.round(d.unlock.days) + ' days ('
-       + ((d.unlock.pctMcap!=null?d.unlock.pctMcap:d.unlock.pctSupply)||0).toFixed(1) + '% of market cap) — please verify or correct this.\n' : '')
+  // Deliberately minimal — this call only needs the coin and the date. Sending
+  // chart context here would waste the free-tier token budget on data the
+  // search cannot use anyway.
+  var usr = 'Coin: ' + name + ' (' + coin + '). Today is ' + new Date().toISOString().slice(0,10) + '.\n'
+    + (d.unlock ? 'One source says a token unlock is due in ' + Math.round(d.unlock.days)
+       + ' days — verify or correct that.\n' : '')
     + 'What scheduled events are coming, and what material happened in the last 7 days?';
 
   // force the search-capable system for this call, then restore the user choice
@@ -8796,7 +8798,11 @@ function buildAskClaudeSection(d){
       h += '<select onchange="localStorage.setItem(\'groq_model\',this.value);" style="font-size:11px;padding:3px 6px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-family:inherit">';
       gopts.forEach(function(o){ h += '<option value="'+o[0]+'"'+(o[0]===gcur?' selected':'')+'>'+o[1]+'</option>'; });
       h += '</select>';
-      h += '<span style="font-size:9px;color:var(--t3)">free tier: ~14,400 requests/day, 250/day for search-capable Compound</span></div>';
+      h += '</div>';
+      h += '<div style="font-size:9px;color:var(--t3);margin-top:4px;line-height:1.55">'
+         + 'Free tier allows <b>30,000 tokens per minute</b>. Full coin analyses are token-heavy, so two or three in quick succession will hit that limit — wait a minute and retry. '
+         + 'Payloads are trimmed automatically to fit, which means a Groq analysis sees less history than the same analysis on Gemini or Claude.<br>'
+         + '<b>Suggested split:</b> keep Gemini or Claude for full analyses, and use Groq/Compound just for 🔍 Verify catalysts, where the search is what matters and the payload is tiny.</div>';
     }
     // OpenRouter users can pick which model to route to
     if((localStorage.getItem('ai_api_key')||'').indexOf('sk-or-')===0){
@@ -8969,20 +8975,53 @@ function _aiCallModel(sys, history, image){
     // separate search billing. That makes it the only genuinely free path to
     // fact-verification in this tool.
     var gqModel = localStorage.getItem('groq_model') || 'llama-3.3-70b-versatile';
-    var gMsgs = [{ role:'system', content: sys }].concat(history.map(function(m, i){
-      if (image && i === 0 && m.role === 'user') {
-        return { role:'user', content: [
-          { type:'text', text: m.content },
-          { type:'image_url', image_url: { url: 'data:image/png;base64,' + image } }
-        ]};
-      }
-      return { role: m.role, content: m.content };
-    }));
+    // ── FREE-TIER BUDGET ─────────────────────────────────────────────────────
+    // Groq's free tier allows 30,000 tokens per MINUTE. The full analyst payload
+    // (200 candles, DNA history, board context) runs far past that, producing
+    // either "Request Entity Too Large" or a 429. Trim to a budget that leaves
+    // room for the reply, keeping the END of the context — the recent data —
+    // because that is what matters for a trading read.
+    var TOK_BUDGET = 9000;                       // ≈ 36,000 chars, safely inside 30k TPM
+    function _clip(s, max){
+      s = String(s||'');
+      if(s.length <= max) return s;
+      return '[earlier context trimmed to fit the free-tier limit]\n' + s.slice(s.length - max);
+    }
+    var sysBudget = Math.min(sys.length, Math.round(TOK_BUDGET * 4 * 0.45));
+    var gSys = _clip(sys, sysBudget);
+    var remaining = (TOK_BUDGET * 4) - gSys.length;
+    var gMsgs = [{ role:'system', content: gSys }];
+    // walk history newest-first so the most recent turns survive the trim
+    var kept = [];
+    for(var hi = history.length - 1; hi >= 0; hi--){
+      var mm2 = history[hi];
+      var txt2 = String(mm2.content||'');
+      if(remaining <= 200) break;
+      if(txt2.length > remaining) txt2 = _clip(txt2, remaining);
+      remaining -= txt2.length;
+      kept.unshift({ role: mm2.role, content: txt2 });
+    }
+    gMsgs = gMsgs.concat(kept);
+    // Images are dropped on Groq: they consume a large share of the budget and
+    // the research found vision models near chance on candlestick reading, so
+    // the numbers are worth more than the picture here.
+    var _isCompound = gqModel.indexOf('compound') >= 0;
     return fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'content-type':'application/json', 'Authorization': 'Bearer ' + key },
-      body: JSON.stringify({ model: gqModel, messages: gMsgs, max_tokens: 2000, temperature: 0.4 })
-    }).then(function(r){ return r.json(); }).then(function(j){
+      body: JSON.stringify({ model: gqModel, messages: gMsgs,
+                             max_tokens: _isCompound ? 1200 : 1600, temperature: 0.4 })
+    }).then(function(r){
+      if(r.status === 413) throw new Error('TOO_BIG');
+      if(r.status === 429){
+        return r.json().then(function(j429){
+          var m429 = (j429 && j429.error && j429.error.message) || '';
+          var wait = (m429.match(/try again in ([\d.]+)s/)||[])[1];
+          throw new Error('RATE_LIMIT:' + (wait || '30'));
+        });
+      }
+      return r.json();
+    }).then(function(j){
       if (j.error) throw new Error(j.error.message || 'Groq error');
       var ch = j.choices && j.choices[0];
       if (!ch) throw new Error('Groq returned no choices');
@@ -9002,6 +9041,15 @@ function _aiCallModel(sys, history, image){
         if (srcs.length) txt += '\n\nSOURCES CHECKED: ' + srcs.join(' · ');
       }
       return txt;
+    }).catch(function(err){
+      var m = String(err.message||err);
+      if(m === 'TOO_BIG')
+        throw new Error('Payload too large for the Groq free tier (30,000 tokens/minute). Try again — the request is now trimmed automatically — or switch to Gemini for the full-context analyst and keep Groq for catalyst verification.');
+      if(m.indexOf('RATE_LIMIT:') === 0){
+        var secs = parseFloat(m.split(':')[1]) || 30;
+        throw new Error('Groq free-tier rate limit reached (30,000 tokens/minute). Wait about ' + Math.ceil(secs) + ' seconds and try again. Analyses are token-heavy, so a few in quick succession will hit this.');
+      }
+      throw err;
     });
   }
 
