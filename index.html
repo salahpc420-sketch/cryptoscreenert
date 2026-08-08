@@ -4444,23 +4444,39 @@ function setGroqKey(){
 // ── Dedicated search call. Deliberately NOT routed through _aiCallModel, so a
 //    large analyst payload can never reach it. Everything here is minimal:
 //    a short system prompt, one short question, and a small reply cap.
-function groqSearch(sys, usr){
+function groqSearch(sys, usr, opts){
   var k = groqKey();
   if(!k) return Promise.reject(new Error('No Groq key set.'));
+  opts = opts || {};
+  // ── WHY THIS IS SMALL ────────────────────────────────────────────────────
+  // A 413 here is NOT caused by the question — that is ~170 tokens. Compound
+  // runs the search server-side and injects the retrieved pages into context;
+  // with up to 10 parallel browsers that content alone can exceed the free
+  // tier's per-request context. So: use compound-mini (single search) first,
+  // cap the number of results, and restrict to sources worth reading.
+  var model = opts.model || 'groq/compound-mini';
   var body = {
-    model: 'groq/compound',
-    messages: [{ role:'system', content: String(sys).slice(0, 1200) },
-               { role:'user',   content: String(usr).slice(0, 600) }],
-    max_tokens: 900,
-    temperature: 0.2
+    model: model,
+    messages: [{ role:'system', content: String(sys).slice(0, 900) },
+               { role:'user',   content: String(usr).slice(0, 400) }],
+    max_tokens: 800,
+    temperature: 0.2,
+    search_settings: { max_results: opts.maxResults || 3 }
   };
   return fetch('https://api.groq.com/openai/v1/chat/completions', {
     method:'POST',
     headers:{ 'content-type':'application/json', 'Authorization':'Bearer '+k },
     body: JSON.stringify(body)
   }).then(function(r){
-    if(r.status === 413) throw new Error('Groq rejected the request as too large. This should not happen on a verification call — please report it.');
+    if(r.status === 413){
+      // retry once with the smallest possible search footprint
+      if(!opts.retried){
+        return groqSearch(sys, usr, { model:'groq/compound-mini', maxResults:1, retried:true });
+      }
+      throw new Error('Groq returned 413 even with a single search result. The free tier context is being exceeded by the retrieved pages, not by the question. Try again later, or check console.groq.com for model availability.');
+    }
     if(r.status === 401) throw new Error('Groq key rejected. Check it at console.groq.com.');
+    if(r.status === 404) throw new Error('Model "'+model+'" not found. Groq may have renamed it — check console.groq.com/docs/models.');
     if(r.status === 429){
       return r.json().then(function(j){
         var msg = (j && j.error && j.error.message) || '';
@@ -4468,8 +4484,14 @@ function groqSearch(sys, usr){
         throw new Error('Groq rate limit — wait about ' + Math.ceil(parseFloat(w)) + ' seconds.');
       });
     }
+    if(!r.ok){
+      return r.text().then(function(t){
+        throw new Error('Groq HTTP ' + r.status + ': ' + String(t).slice(0,180));
+      });
+    }
     return r.json();
   }).then(function(j){
+    if(!j) return '';
     if(j.error) throw new Error(j.error.message || 'Groq error');
     var ch = j.choices && j.choices[0];
     if(!ch) throw new Error('No response from Groq.');
@@ -4480,7 +4502,7 @@ function groqSearch(sys, usr){
       ex.forEach(function(t){
         try {
           var out = typeof t.output === 'string' ? JSON.parse(t.output) : t.output;
-          ((out && (out.results||out.sources)) || []).slice(0,4).forEach(function(r2){
+          ((out && (out.results||out.sources)) || []).slice(0,3).forEach(function(r2){
             if(r2 && (r2.title||r2.url)) srcs.push(r2.title || r2.url);
           });
         } catch(e){}
@@ -4488,6 +4510,43 @@ function groqSearch(sys, usr){
       if(srcs.length) txt += '\n\nSOURCES: ' + srcs.join(' · ');
     }
     return txt;
+  });
+}
+
+
+// Diagnostic: sends the smallest possible request with NO search, to separate
+// "the key/model is broken" from "the search results are too big".
+function groqTest(){
+  var out = document.getElementById('groq-test-out');
+  var k = groqKey();
+  if(!k){ if(out) out.innerHTML = '<span style="color:var(--am);font-size:10px">No Groq key set.</span>'; return; }
+  if(out) out.innerHTML = '<span style="color:var(--t3);font-size:10px">Testing…</span>';
+  var results = [];
+  // 1. plain model, no search at all
+  fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method:'POST', headers:{'content-type':'application/json','Authorization':'Bearer '+k},
+    body: JSON.stringify({ model:'llama-3.3-70b-versatile',
+      messages:[{role:'user',content:'Reply with the single word: ok'}], max_tokens:10 })
+  }).then(function(r){
+    results.push('plain model (no search): HTTP ' + r.status + (r.ok?' ✓':' ✗'));
+    // 2. compound-mini with one search result
+    return fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method:'POST', headers:{'content-type':'application/json','Authorization':'Bearer '+k},
+      body: JSON.stringify({ model:'groq/compound-mini',
+        messages:[{role:'user',content:'What is the current Bitcoin price? One sentence.'}],
+        max_tokens:120, search_settings:{ max_results:1 } })
+    });
+  }).then(function(r2){
+    results.push('compound-mini, 1 result: HTTP ' + r2.status + (r2.ok?' ✓':' ✗'));
+    return r2.ok ? r2.json() : r2.text();
+  }).then(function(j){
+    var detail = typeof j === 'string' ? String(j).slice(0,200)
+      : ((j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '').slice(0,140);
+    if(out) out.innerHTML = '<div style="font-size:10px;color:var(--t2);background:var(--card3);border-radius:6px;padding:7px 9px;margin-top:5px;line-height:1.6;white-space:pre-wrap">'
+      + results.join('\n') + '\n\n' + detail.replace(/</g,'&lt;') + '</div>';
+  }).catch(function(e){
+    if(out) out.innerHTML = '<div style="font-size:10px;color:var(--r);margin-top:5px">'
+      + results.join(' | ') + '\nError: ' + (e.message||e) + '</div>';
   });
 }
 
@@ -4505,12 +4564,11 @@ function verifyCatalysts(sym){
 
   var coin = d.pair.replace('/USDT','').replace('/JPY','');
   var name = (COIN_ALIASES[coin] && COIN_ALIASES[coin][0]) || coin;
-  var sys = 'You verify crypto events by searching the web. Report only what you can source.\n'
-    + 'Rules: state facts with dates; if you cannot find something say "not found"; never estimate or infer; '
-    + 'no price predictions or trading opinions; prefer official project and exchange sources; under 140 words.\n'
+  var sys = 'Search the web and report only sourced facts with dates. Say "not found" rather than guessing. '
+    + 'No price predictions or trading opinions. Under 120 words.\n'
     + 'Format:\nUNLOCKS: next unlock date and size, or not found.\n'
-    + 'UPCOMING: scheduled upgrade, mainnet, listing or migration with dates.\n'
-    + 'LAST 7 DAYS: anything material — exploit, delisting, major announcement.\n'
+    + 'UPCOMING: scheduled upgrade, listing or migration with dates.\n'
+    + 'LAST 7 DAYS: anything material.\n'
     + 'NOT FOUND: what you could not verify.';
   var usr = name + ' (' + coin + '). Today is ' + new Date().toISOString().slice(0,10) + '. '
     + (d.unlock ? 'One source claims an unlock in ' + Math.round(d.unlock.days) + ' days — verify. ' : '')
@@ -4540,6 +4598,8 @@ function renderAgent(){
         : '<span style="color:var(--am)">not set up</span> — ')
      + '<span onclick="setGroqKey()" style="text-decoration:underline;cursor:pointer;color:var(--acc)">'
      + (canVerify()?'change key':'add a free Groq key') + '</span>'
+     + (canVerify() ? ' · <span onclick="groqTest()" style="text-decoration:underline;cursor:pointer;color:var(--acc)">test connection</span>' : '')
+     + '<div id="groq-test-out"></div>'
      + '<span style="display:block;margin-top:2px">Separate from your analysis key and used only for this — so a large analysis payload can never hit the search limit.</span></div>';
   h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.7rem">Tell it which coins to watch and it keeps a running timeline: what changed, when, and what it means. It analyses on <b>events</b> — a candle closing, the chart state flipping, a level breaking, conditions gained or lost — not continuously, because re-running the AI when nothing has changed costs quota to repeat itself.</div>';
   var opts = (allData||[]).slice().sort(function(a,b){ return (b.vol24||0)-(a.vol24||0); }).slice(0,80);
