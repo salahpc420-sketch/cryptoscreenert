@@ -4558,8 +4558,170 @@ function groqTest(){
   });
 }
 
-function verifyCatalysts(sym){
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CATALYST CHECKLIST — facts, deliberately NOT a score.
+// A composite "catalyst score" was considered and rejected: this tool's own IC
+// Lab has five composite scores all reading FLAT across 20+ snapshots, and a
+// confident number built from correlated weak inputs is worse than no number,
+// because it hides which item is carrying the impression.
+// So each line is a sourced observation. Local data (volume, relative strength,
+// unlocks) comes from the tool. External facts (GitHub, governance, news) are
+// verified by search. You draw the conclusion.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Free, keyless, no auth: GitHub's public API. A dead repo is a real signal.
+function fetchGithubActivity(repo){
+  if(!repo) return Promise.resolve(null);
+  var since = new Date(Date.now() - 30*86400000).toISOString();
+  return _pfetch('https://api.github.com/repos/'+repo+'/commits?since='+since+'&per_page=100', 8000)
+    .then(function(j){
+      if(!Array.isArray(j)) return null;
+      var authors = {};
+      j.forEach(function(c2){
+        var a = c2.author && c2.author.login; if(a) authors[a] = 1;
+      });
+      return { commits: j.length, devs: Object.keys(authors).length,
+               last: j[0] && j[0].commit && j[0].commit.author && j[0].commit.author.date };
+    }).catch(function(){ return null; });
+}
+
+// Snapshot governance — free, no key. An active vote on tokenomics matters.
+function fetchGovernance(space){
+  if(!space) return Promise.resolve(null);
+  var q = { query: '{proposals(first:3,skip:0,where:{space_in:["'+space+'"],state:"active"},orderBy:"created",orderDirection:desc){title state end}}' };
+  return fetch('https://hub.snapshot.org/graphql', {
+    method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(q)
+  }).then(function(r){ return r.json(); })
+    .then(function(j){ return (j && j.data && j.data.proposals) || null; })
+    .catch(function(){ return null; });
+}
+
+// Known repo / governance-space mappings for the larger coins. Absent entries
+// simply skip those rows rather than guessing at a URL that may not exist.
+var COIN_SOURCES = {
+  BTC:{repo:'bitcoin/bitcoin'}, ETH:{repo:'ethereum/go-ethereum'},
+  SOL:{repo:'solana-labs/solana'}, ADA:{repo:'IntersectMBO/cardano-node'},
+  DOT:{repo:'paritytech/polkadot-sdk'}, AVAX:{repo:'ava-labs/avalanchego'},
+  LINK:{repo:'smartcontractkit/chainlink'}, ATOM:{repo:'cosmos/cosmos-sdk'},
+  NEAR:{repo:'near/nearcore'}, APT:{repo:'aptos-labs/aptos-core'},
+  SUI:{repo:'MystenLabs/sui'}, TIA:{repo:'celestiaorg/celestia-node'},
+  INJ:{repo:'InjectiveLabs/injective-core'}, SEI:{repo:'sei-protocol/sei-chain'},
+  ARB:{repo:'OffchainLabs/nitro', gov:'arbitrumfoundation.eth'},
+  OP:{repo:'ethereum-optimism/optimism', gov:'opcollective.eth'},
+  UNI:{repo:'Uniswap/v3-core', gov:'uniswapgovernance.eth'},
+  AAVE:{repo:'aave/aave-v3-core', gov:'aave.eth'},
+  CRV:{repo:'curvefi/curve-contract', gov:'curve.eth'},
+  LDO:{repo:'lidofinance/lido-dao', gov:'lido-snapshot.eth'},
+  MKR:{repo:'makerdao/dss'}, SNX:{repo:'Synthetixio/synthetix'},
+  RUNE:{repo:'thorchain/thornode'}, FIL:{repo:'filecoin-project/lotus'},
+  TRX:{repo:'tronprotocol/java-tron'}, XRP:{repo:'XRPLF/rippled'},
+  LTC:{repo:'litecoin-project/litecoin'}, ALGO:{repo:'algorand/go-algorand'},
+  HBAR:{repo:'hashgraph/hedera-services'}, GRT:{repo:'graphprotocol/graph-node'},
+  STX:{repo:'stacks-network/stacks-core'}, KAS:{repo:'kaspanet/rusty-kaspa'},
+  TAO:{repo:'opentensor/bittensor'}, ENA:{gov:'ethena.eth'}, PENDLE:{repo:'pendle-finance/pendle-core-v2-public'}
+};
+
+function buildCatalystChecklist(sym){
   var out = document.getElementById('verify-'+sym);
+  var d = (allData||[]).find(function(x){ return x.sym===sym; });
+  if(!d || !out) return;
+  var coin = d.pair.replace('/USDT','').replace('/JPY','');
+  var src = COIN_SOURCES[coin] || {};
+  out.innerHTML = '<div style="font-size:10px;color:var(--t3);margin-top:6px">Checking…</div>';
+
+  var rows = [];
+  function row(icon, label, value, note, tone){
+    return { icon:icon, label:label, value:value, note:note||'', tone:tone||'neutral' };
+  }
+
+  // ── LOCAL FACTS — already measured, no call needed ──
+  if(d.volZ != null){
+    var vTone = d.volZ >= 2 ? 'good' : d.volZ <= -1 ? 'warn' : 'neutral';
+    rows.push(row('📊','Volume', d.volZ.toFixed(1)+'σ vs its own normal',
+      d.volZ>=2 ? 'genuinely abnormal — the one volume construct with cross-sectional support'
+      : d.volZ<=-1 ? 'unusually quiet' : 'within normal range', vTone));
+  }
+  if(d.resil){
+    var cap = Math.round(d.resil.capture*100);
+    rows.push(row('📈','Strength vs BTC', cap<=0 ? 'rose while BTC fell' : 'absorbed '+cap+'% of BTC falls',
+      'measured on '+d.resil.downBars+' BTC down-bars · beat BTC on '+d.resil.heldPct+'% of them',
+      cap<50 ? 'good' : cap>100 ? 'warn' : 'neutral'));
+  }
+  if(d.unlock){
+    var sz = (d.unlock.pctMcap!=null?d.unlock.pctMcap:d.unlock.pctSupply)||0;
+    rows.push(row('🔓','Token unlock', Math.round(d.unlock.days)+' days · '+sz.toFixed(1)+'% of mcap',
+      sz>=3 ? 'scheduled dilution — the one catalyst knowable in advance' : 'small enough to ignore',
+      sz>=3 ? 'bad' : 'neutral'));
+  } else {
+    rows.push(row('🔓','Token unlock','none in the next 45 days','from DefiLlama emissions','neutral'));
+  }
+  if(d.earlyState){
+    rows.push(row('🌱','Base structure', d.earlyState.replace('_',' '),
+      (d.earlyBars?'based '+d.earlyBars+' bars':'')+(d.earlyDna?' · DNA '+d.earlyDna:''), 'neutral'));
+  }
+  if(d.catalysts && d.catalysts.length){
+    var types = {};
+    d.catalysts.forEach(function(ev){ ev.types.forEach(function(t){ types[t]=1; }); });
+    var ks = Object.keys(types);
+    var bad = ks.some(function(k){ return ['unlock','delist','exploit'].indexOf(k)>=0; });
+    rows.push(row('📰','Headlines', ks.map(function(k){ return (CATALYST_TYPES[k]||{}).label||k; }).join(', '),
+      'from '+d.catalysts.length+' matched headlines in your feeds', bad?'bad':'good'));
+  } else {
+    rows.push(row('📰','Headlines','nothing matched','no events for this coin in your 7 RSS feeds','neutral'));
+  }
+
+  function render(extra){
+    var all = rows.concat(extra||[]);
+    var h = '<div style="background:var(--card3);border-radius:8px;padding:10px 12px;margin-top:6px">';
+    h += '<div style="font-size:11px;font-weight:700;margin-bottom:6px">Catalyst checklist — '+d.pair+'</div>';
+    all.forEach(function(r){
+      var col = r.tone==='good'?'var(--g)':r.tone==='bad'?'var(--r)':r.tone==='warn'?'var(--am)':'var(--t2)';
+      h += '<div style="display:flex;gap:8px;align-items:baseline;font-size:11px;padding:4px 0;border-top:.5px solid var(--bd)">'
+         + '<span>'+r.icon+'</span>'
+         + '<span style="color:var(--t3);min-width:104px">'+r.label+'</span>'
+         + '<span style="color:'+col+';font-weight:600;flex:1">'+r.value+'</span></div>';
+      if(r.note) h += '<div style="font-size:9px;color:var(--t3);padding-left:30px;margin-top:-2px">'+r.note+'</div>';
+    });
+    h += '<div style="font-size:9px;color:var(--t3);margin-top:9px;font-style:italic;line-height:1.5">'
+       + 'Deliberately not scored. Five composite scores in this tool already read FLAT in the IC Lab — combining weak correlated signals into one confident number hides which item is carrying the impression. Read the rows.</div>';
+    h += '</div>';
+    out.innerHTML = h;
+  }
+  render();
+
+  // ── EXTERNAL FACTS — fetched in parallel, appended as they land ──
+  var extra = [];
+  Promise.all([
+    src.repo ? fetchGithubActivity(src.repo) : Promise.resolve(null),
+    src.gov  ? fetchGovernance(src.gov)      : Promise.resolve(null)
+  ]).then(function(res){
+    var gh = res[0], gov = res[1];
+    if(gh){
+      var tone = gh.commits >= 30 ? 'good' : gh.commits >= 5 ? 'neutral' : 'bad';
+      extra.push(row('🛠','Development', gh.commits+' commits / 30d · '+gh.devs+' devs',
+        gh.commits < 5 ? 'very quiet — a dead repo is a real signal' : src.repo, tone));
+    } else if(src.repo){
+      extra.push(row('🛠','Development','could not fetch', src.repo, 'neutral'));
+    }
+    if(gov && gov.length){
+      extra.push(row('🗳','Governance', gov.length+' active proposal'+(gov.length>1?'s':''),
+        gov.map(function(p){ return p.title.slice(0,60); }).join(' · '), 'neutral'));
+    } else if(src.gov){
+      extra.push(row('🗳','Governance','no active proposals', src.gov, 'neutral'));
+    }
+    render(extra);
+    // then the search-verified layer, if a Groq key is present
+    if(canVerify()){
+      var vd = document.createElement('div');
+      vd.id = 'verify-search-'+sym; out.appendChild(vd);
+      verifyCatalysts(sym, 'verify-search-'+sym);
+    }
+  });
+}
+
+function verifyCatalysts(sym, targetId){
+  var out = document.getElementById(targetId || ('verify-'+sym));
   var d = (allData||[]).find(function(x){ return x.sym===sym; });
   if(!d) return;
   if(!canVerify()){
@@ -4645,7 +4807,7 @@ function renderAgent(){
     h += '<label style="display:flex;gap:5px;align-items:center;font-size:10px;color:var(--t2);cursor:pointer">'
        + '<input type="checkbox" '+(mon.auto?'checked':'')+' onchange="toggleMonitorAuto(\''+mon.sym+'\',this.checked)" style="cursor:pointer">'
        + 'auto-update on 4h / 1d close</label>';
-    h += '<button onclick="verifyCatalysts(\''+mon.sym+'\')" title="Search the web for scheduled events on this coin" style="padding:5px 12px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:10px;cursor:pointer;font-family:inherit">🔍 Verify catalysts</button>';
+    h += '<button onclick="buildCatalystChecklist(\''+mon.sym+'\')" title="Check unlocks, development, governance, volume, strength and news" style="padding:5px 12px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:10px;cursor:pointer;font-family:inherit">🔍 Catalyst checklist</button>';
     h += '<span id="mon-ai-'+mon.sym+'" style="font-size:10px"></span>';
     h += '</div>';
     h += '<div id="verify-'+mon.sym+'"></div>';
