@@ -2503,6 +2503,10 @@ function processSymbol(ticker) {
       return null;
     })();
 
+    // TREND CASCADE — resampled from these same candles, no extra API calls
+    var _casc = null;
+    try { _casc = computeCascade(h, l, c, v, TF); } catch(e){}
+
     // ── EARLY-WATCH FEATURES v2 — read like a trader, not like an indicator ──
     // v1 flaw (found by testing): a coin bleeding out ALSO has contracting
     // volatility and dead volume, so a 45% decline scored as a "tight base".
@@ -2900,6 +2904,7 @@ function processSymbol(ticker) {
     return {
       sym:sym, pair:pair, price:price, chg:chg, vol24:vol24, vol24usd:vol24usd,
       tlBreakUp:tlBreakUp, tlTouches:tlTouches,
+      cascade: _casc, cascPhase: _casc ? _casc.phase : null,
       resFlipHeld: !!_resFlip, resFlipLevel: _resFlip ? _resFlip.level : null,
       resFlipBarsAgo: _resFlip ? _resFlip.barsAgo : null,
       tlRetestHeld: !!(_tl.down && _tl.down.retestHeld),
@@ -3497,6 +3502,7 @@ function loadAll() {
       if(_tlChanged) localStorage.setItem('tl_flip_seen', JSON.stringify(_tlSeen));
     } catch(e){}
     try { checkConfluence(allData); } catch(e){}     // TA + catalyst hard-gate alignment
+    try { checkCascade(allData); } catch(e){}        // 1h → 4h → 1d trend cascade
     try { runPipeline(allData); } catch(e){}         // TA trigger → analyst → catalyst veto
     try { checkMonitors(allData); } catch(e){}       // monitored-coin event detection
     try { checkPartialReadiness(allData); } catch(e){} // "almost ready" alerts naming what is missing
@@ -4675,6 +4681,162 @@ var COIN_SOURCES = {
 // counter-trend; +0.88% versus -0.34% edge by regime). Seeing them beats
 // silently ignoring them.
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TREND CASCADE — catching an uptrend while it is still establishing.
+//
+// A new uptrend does not appear on every timeframe at once. It shows on the
+// fastest chart first and propagates upward. Where you enter in that sequence
+// decides almost everything:
+//
+//   PHASE 1  1h turned up, 4h and 1d have not      earliest, weakest, most false starts
+//   PHASE 2  1h and 4h agree, daily not yet        EARLY BUT CONFIRMED — the target zone
+//   PHASE 3  1h, 4h and daily all agree            confirmed and usually late
+//
+// This is the mechanism behind this trader's own A-grade inversion: A-grades
+// (everything aligned = phase 3) won 7%, B-grades won 42%. By the time all
+// timeframes agree, the move has been paid for.
+//
+// Higher timeframes are RESAMPLED from the candles already fetched, so this
+// costs no extra API calls.
+// ═══════════════════════════════════════════════════════════════════════════
+var TF_MINUTES = { '15m':15, '1h':60, '4h':240, '1d':1440, '1w':10080 };
+
+// Aggregate N base candles into one higher-timeframe candle.
+function _resample(h, l, c, v, factor){
+  if(factor <= 1) return { h:h, l:l, c:c, v:v };
+  var H=[],L=[],C=[],V=[];
+  // walk backwards so the most recent bucket is complete-aligned to the latest bar
+  for(var end = c.length; end > 0; end -= factor){
+    var start = Math.max(0, end - factor);
+    var hi=-Infinity, lo=Infinity, vol=0;
+    for(var i=start;i<end;i++){ if(h[i]>hi)hi=h[i]; if(l[i]<lo)lo=l[i]; vol+=v[i]||0; }
+    H.unshift(hi); L.unshift(lo); C.unshift(c[end-1]); V.unshift(vol);
+  }
+  return { h:H, l:L, c:C, v:V };
+}
+
+// Is this timeframe in an uptrend? Deliberately simple and checkable —
+// price above a fast MA, fast above slow, and structure not making lower lows.
+function _tfUp(h, l, c){
+  if(!c || c.length < 25) return null;
+  var e20 = calcEMA(c, Math.min(20, c.length));
+  var e50 = calcEMA(c, Math.min(50, c.length));
+  var px = c[c.length-1];
+  var score = 0;
+  if(px > e20) score++;
+  if(e20 > e50) score++;
+  // rising lows over the last stretch
+  var n = c.length, half = Math.min(10, Math.floor(n/3));
+  if(half >= 3){
+    var lo1 = Math.min.apply(null, l.slice(n-half*2, n-half));
+    var lo2 = Math.min.apply(null, l.slice(n-half));
+    if(lo2 > lo1) score++;
+  }
+  return { up: score >= 2, score: score, ema20: e20, ema50: e50 };
+}
+
+// Build the cascade for one coin from its base candles.
+function computeCascade(h, l, c, v, baseTf){
+  var baseMin = TF_MINUTES[baseTf] || 60;
+  var out = {};
+  ['1h','4h','1d'].forEach(function(tf){
+    var need = TF_MINUTES[tf];
+    if(need < baseMin) return;                       // cannot build a faster TF
+    var factor = Math.round(need / baseMin);
+    var r = _resample(h, l, c, v, factor);
+    var s = _tfUp(r.h, r.l, r.c);
+    if(s) out[tf] = s;
+  });
+  var up1 = out['1h'] ? out['1h'].up : null;
+  var up4 = out['4h'] ? out['4h'].up : null;
+  var upD = out['1d'] ? out['1d'].up : null;
+  var phase = null, label = '', note = '';
+  if(up1 && up4 && upD){ phase = 3; label = 'Phase 3 — all timeframes aligned';
+    note = 'Confirmed, but usually late. Your own log: A-grade setups like this won 7% versus 42% for less perfect ones.'; }
+  else if(up1 && up4){ phase = 2; label = 'Phase 2 — 1h and 4h agree, daily not yet';
+    note = 'Early but confirmed on two timeframes. This is the zone worth watching — a trend establishing, not one already paid for.'; }
+  else if(up1){ phase = 1; label = 'Phase 1 — only 1h has turned';
+    note = 'Earliest and weakest. Most of these fail before the 4h confirms. Watch, do not act.'; }
+  else if((up4 || upD) && !up1){ phase = 0;
+    label = 'Pullback — ' + (upD ? 'daily' : '4h') + ' still up, 1h has rolled over';
+    note = 'The buyable kind of weakness IF the higher timeframe holds. This is the shape that precedes phase 2 — watch for the 1h to turn back up.'; }
+  else if(upD && !up4){ phase = 0; label = 'Pullback — daily up, 4h has rolled over';
+    note = 'A deeper pullback inside a daily uptrend. Wait for the 4h to stabilise.'; }
+  return { tf:out, phase:phase, label:label, note:note, up1:up1, up4:up4, upD:upD };
+}
+
+
+// Panel + alert. Phase 2 is the one that notifies, because it is the only
+// phase that is both early and confirmed.
+function checkCascade(data){
+  if(!data || !data.length) return;
+  var seen = {};
+  try { seen = JSON.parse(localStorage.getItem('cascade_seen')||'{}'); } catch(e){}
+  var now = Date.now(), changed = false;
+  data.forEach(function(d){
+    if(!d.cascade || d.cascade.phase !== 2) return;
+    if((d.vol24||0) < 5000000) return;
+    var prev = seen[d.sym];
+    if(prev && (now - prev.ts) < 12*3600000) return;
+    // only fire on the TRANSITION into phase 2, not while it sits there
+    if(prev && prev.phase === 2){ seen[d.sym] = { ts:prev.ts, phase:2 }; return; }
+    seen[d.sym] = { ts:now, phase:2 }; changed = true;
+    var msg = '🌅 ' + d.pair + ' — trend building: 1h and 4h now both up, daily not yet.\n'
+            + 'This is the early-but-confirmed phase. By the time the daily agrees the move is usually paid for '
+            + '(your log: A-grade setups won 7% versus 42% for less perfect ones).\n'
+            + 'A shortlist alert — check the pullback level before acting.';
+    try { showToast(d, 'strong', msg); } catch(e){}
+    try { addAlHistory(d, 'cascade', msg); } catch(e){}
+    try { sendBrowserNotif(d, msg); } catch(e){}
+  });
+  data.forEach(function(d){
+    if(d.cascade && d.cascade.phase !== 2 && seen[d.sym]){ seen[d.sym].phase = d.cascade.phase; changed = true; }
+  });
+  if(changed){ try { localStorage.setItem('cascade_seen', JSON.stringify(seen)); } catch(e){} }
+}
+
+function buildCascadePanel(){
+  var rows = (allData||[]).filter(function(d){ return d.cascade && d.cascade.phase != null && (d.vol24||0) > 3000000; });
+  if(!rows.length) return '';
+  var byPhase = { 2:[], 1:[], 3:[], 0:[] };
+  rows.forEach(function(d){ if(byPhase[d.cascade.phase]) byPhase[d.cascade.phase].push(d); });
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.3rem">'
+     + '<span style="font-size:15px">🌅</span><span style="font-size:13px;font-weight:700">Trend cascade — how far along is it?</span></div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.7rem">An uptrend appears on the fast chart first and works upward. <b>Where you enter in that sequence decides almost everything.</b> Higher timeframes are resampled from the same candles, so this costs nothing extra.</div>';
+
+  function section(phase, icon, title, sub, col){
+    var list = byPhase[phase] || [];
+    h += '<div style="border-top:.5px solid var(--bd);padding:7px 0">';
+    h += '<div style="display:flex;gap:7px;align-items:baseline;font-size:11px;font-weight:700;color:'+col+'">'
+       + '<span>'+icon+'</span><span>'+title+'</span>'
+       + '<span style="margin-left:auto;font-weight:400;color:var(--t3);font-size:10px">'+list.length+' coins</span></div>';
+    h += '<div style="font-size:9px;color:var(--t3);margin:2px 0 4px">'+sub+'</div>';
+    if(!list.length){ h += '<div style="font-size:10px;color:var(--t3)">none</div></div>'; return; }
+    list.sort(function(a,b){ return (b.vol24||0)-(a.vol24||0); }).slice(0,8).forEach(function(d){
+      h += '<div style="display:flex;gap:8px;align-items:baseline;font-size:10px;padding:2px 0">'
+         + '<b style="min-width:88px">'+d.pair+'</b>'
+         + '<span style="color:var(--t3)">'+fE(d.price)+'</span>'
+         + '<span style="color:'+((d.chg||0)>=0?'var(--g)':'var(--r)')+'">'+((d.chg||0)>=0?'+':'')+(d.chg||0).toFixed(1)+'%</span>'
+         + (d.resil ? '<span style="margin-left:auto;color:var(--t3)">held '+Math.round(100-d.resil.capture*100)+'% vs BTC</span>' : '')
+         + '</div>';
+    });
+    h += '</div>';
+  }
+  section(2,'🎯','Phase 2 — 1h and 4h agree, daily not yet',
+    'Early but confirmed. The zone worth watching.', 'var(--g)');
+  section(1,'🌱','Phase 1 — only 1h has turned',
+    'Earliest and weakest. Most fail before the 4h confirms. Watch, do not act.', 'var(--am)');
+  section(0,'📉','Pullback — higher TF up, 1h rolled over',
+    'The buyable kind of weakness IF the higher timeframe holds.', 'var(--t2)');
+  section(3,'✅','Phase 3 — everything aligned',
+    'Confirmed but usually late. Your log: A-grades won 7% versus 42% for less perfect setups.', 'var(--t3)');
+
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:9px;font-style:italic;line-height:1.5">Descriptive, not predictive — it reports which timeframes have turned, not what happens next. Phase 2 is where a trend is establishing rather than one already paid for, which is why it is the only phase that alerts.</div>';
+  return h + '</div>';
+}
+
 function pipelineEnabled(){ return localStorage.getItem('pipeline_on') === '1'; }
 function togglePipeline(on){
   localStorage.setItem('pipeline_on', on ? '1' : '0');
@@ -17951,6 +18113,7 @@ function renderMarketRead(){
   try { h += buildCapitulationPanel(); } catch(e){}
   try { h += buildRegimePanel(); } catch(e){}
   try { h += buildRatiosPanel(); } catch(e){}
+  try { h += buildCascadePanel(); } catch(e){}
   try { h += buildPipelinePanel(); } catch(e){}
   try { h += buildConfluencePanel(); } catch(e){}
   try { h += buildUnlockPanel(); } catch(e){}
