@@ -3496,6 +3496,8 @@ function loadAll() {
       });
       if(_tlChanged) localStorage.setItem('tl_flip_seen', JSON.stringify(_tlSeen));
     } catch(e){}
+    try { checkConfluence(allData); } catch(e){}     // TA + catalyst hard-gate alignment
+    try { runPipeline(allData); } catch(e){}         // TA trigger → analyst → catalyst veto
     try { checkMonitors(allData); } catch(e){}       // monitored-coin event detection
     try { checkPartialReadiness(allData); } catch(e){} // "almost ready" alerts naming what is missing
     try { checkChartStates(allData); } catch(e){}    // chart-state reads + BTC flip alert
@@ -4642,6 +4644,335 @@ var COIN_SOURCES = {
   STX:{repo:'stacks-network/stacks-core'}, KAS:{repo:'kaspanet/rusty-kaspa'},
   TAO:{repo:'opentensor/bittensor'}, ENA:{gov:'ethena.eth'}, PENDLE:{repo:'pendle-finance/pendle-core-v2-public'}
 };
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONFLUENCE ALERT — TA and catalysts combined, as HARD GATES not a score.
+//
+// The difference matters. A composite score (92/100) can be carried by two
+// strong items while three are weak, and hides which. This requires EVERY
+// evidenced condition to pass at once. Fewer alerts, each one meaning the
+// same thing every time.
+//
+// Every gate below is an item with measured support, and nothing else is in
+// here — no partnership news, no sentiment, no base-structure framing.
+//   TA : regime permits · higher timeframe aligned · held up when BTC fell
+//        · structure confirmed (retest held, not a bare break)
+//   FA : no large unlock in the window · volume not in the caution zone
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LIVE PIPELINE — TA fires, then catalysts verify or veto.
+//
+// Sequential, not parallel. Stage 1 watches the chart for a technical trigger.
+// Stage 2 asks the AI analyst whether it is actually a buy. Stage 3 checks the
+// catalyst facts, which can VETO. Only a trigger that survives all three
+// notifies you.
+//
+// Regime and daily trend are deliberately NOT blocking here, at the user's
+// request — but they are still reported in the alert, because they remain the
+// two best-evidenced filters in this tool (39% vs 14% win rate aligned versus
+// counter-trend; +0.88% versus -0.34% edge by regime). Seeing them beats
+// silently ignoring them.
+// ═══════════════════════════════════════════════════════════════════════════
+function pipelineEnabled(){ return localStorage.getItem('pipeline_on') === '1'; }
+function togglePipeline(on){
+  localStorage.setItem('pipeline_on', on ? '1' : '0');
+  var s = document.getElementById('pipe-status');
+  if(s) s.textContent = on ? 'On — watching for technical triggers' : 'Off';
+}
+
+// STAGE 1 — the technical trigger. Only events with measured support qualify.
+function _taTrigger(d){
+  if(!d || !d.price) return null;
+  if(d.resFlipHeld)   return { k:'level_flip', txt:'broken resistance at '+fE(d.resFlipLevel)+' retested and HELD' };
+  if(d.tlRetestHeld)  return { k:'tl_flip',    txt:'broken trendline retested and HELD ('+(d.tlTouches||0)+' touches)' };
+  if(d.earlyState === 'triggered') return { k:'base_break', txt:'base breakout confirmed on volume expansion' };
+  if(d.liq === 'buy_sweep')        return { k:'sweep',      txt:'liquidity sweep and reclaim' };
+  if(d.emaRetest && d.emaRetest.state === 'retest_completed')
+                                   return { k:'ema_retest', txt:'pullback to EMA held' };
+  return null;
+}
+
+// STAGE 3 — catalyst facts that can veto a technical signal.
+function _catalystVeto(d){
+  var vetoes = [], notes = [];
+  if(d.unlock){
+    var sz = (d.unlock.pctMcap!=null?d.unlock.pctMcap:d.unlock.pctSupply)||0;
+    if(sz >= 3 && d.unlock.days <= 21)
+      vetoes.push('token unlock in '+Math.round(d.unlock.days)+' days, '+sz.toFixed(1)+'% of market cap — roughly 90% of unlocks are negative, averaging -17% within 72 hours');
+    else if(sz >= 1)
+      notes.push('unlock in '+Math.round(d.unlock.days)+' days ('+sz.toFixed(1)+'% of mcap) — small');
+  }
+  if(d.catalysts && d.catalysts.length){
+    var bad = [];
+    d.catalysts.forEach(function(ev){
+      ev.types.forEach(function(t){
+        if(['exploit','delist'].indexOf(t) >= 0) bad.push((CATALYST_TYPES[t]||{}).label||t);
+      });
+    });
+    if(bad.length) vetoes.push('recent headline: ' + bad.join(', '));
+  }
+  if(d.volZ != null && d.volZ >= 3)
+    notes.push('volume '+d.volZ.toFixed(1)+'σ — extreme. High abnormal volume has predicted LOWER forward returns');
+  if(d.earlyDna === 'Pumper' || d.earlyDna === 'Bleeder')
+    notes.push('DNA '+d.earlyDna+(d.earlyGiveback!=null?' ('+d.earlyGiveback+'% average giveback)':''));
+  return { vetoes: vetoes, notes: notes, clear: vetoes.length === 0 };
+}
+
+// The pipeline itself. Runs each scan; the AI is called only when stage 1 fires.
+function runPipeline(data){
+  if(!pipelineEnabled() || !data || !data.length) return;
+  var key = localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key');
+  if(!key) return;
+  var seen = {};
+  try { seen = JSON.parse(localStorage.getItem('pipeline_seen')||'{}'); } catch(e){}
+  var now = Date.now(), changed = false;
+  var queue = [];
+  data.forEach(function(d){
+    if((d.vol24||0) < 5000000) return;                 // unfillable is not a setup
+    var trig = _taTrigger(d);
+    if(!trig) return;
+    if(seen[d.sym] && (now - seen[d.sym]) < 12*3600000) return;
+    seen[d.sym] = now; changed = true;
+    queue.push({ d:d, trig:trig });
+  });
+  if(changed){ try { localStorage.setItem('pipeline_seen', JSON.stringify(seen)); } catch(e){} }
+  // stagger so several triggers do not fire the AI simultaneously
+  queue.slice(0, 3).forEach(function(item, i){
+    setTimeout(function(){ _pipelineAsk(item.d, item.trig); }, i * 4000);
+  });
+}
+
+// STAGE 2 + 3 — ask the analyst, then apply the catalyst check to its answer.
+function _pipelineAsk(d, trig){
+  var cat = _catalystVeto(d);
+  var st = d._cs ? (CHART_STATES[d._cs]||{}).label : 'unknown';
+  var dt = window._dailyTrend && window._dailyTrend[d.sym];
+
+  var sys = 'You are checking one technical trigger for a SPOT-ONLY trader (no leverage, no shorting, days to weeks).\n\n'
+    + 'A technical event just fired. Decide whether it is actually worth acting on.\n\n'
+    + 'RULES:\n'
+    + '1. NO is a first-class answer and usually the right one. Most triggers are not trades.\n'
+    + '2. No price predictions, no probabilities. Anchor every level to the data supplied.\n'
+    + '3. The stop must sit below entry and outside the noise band (the coin ATR is given).\n'
+    + '4. Reward must at least match risk, or there is no setup.\n'
+    + '5. State the strongest argument against before any plan.\n\n'
+    + 'Answer in this exact shape, under 130 words:\n'
+    + 'VERDICT: BUY / NO\n'
+    + 'WHY: one or two lines.\n'
+    + 'If BUY — ENTRY: range · STOP: level · TARGET: level with its R multiple.\n'
+    + 'AGAINST: the strongest reason this fails.';
+
+  var usr = d.pair + ' at ' + fE(d.price) + ' on ' + TF + '\n'
+    + 'TRIGGER: ' + trig.txt + '\n'
+    + 'ATR ' + (d.atrPct||0).toFixed(2) + '% — a stop tighter than ' + ((d.atrPct||2)*1.3).toFixed(2) + '% is inside the noise\n'
+    + 'Chart: ' + st + ' · RSI ' + (d.rsi||0).toFixed(1) + ' · volume ' + (d.volR||0).toFixed(2) + 'x\n'
+    + 'EMA20 ' + fE(d.ema20) + ' · EMA50 ' + fE(d.ema50) + ' · EMA100 ' + fE(d.ema100) + ' · EMA200 ' + fE(d.ema200) + '\n'
+    + 'Support ' + fE(d.sup) + ' · resistance ' + fE(d.res) + '\n'
+    + 'Context (not disqualifying, but relevant): daily trend '
+    + (dt===true?'UP':dt===false?'DOWN':'unknown') + ', market regime ' + (_regime?_regime.mode:'n/a') + '\n'
+    + (cat.notes.length ? 'Catalyst notes: ' + cat.notes.join('; ') + '\n' : '')
+    + 'Is this trigger worth acting on?';
+
+  _aiCallModel(sys, [{role:'user', content:usr}], null).then(function(txt){
+    var t = String(txt||'');
+    var isBuy = /VERDICT:\s*BUY/i.test(t);
+    // STAGE 3 — catalysts can veto a BUY, but never manufacture one.
+    var blocked = isBuy && !cat.clear;
+    var head = blocked ? '⛔ ' + d.pair + ' — TA said BUY, catalyst check VETOED it'
+             : isBuy   ? '✅ ' + d.pair + ' — TA and catalysts both clear'
+                       : '➖ ' + d.pair + ' — trigger fired, analyst said no';
+    var body = head + '\n'
+      + 'Trigger: ' + trig.txt + '\n'
+      + (blocked ? 'VETO: ' + cat.vetoes.join('; ') + '\n' : '')
+      + (cat.notes.length && !blocked ? 'Note: ' + cat.notes.join('; ') + '\n' : '')
+      + 'Context: daily ' + (dt===true?'up':dt===false?'DOWN':'?')
+      + ', regime ' + (_regime?_regime.mode:'n/a')
+      + ((dt===false || (_regime && _regime.mode==='risk_off'))
+         ? ' — both were negative in your own data (14% vs 39% win rate counter-trend; -0.34% vs +0.88% edge by regime)' : '')
+      + '\n\n' + t.replace(/LEVELS_JSON[\s\S]*$/i,'').trim();
+
+    // Only a clean BUY notifies loudly; the rest is logged for the record.
+    try { addAlHistory(d, 'pipeline', body); } catch(e){}
+    if(isBuy && !blocked){
+      try { showToast(d, 'strong', body); } catch(e){}
+      try { sendBrowserNotif(d, body); } catch(e){}
+    } else if(blocked){
+      try { showToast(d, 'sweep', head + ' — ' + cat.vetoes[0]); } catch(e){}
+      try { sendBrowserNotif(d, head + '\n' + cat.vetoes.join('; ')); } catch(e){}
+    }
+    // keep a record so the Coach can grade the pipeline later
+    try {
+      var log = JSON.parse(localStorage.getItem('pipeline_log')||'[]');
+      log.unshift({ ts:Date.now(), sym:d.sym, pair:d.pair, price:d.price, trigger:trig.k,
+                    verdict: isBuy ? (blocked?'vetoed':'buy') : 'no',
+                    vetoes: cat.vetoes, daily: dt, regime: _regime?_regime.mode:null,
+                    text: t.slice(0,600) });
+      localStorage.setItem('pipeline_log', JSON.stringify(log.slice(0,120)));
+    } catch(e){}
+  }).catch(function(){});
+}
+
+function buildPipelinePanel(){
+  var log = [];
+  try { log = JSON.parse(localStorage.getItem('pipeline_log')||'[]'); } catch(e){}
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">⚡ Live pipeline — TA fires, catalysts verify</div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">Watches every coin for a technical trigger. When one fires it asks the analyst whether it is actually a buy, then checks the catalyst facts, which can veto. Only a trigger that survives all three reaches you.</div>';
+  h += '<label style="display:flex;gap:7px;align-items:center;font-size:11px;cursor:pointer;margin-bottom:.5rem">'
+     + '<input type="checkbox" '+(pipelineEnabled()?'checked':'')+' onchange="togglePipeline(this.checked)" style="cursor:pointer">'
+     + '<b>Run the pipeline automatically</b></label>';
+  h += '<div id="pipe-status" style="font-size:10px;color:var(--t3);margin-bottom:.5rem">'
+     + (pipelineEnabled()?'On — watching for technical triggers':'Off')+'</div>';
+  h += '<div style="font-size:9px;color:var(--t3);line-height:1.55;margin-bottom:.6rem">Costs one AI call per trigger, capped at 3 per scan and deduped 12h per coin. Regime and daily trend do not block here — but they are reported, because they remain the two best-evidenced filters in this tool.</div>';
+  if(log.length){
+    h += '<div style="font-size:10px;font-weight:700;color:var(--t2);margin-bottom:3px">Recent</div>';
+    log.slice(0,8).forEach(function(r){
+      var icon = r.verdict==='buy' ? '✅' : r.verdict==='vetoed' ? '⛔' : '➖';
+      var col  = r.verdict==='buy' ? 'var(--g)' : r.verdict==='vetoed' ? 'var(--r)' : 'var(--t3)';
+      var ago = Math.round((Date.now()-r.ts)/3600000);
+      h += '<div style="display:flex;gap:8px;align-items:baseline;font-size:10px;padding:3px 0;border-top:.5px solid var(--bd)">'
+         + '<span>'+icon+'</span><b style="min-width:88px">'+r.pair+'</b>'
+         + '<span style="color:'+col+'">'+(r.verdict==='vetoed'?(r.vetoes[0]||'vetoed').slice(0,54):r.trigger)+'</span>'
+         + '<span style="margin-left:auto;color:var(--t3)">'+ago+'h ago</span></div>';
+    });
+  } else {
+    h += '<div style="font-size:11px;color:var(--t3)">Nothing yet. Triggers are rare by design — a held retest, a confirmed base breakout, a sweep reclaim, or an EMA pullback that held.</div>';
+  }
+  return h + '</div>';
+}
+
+function evaluateConfluence(d){
+  if(!d || !d.price) return null;
+  var gates = [];
+
+  // ── 1. REGIME (TA/market) — your own backtest: +0.88% edge when BTC rises,
+  //      -0.34% when it falls. This is the single most replicated result you have.
+  var regOk = _regime && (_regime.mode === 'altseason' || _regime.mode === 'neutral');
+  gates.push({ k:'regime', ok:regOk, label:'Market regime permits alt entries',
+    detail: _regime ? _regime.mode : 'unknown',
+    why:'Compression and breakout setups returned -0.34% edge when BTC was falling versus +0.88% when rising.' });
+
+  // ── 2. HIGHER TIMEFRAME (TA) — your log: 14% win counter-trend vs 39% aligned.
+  var dt = window._dailyTrend && window._dailyTrend[d.sym];
+  gates.push({ k:'htf', ok: dt === true, label:'Daily trend agrees',
+    detail: dt === true ? 'daily up' : dt === false ? 'daily DOWN' : 'unknown',
+    why:'Counter-daily-trend entries won 14% in your own log versus 39% for aligned ones.' });
+
+  // ── 3. RELATIVE STRENGTH (TA) — the best-evidenced positive signal available.
+  var capOk = d.resil && d.resil.downBars >= 6 && d.resil.capture < 0.5;
+  gates.push({ k:'rs', ok:!!capOk, label:'Held up while BTC fell',
+    detail: d.resil ? (d.resil.capture<=0 ? 'rose while BTC fell'
+            : 'absorbed '+Math.round(d.resil.capture*100)+'% of the falls')
+            : 'not enough BTC weakness to measure',
+    why:'Relative strength during downturns has the strongest factor support in the crypto cross-section.' });
+
+  // ── 4. STRUCTURE (TA) — a HELD RETEST, not a bare break. Bare breaks fail 60%+.
+  var structOk = !!(d.tlRetestHeld || d.resFlipHeld ||
+                    (d.earlyState === 'continuation') || d.earlyState === 'triggered');
+  gates.push({ k:'struct', ok:structOk, label:'Structure confirmed',
+    detail: d.resFlipHeld ? 'resistance flipped to support'
+          : d.tlRetestHeld ? 'trendline retest held'
+          : d.earlyState === 'continuation' ? 'continuation base'
+          : d.earlyState === 'triggered' ? 'base breakout triggered'
+          : 'nothing confirmed',
+    why:'A break with a held retest is materially better than a bare break, which fails over 60% of the time.' });
+
+  // ── 5. UNLOCK (FA) — ~90% of unlocks are negative, mean -17% within 72h,
+  //      pressure building from ~30 days out. Defensive gate.
+  var uSize = d.unlock ? ((d.unlock.pctMcap!=null?d.unlock.pctMcap:d.unlock.pctSupply)||0) : 0;
+  var unlockOk = !d.unlock || d.unlock.days > 21 || uSize < 3;
+  gates.push({ k:'unlock', ok:unlockOk, label:'No large unlock approaching',
+    detail: d.unlock ? (Math.round(d.unlock.days)+'d · '+uSize.toFixed(1)+'% of mcap') : 'none in 45 days',
+    why:'Around 90% of unlocks are negative for price, averaging -17% within 72 hours.' });
+
+  // ── 6. VOLUME (FA/flow) — SIGN CORRECTED. High abnormal volume predicted LOWER
+  //      forward returns in crypto, so an extreme spike is a caution, not a tick.
+  var volOk = d.volZ == null || d.volZ < 2.5;
+  gates.push({ k:'vol', ok:volOk, label:'Volume not in the caution zone',
+    detail: d.volZ != null ? d.volZ.toFixed(1)+'σ' : 'unknown',
+    why:'High abnormal volume has predicted LOWER forward returns cross-sectionally, and is where wash trading concentrates.' });
+
+  // ── 7. LIQUIDITY — a setup you cannot fill is not a setup.
+  gates.push({ k:'liq', ok:(d.vol24||0) > 5000000, label:'Liquid enough to trade',
+    detail:'$'+Math.round((d.vol24||0)/1e6)+'M / 24h', why:'Slippage eats thin-market edges.' });
+
+  var passed = gates.filter(function(g){ return g.ok; }).length;
+  return { gates:gates, passed:passed, total:gates.length, allPass: passed === gates.length };
+}
+
+// Runs each scan. Deliberately fires rarely — every gate must pass.
+function checkConfluence(data){
+  if(!data || !data.length) return;
+  var seen = {};
+  try { seen = JSON.parse(localStorage.getItem('confluence_seen')||'{}'); } catch(e){}
+  var now = Date.now(), changed = false, hits = [];
+  data.forEach(function(d){
+    var r = evaluateConfluence(d);
+    d._conf = r;
+    if(!r || !r.allPass) return;
+    if(seen[d.sym] && (now - seen[d.sym]) < 24*3600000) return;
+    seen[d.sym] = now; changed = true; hits.push(d);
+  });
+  if(changed){ try { localStorage.setItem('confluence_seen', JSON.stringify(seen)); } catch(e){} }
+  hits.forEach(function(d){
+    var msg = '🎯 ' + d.pair + ' — ALL 7 conditions aligned (technical + catalyst).\n'
+            + 'Regime permits · daily trend up · held up when BTC fell · structure confirmed · '
+            + 'no unlock approaching · volume normal · liquid.\n'
+            + 'This is a shortlist alert, not a recommendation — check the levels before acting.';
+    try { showToast(d, 'strong', msg); } catch(e){}
+    try { addAlHistory(d, 'confluence', msg); } catch(e){}
+    try { sendBrowserNotif(d, msg); } catch(e){}
+    // If this coin is monitored, have the agent write the combined read.
+    try {
+      if(loadMonitors().some(function(m){ return m.sym===d.sym; }))
+        monitorAnalyse(d.sym, 'all 7 confluence conditions aligned');
+    } catch(e){}
+  });
+}
+
+function buildConfluencePanel(){
+  var rows = (allData||[]).map(function(d){ return { d:d, r:d._conf || evaluateConfluence(d) }; })
+                          .filter(function(x){ return x.r; });
+  if(!rows.length) return '';
+  rows.sort(function(a,b){ return b.r.passed - a.r.passed; });
+  var full = rows.filter(function(x){ return x.r.allPass; });
+  var near = rows.filter(function(x){ return !x.r.allPass && x.r.passed >= x.r.total - 1; });
+
+  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.3rem">'
+     + '<span style="font-size:15px">🎯</span><span style="font-size:13px;font-weight:700">Confluence — technical and catalyst aligned</span>'
+     + '<span style="margin-left:auto;font-size:9px;color:var(--t3)">'+full.length+' of '+rows.length+' pass all 7</span></div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">Seven conditions, each with measured support, and <b>all</b> must pass. Not a score — a score can be carried by two strong items while three are weak, and hides which. This fires rarely by design.</div>';
+
+  if(full.length){
+    full.slice(0,6).forEach(function(x){
+      h += '<div style="border-top:.5px solid var(--bd);padding:6px 0">'
+         + '<div style="display:flex;gap:8px;align-items:baseline;font-size:12px">'
+         + '<b style="min-width:92px">'+x.d.pair+'</b>'
+         + '<span style="color:var(--g);font-weight:700;font-size:11px">✅ all 7 aligned</span>'
+         + '<span style="margin-left:auto;font-size:10px;color:var(--t3)">'+fE(x.d.price)+'</span></div>'
+         + '<div style="font-size:9px;color:var(--t3);margin-top:2px">'
+         + x.r.gates.map(function(g){ return g.detail; }).join(' · ') + '</div></div>';
+    });
+  } else {
+    h += '<div style="font-size:11px;color:var(--t3);padding:4px 0">No coin currently passes all seven. In a weak tape that is the expected answer, not a failure.</div>';
+  }
+
+  if(near.length){
+    h += '<div style="font-size:10px;font-weight:700;color:var(--t2);margin:9px 0 3px">One condition short</div>';
+    near.slice(0,6).forEach(function(x){
+      var miss = x.r.gates.filter(function(g){ return !g.ok; })[0];
+      h += '<div style="display:flex;gap:8px;align-items:baseline;font-size:10px;padding:2px 0">'
+         + '<b style="min-width:88px;color:var(--t2)">'+x.d.pair+'</b>'
+         + '<span style="color:var(--am)">waiting on: '+(miss?miss.label:'—')+'</span>'
+         + '<span style="margin-left:auto;color:var(--t3)">'+(miss?miss.detail:'')+'</span></div>';
+    });
+  }
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:9px;font-style:italic;line-height:1.5">Each gate is an item with measured evidence — regime, higher-timeframe agreement, relative strength in downturns, a held retest, unlock proximity, volume, liquidity. Nothing here is sentiment, news matching or partnership announcements, which have no measured forward edge. Passing all seven is a reason to LOOK, not a reason to buy.</div>';
+  return h + '</div>';
+}
 
 function buildCatalystChecklist(sym){
   var out = document.getElementById('verify-'+sym);
@@ -17620,6 +17951,8 @@ function renderMarketRead(){
   try { h += buildCapitulationPanel(); } catch(e){}
   try { h += buildRegimePanel(); } catch(e){}
   try { h += buildRatiosPanel(); } catch(e){}
+  try { h += buildPipelinePanel(); } catch(e){}
+  try { h += buildConfluencePanel(); } catch(e){}
   try { h += buildUnlockPanel(); } catch(e){}
   try { h += buildCatalystPanel(); } catch(e){}
   try { h += buildResiliencePanel(); } catch(e){}
