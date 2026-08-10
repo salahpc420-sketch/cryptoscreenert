@@ -4599,6 +4599,27 @@ function fetchGovernance(space){
 
 // Known repo / governance-space mappings for the larger coins. Absent entries
 // simply skip those rows rather than guessing at a URL that may not exist.
+
+// Official project accounts. Searching these specifically is the difference
+// between reading ANNOUNCEMENTS and reading sentiment: the project's own post
+// about a mainnet date is a fact; a reply guy's opinion about it is not.
+// Sentiment scanning was considered and rejected — a peer-reviewed VAR study
+// found returns cause sentiment rather than the reverse, and X is the most
+// manipulated source available (paid promotion, bots, coordinated shilling).
+var COIN_HANDLES = {
+  BTC:'Bitcoin', ETH:'ethereum', SOL:'solana', ADA:'Cardano', DOT:'Polkadot',
+  AVAX:'avax', LINK:'chainlink', ATOM:'cosmos', NEAR:'NEARProtocol', APT:'Aptos',
+  SUI:'SuiNetwork', TIA:'celestia', INJ:'injective', SEI:'SeiNetwork',
+  ARB:'arbitrum', OP:'Optimism', UNI:'Uniswap', AAVE:'aave', CRV:'CurveFinance',
+  LDO:'LidoFinance', MKR:'MakerDAO', SNX:'synthetix_io', RUNE:'THORChain',
+  FIL:'Filecoin', TRX:'trondao', XRP:'Ripple', LTC:'litecoin', ALGO:'Algorand',
+  HBAR:'hedera', GRT:'graphprotocol', STX:'Stacks', KAS:'KaspaCurrency',
+  TAO:'opentensor', ENA:'ethena_labs', JUP:'JupiterExchange', PYTH:'PythNetwork',
+  STRK:'Starknet', TON:'ton_blockchain', RENDER:'rendernetwork', FET:'Fetch_ai',
+  WLD:'worldcoin', ONDO:'OndoFinance', PENDLE:'pendle_fi', DOGE:'dogecoin',
+  SHIB:'Shibtoken', PEPE:'pepecoineth', BONK:'bonk_inu', WIF:'dogwifcoin'
+};
+
 var COIN_SOURCES = {
   BTC:{repo:'bitcoin/bitcoin'}, ETH:{repo:'ethereum/go-ethereum'},
   SOL:{repo:'solana-labs/solana'}, ADA:{repo:'IntersectMBO/cardano-node'},
@@ -4635,40 +4656,54 @@ function buildCatalystChecklist(sym){
     return { icon:icon, label:label, value:value, note:note||'', tone:tone||'neutral' };
   }
 
-  // ── LOCAL FACTS — already measured, no call needed ──
-  if(d.volZ != null){
-    var vTone = d.volZ >= 2 ? 'good' : d.volZ <= -1 ? 'warn' : 'neutral';
-    rows.push(row('📊','Volume', d.volZ.toFixed(1)+'σ vs its own normal',
-      d.volZ>=2 ? 'genuinely abnormal — the one volume construct with cross-sectional support'
-      : d.volZ<=-1 ? 'unusually quiet' : 'within normal range', vTone));
-  }
-  if(d.resil){
-    var cap = Math.round(d.resil.capture*100);
-    rows.push(row('📈','Strength vs BTC', cap<=0 ? 'rose while BTC fell' : 'absorbed '+cap+'% of BTC falls',
-      'measured on '+d.resil.downBars+' BTC down-bars · beat BTC on '+d.resil.heldPct+'% of them',
-      cap<50 ? 'good' : cap>100 ? 'warn' : 'neutral'));
-  }
+  // ── THE THREE ITEMS THE EVIDENCE SUPPORTS ────────────────────────────────
+  // Cut from seven to three after a catalyst-impact review. Removed: partnership
+  // announcements (no measured edge), general headline matching (attention-driven
+  // buying returns -4.7% over 20 days; returns drive sentiment, not the reverse),
+  // and base structure (a technical state, not an event). GitHub and governance
+  // demoted to a fundamentals footnote. Fewer items is the point: more inputs
+  // raise confidence without raising accuracy.
+
+  // 1 · UNLOCKS — the only catalyst that is both scheduled and reliably directional.
+  //     ~90% of unlocks are negative; mean -17% within 72h; pressure starts ~30d out.
+  //     For a spot trader the value is DEFENSIVE — avoid or exit, never short.
   if(d.unlock){
     var sz = (d.unlock.pctMcap!=null?d.unlock.pctMcap:d.unlock.pctSupply)||0;
-    rows.push(row('🔓','Token unlock', Math.round(d.unlock.days)+' days · '+sz.toFixed(1)+'% of mcap',
-      sz>=3 ? 'scheduled dilution — the one catalyst knowable in advance' : 'small enough to ignore',
-      sz>=3 ? 'bad' : 'neutral'));
+    var dy = Math.round(d.unlock.days);
+    var utone = sz>=5 ? 'bad' : sz>=3 ? 'warn' : sz>=1 ? 'neutral' : 'good';
+    rows.push(row('🔓','Unlock', dy+' days · '+sz.toFixed(1)+'% of mcap',
+      sz>=5 ? 'large. Around 90% of unlocks are negative for price, averaging -17% within 72h, with drawdown starting ~30 days out. The useful action is to avoid opening or to exit early.'
+      : sz>=3 ? 'meaningful. Selling pressure typically builds through the two weeks before.'
+      : sz>=1 ? 'small — usually absorbed.'
+      : 'negligible — below the threshold where an effect is measurable.', utone));
   } else {
-    rows.push(row('🔓','Token unlock','none in the next 45 days','from DefiLlama emissions','neutral'));
+    rows.push(row('🔓','Unlock','none within 45 days','the clearest window this checklist offers','good'));
   }
-  if(d.earlyState){
-    rows.push(row('🌱','Base structure', d.earlyState.replace('_',' '),
-      (d.earlyBars?'based '+d.earlyBars+' bars':'')+(d.earlyDna?' · DNA '+d.earlyDna:''), 'neutral'));
-  }
-  if(d.catalysts && d.catalysts.length){
-    var types = {};
-    d.catalysts.forEach(function(ev){ ev.types.forEach(function(t){ types[t]=1; }); });
-    var ks = Object.keys(types);
-    var bad = ks.some(function(k){ return ['unlock','delist','exploit'].indexOf(k)>=0; });
-    rows.push(row('📰','Headlines', ks.map(function(k){ return (CATALYST_TYPES[k]||{}).label||k; }).join(', '),
-      'from '+d.catalysts.length+' matched headlines in your feeds', bad?'bad':'good'));
+
+  // 2 · RELATIVE STRENGTH — cross-sectional strength has the best factor support
+  //     in crypto, and down-capture measures it where it counts.
+  if(d.resil){
+    var cap = Math.round(d.resil.capture*100);
+    rows.push(row('📈','Strength vs BTC', cap<=0 ? 'ROSE while BTC fell' : 'absorbed '+cap+'% of BTC falls',
+      'across '+d.resil.downBars+' BTC down-bars · outperformed BTC on '+d.resil.heldPct+'% of them'
+      + (cap<50 ? '. Holding up in a weak tape is the best-evidenced positive signal here.' : ''),
+      cap<50 ? 'good' : cap>100 ? 'bad' : 'neutral'));
   } else {
-    rows.push(row('📰','Headlines','nothing matched','no events for this coin in your 7 RSS feeds','neutral'));
+    rows.push(row('📈','Strength vs BTC','not enough BTC weakness to measure','needs 6+ down-bars','neutral'));
+  }
+
+  // 3 · VOLUME — SIGN CORRECTED. The cross-sectional evidence says high abnormal
+  //     volume predicts LOWER forward returns in crypto (the reverse of equities):
+  //     a 1-SD rise cut next-day return by 0.32%, and long-low/short-high volume
+  //     earned ~3%/week. So a spike is an overheating and wash-trading caution,
+  //     NOT a buy trigger. The IC Lab is still measuring this to settle it.
+  if(d.volZ != null){
+    var vz = d.volZ;
+    rows.push(row('📊','Volume', vz.toFixed(1)+'σ vs its own normal',
+      vz>=2 ? 'unusually high — read as CAUTION, not confirmation. In crypto, high abnormal volume has predicted LOWER forward returns, and spikes are also where wash trading concentrates.'
+      : vz<=-1 ? 'unusually quiet. Low-volume names is where short-term reversal profits concentrate.'
+      : 'within normal range.',
+      vz>=2 ? 'warn' : 'neutral'));
   }
 
   function render(extra){
@@ -4683,8 +4718,14 @@ function buildCatalystChecklist(sym){
          + '<span style="color:'+col+';font-weight:600;flex:1">'+r.value+'</span></div>';
       if(r.note) h += '<div style="font-size:9px;color:var(--t3);padding-left:30px;margin-top:-2px">'+r.note+'</div>';
     });
+    if(window._catFoot && window._catFoot.length){
+      h += '<div style="margin-top:8px;padding-top:7px;border-top:.5px solid var(--bd)">'
+         + '<div style="font-size:9px;font-weight:700;color:var(--t3);margin-bottom:3px">BACKGROUND — not catalysts, no measured forward edge</div>'
+         + window._catFoot.map(function(f){ return '<div style="font-size:10px;color:var(--t3);padding:1px 0">'+f+'</div>'; }).join('')
+         + '</div>';
+    }
     h += '<div style="font-size:9px;color:var(--t3);margin-top:9px;font-style:italic;line-height:1.5">'
-       + 'Deliberately not scored. Five composite scores in this tool already read FLAT in the IC Lab — combining weak correlated signals into one confident number hides which item is carrying the impression. Read the rows.</div>';
+       + 'Three items, deliberately. Cut from seven after a catalyst-impact review: partnership announcements, general headline matching and base structure were removed for having no measured forward edge, and more inputs raise confidence without raising accuracy. Not scored either — five composite scores in this tool already read FLAT in the IC Lab.</div>';
     h += '</div>';
     out.innerHTML = h;
   }
@@ -4697,19 +4738,24 @@ function buildCatalystChecklist(sym){
     src.gov  ? fetchGovernance(src.gov)      : Promise.resolve(null)
   ]).then(function(res){
     var gh = res[0], gov = res[1];
+    // DEMOTED — these are not catalysts. GitHub activity is correlational, not a
+    // forward-return signal; routine governance proposals pass overwhelmingly and
+    // carry little surprise. Kept as a slow "is this project alive" footnote, and
+    // only ECONOMIC proposals (fee switches, buybacks, treasury) are flagged,
+    // since those are the rare votes that change cash flows to holders.
+    var foot = [];
     if(gh){
-      var tone = gh.commits >= 30 ? 'good' : gh.commits >= 5 ? 'neutral' : 'bad';
-      extra.push(row('🛠','Development', gh.commits+' commits / 30d · '+gh.devs+' devs',
-        gh.commits < 5 ? 'very quiet — a dead repo is a real signal' : src.repo, tone));
-    } else if(src.repo){
-      extra.push(row('🛠','Development','could not fetch', src.repo, 'neutral'));
+      foot.push('🛠 ' + gh.commits + ' commits / 30d · ' + gh.devs + ' devs'
+        + (gh.commits < 5 ? ' — very quiet, worth noting' : ''));
     }
     if(gov && gov.length){
-      extra.push(row('🗳','Governance', gov.length+' active proposal'+(gov.length>1?'s':''),
-        gov.map(function(p){ return p.title.slice(0,60); }).join(' · '), 'neutral'));
-    } else if(src.gov){
-      extra.push(row('🗳','Governance','no active proposals', src.gov, 'neutral'));
+      var econ = gov.filter(function(p){
+        return /fee|buyback|buy back|treasury|emission|inflation|tokenomic|revenue|distribut|burn/i.test(p.title||'');
+      });
+      if(econ.length) foot.push('🗳 ECONOMIC proposal live: ' + econ[0].title.slice(0,70));
+      else foot.push('🗳 ' + gov.length + ' proposal' + (gov.length>1?'s':'') + ' open, none affecting tokenomics');
     }
+    window._catFoot = foot;
     render(extra);
     // then the search-verified layer, if a Groq key is present
     if(canVerify()){
@@ -4734,15 +4780,22 @@ function verifyCatalysts(sym, targetId){
 
   var coin = d.pair.replace('/USDT','').replace('/JPY','');
   var name = (COIN_ALIASES[coin] && COIN_ALIASES[coin][0]) || coin;
-  var sys = 'Search the web and report only sourced facts with dates. Say "not found" rather than guessing. '
-    + 'No price predictions or trading opinions. Under 120 words.\n'
-    + 'Format:\nUNLOCKS: next unlock date and size, or not found.\n'
+  var sys = 'Search the web and report only sourced facts with dates. Say "not found" rather than guessing.\n'
+    + 'CRITICAL: report only what the PROJECT or an EXCHANGE officially announced. Ignore opinions, predictions, '
+    + 'price targets, influencer commentary and community sentiment entirely — those are not facts. '
+    + 'If all you find is people talking about a coin, that is "not found".\n'
+    + 'No price predictions or trading opinions of your own. Under 130 words.\n'
+    + 'Format:\n'
+    + 'OFFICIAL: most recent announcement from the project account, with its date. Quote the substance, not the tone.\n'
+    + 'UNLOCKS: next unlock date and size, or not found.\n'
     + 'UPCOMING: scheduled upgrade, listing or migration with dates.\n'
-    + 'LAST 7 DAYS: anything material.\n'
+    + 'LAST 7 DAYS: anything material that actually happened.\n'
     + 'NOT FOUND: what you could not verify.';
+  var handle = COIN_HANDLES[coin];
   var usr = name + ' (' + coin + '). Today is ' + new Date().toISOString().slice(0,10) + '. '
+    + (handle ? 'Check the official account @' + handle + ' on X for recent announcements. ' : '')
     + (d.unlock ? 'One source claims an unlock in ' + Math.round(d.unlock.days) + ' days — verify. ' : '')
-    + 'Upcoming scheduled events, and anything material in the last 7 days?';
+    + 'What has the project officially announced, and what material events are scheduled or happened in the last 7 days?';
 
   groqSearch(sys, usr).then(function(txt){
     if(out) out.innerHTML = '<div style="background:var(--card3);border-radius:7px;padding:9px 11px;font-size:11px;line-height:1.6;white-space:pre-wrap;color:var(--text);margin-top:6px">'
@@ -6495,7 +6548,9 @@ function autoLogSignals(){
       // BTC, and this trader's own log showed alt entries then won 18% vs 32%.
       if(_regime && (_regime.mode==='risk_off' || _regime.mode==='btc_season')) return;
       // A large unlock inside 3 days is scheduled dilution — do not open into it.
-      if(d.unlock && d.unlock.days <= 3 &&
+      // ~90% of unlocks are negative for price, mean -17% within 72h, with
+      // drawdown starting ~30 days out. Block the window, not just the day.
+      if(d.unlock && d.unlock.days <= 14 &&
          ((d.unlock.pctMcap != null ? d.unlock.pctMcap : d.unlock.pctSupply) || 0) >= 3){
         try { _noteGateBlock(d, setupType, 'token unlock in '+Math.round(d.unlock.days)+'d'); } catch(e){}
         return;
@@ -15879,9 +15934,8 @@ var CATALYST_TYPES = {
   exploit:    { icon:'🚨', label:'Hack / exploit', lean:'bearish',
                 why:'Capital actually gone and trust damaged. Among the most reliably negative events.',
                 kw:['HACK','EXPLOIT','DRAINED','STOLEN','BREACH','ATTACK','RUG','VULNERABILITY','COMPROMISED'] },
-  partner:    { icon:'🤝', label:'Partnership / integration', lean:'mild_bullish',
-                why:'Frequently announced, rarely material. Treat as weak unless it brings real usage.',
-                kw:['PARTNERSHIP','PARTNERS WITH','INTEGRATION','INTEGRATES','COLLABORAT','TEAMS UP'] },
+  // 'partner' removed — partnership announcements have no measured price effect
+  // in the event-study literature and are among the most-promoted noise in crypto.
   institution:{ icon:'🏦', label:'Institutional / ETF', lean:'bullish',
                 why:'Real capital flows. One of the more substantive categories.',
                 kw:['ETF','INSTITUTIONAL','BLACKROCK','FIDELITY','GRAYSCALE','TREASURY','CUSTODY','SEC APPROV'] },
@@ -16017,9 +16071,11 @@ function checkUnlockAlerts(data){
     var u = d.unlock; if(!u || u.days < 0) return;
     var size = u.pctMcap != null ? u.pctMcap : (u.pctSupply||0);
     // how far ahead to warn, by size
-    var warnDays = size >= 5 ? 14 : size >= 2 ? 7 : size >= 1 ? 3 : 0;
+    // Research: unlock pressure begins ~30 days out, accelerating in the final
+    // week — a 14-day warning was too late for the largest ones.
+    var warnDays = size >= 5 ? 30 : size >= 3 ? 21 : size >= 1 ? 7 : 0;
     if(!warnDays || u.days > warnDays) return;
-    var bucket = u.days > 7 ? '14d' : u.days > 3 ? '7d' : u.days > 1 ? '3d' : '1d';
+    var bucket = u.days > 21 ? '30d' : u.days > 14 ? '21d' : u.days > 7 ? '14d' : u.days > 3 ? '7d' : '1d';
     var key = d.sym + '_' + bucket;
     if(seen[key] && (now - seen[key]) < 20*3600000) return;
     seen[key] = now; changed = true;
