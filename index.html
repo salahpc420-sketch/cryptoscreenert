@@ -516,6 +516,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
     <button class="intel-tab" id="it-sector" onclick="showIntel('sector')">🔄 Sectors</button>
     <button class="intel-tab" id="it-events" onclick="showIntel('events')">📅 Events <span id="it-events-badge" style="font-size:9px;font-weight:700;padding:0 5px;border-radius:99px"></span></button>
     <button class="intel-tab" id="it-candle" onclick="showIntel('candle')">⏰ Candles</button>
+    <button class="intel-tab" id="it-beta" onclick="showIntel('beta')">🛡 Risk</button>
     <button class="intel-tab" id="it-agent" onclick="showIntel('agent')">🤖 Agent <span id="it-agent-dot" class="idot"></span></button>
     <button class="intel-tab" id="it-moon" onclick="showIntel('moon')">🌙 Moon</button>
     <button class="intel-collapse" id="intel-collapse-btn" onclick="toggleIntelBar()" title="Collapse/expand">▲</button>
@@ -588,6 +589,9 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       </div>
     </div>
     <!-- MOON -->
+    <div class="intel-panel" id="ip-beta">
+      <div id="beta-body"><div style="font-size:12px;color:var(--t3)">Loading…</div></div>
+    </div>
     <div class="intel-panel" id="ip-agent">
       <div id="agent-body"><div style="font-size:12px;color:var(--t3)">Loading…</div></div>
     </div>
@@ -2836,6 +2840,7 @@ function processSymbol(ticker) {
     // PHASE 7+6: Relative strength vs BTC + accumulation score
     var relStr = calcRelStrength(c, _btcCloses);
     var resil = calcResilience(c, _btcCloses);
+    var dbeta = calcDownBeta(c, _btcCloses);
     var accum  = calcAccumulation(h, l, c, v, relStr, e20, e50);
     // Trend quality — how clean/smooth is the trend
     var trendQ = calcTrendQuality(c, e20, e50, e200);
@@ -2930,7 +2935,7 @@ function processSymbol(ticker) {
       buyTier:buyTier, buyTierFails:buyTierFails,
       smc:smc,
       breakout:breakout, emaRetest:emaRetest, pumpDump:pumpDump,
-      relStr:relStr, resil:resil, accum:accum, rsRank:null, opportunity:0,
+      relStr:relStr, resil:resil, dbeta:dbeta, accum:accum, rsRank:null, opportunity:0,
       trendQ:trendQ.score, trendQLabel:trendQ.label, trendQDir:trendQ.dir,
       _closes:c.slice(-60) // keep recent closes for any re-computation
     };
@@ -2955,6 +2960,100 @@ function processSymbol(ticker) {
 // strong there simply because the whole market rose. This isolates the bars
 // that actually test a coin: the ones where BTC was dropping.
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DOWNSIDE BETA v2 — rebuilt from the asymmetric-beta research.
+//
+// What the old metric got wrong:
+//   • sum-of-returns ratio: the denominator can be tiny, so a few bars dominate.
+//     Replaced with a REGRESSION slope on BTC-down bars (Bawa-Lindenberg LPM beta).
+//   • 6 down-bars minimum: far too few for a stable slope. Raised to 20.
+//   • no shrinkage: crypto betas are much less persistent than equity betas, so
+//     a raw estimate over-fits. Now shrunk toward the cross-sectional median.
+//   • the DEADNESS TRAP: a coin can show low down-capture because nothing is
+//     trading, not because it has demand. Now requires liquidity, active bars,
+//     AND meaningful participation on BTC-up bars.
+//
+// Framing, which the research was blunt about: this is a RISK/AVOIDANCE filter,
+// not a coin-picking edge. High downside beta is a COMPENSATED risk — those
+// coins earn more on average. Avoiding them buys smaller drawdowns, not more
+// return. And in real crashes correlations converge toward 1, so "resilient"
+// offers little protection in the events that matter most.
+// ═══════════════════════════════════════════════════════════════════════════
+function calcDownBeta(closes, btcCloses, opts){
+  opts = opts || {};
+  var lookback = opts.lookback || 120;
+  var thresh   = opts.thresh   || -0.0015;
+  var minDown  = opts.minDown  || 20;
+  var prior    = opts.prior    != null ? opts.prior : 0.9;
+  var shrinkK  = opts.shrinkK  || 20;
+  if(!closes || !btcCloses) return null;
+  var n = Math.min(closes.length, btcCloses.length);
+  if(n < 40) return null;
+  var start = Math.max(1, n - lookback);
+  var rB = [], rC = [];
+  for(var i = start; i < n; i++){
+    if(btcCloses[i-1] > 0 && closes[i-1] > 0){
+      rB.push(btcCloses[i]/btcCloses[i-1] - 1);
+      rC.push(closes[i]/closes[i-1] - 1);
+    }
+  }
+  if(rB.length < 30) return null;
+  // deadness gate — a flatlined coin is not "resilient"
+  var active = rC.filter(function(x){ return Math.abs(x) > 1e-9; }).length / rC.length;
+
+  // downside beta: regression slope using ONLY bars where BTC fell
+  var di = [];
+  for(var k = 0; k < rB.length; k++) if(rB[k] < thresh) di.push(k);
+  if(di.length < minDown) return { valid:false, reason:'only '+di.length+' BTC down-bars (need '+minDown+')', downBars:di.length };
+  var xs = di.map(function(k){ return rB[k]; }), ys = di.map(function(k){ return rC[k]; });
+  function mean(a){ return a.reduce(function(p,q){return p+q;},0)/a.length; }
+  var mx = mean(xs), my = mean(ys), cov = 0, vx = 0;
+  for(var j = 0; j < xs.length; j++){ cov += (xs[j]-mx)*(ys[j]-my); vx += (xs[j]-mx)*(xs[j]-mx); }
+  // Guard: a near-flat coin makes vx tiny and the slope explodes (a test produced
+  // a beta of 1.1e11). Require real variance, and clamp to a plausible range.
+  var raw = (vx > 1e-10) ? cov/vx : prior;
+  if(!isFinite(raw)) raw = prior;
+  raw = Math.max(-2, Math.min(4, raw));
+  // Vasicek shrinkage — crypto betas decay fast, so pull toward the prior
+  var w = xs.length / (xs.length + shrinkK);
+  var beta = w*raw + (1-w)*prior;
+
+  // robust companion: share of down-bars where the coin beat BTC
+  var beat = 0;
+  di.forEach(function(k){ if(rC[k] > rB[k]) beat++; });
+
+  // up-capture — closes the deadness trap
+  var ui = [];
+  for(var k2 = 0; k2 < rB.length; k2++) if(rB[k2] > -thresh) ui.push(k2);
+  var upCap = null;
+  if(ui.length >= 10){
+    var sB = ui.reduce(function(s,k3){ return s + rB[k3]; }, 0);
+    var sC = ui.reduce(function(s,k3){ return s + rC[k3]; }, 0);
+    if(sB > 0) upCap = sC/sB;
+  }
+  if(active < 0.8) return { valid:false, reason:'only '+Math.round(active*100)+'% of bars moved — too illiquid to estimate', active:Math.round(active*100) };
+  return { valid:true, beta:Math.round(beta*100)/100, raw:Math.round(raw*100)/100,
+           downBars:di.length, beatPct:Math.round(beat/di.length*100),
+           upCapture: upCap != null ? Math.round(upCap*100)/100 : null,
+           active: Math.round(active*100), shrunk: Math.round((1-w)*100) };
+}
+
+// Classify into something a spot trader can act on.
+function classifyBeta(b){
+  if(!b || !b.valid) return null;
+  if(b.active < 80) return { k:'dead', label:'Barely trading', tone:'bad',
+    note:'Under 80% of bars moved at all. Low downside beta here means nothing is trading, not that there is demand.' };
+  if(b.upCapture != null && b.upCapture < 0.3 && b.beta < 0.7) return { k:'dead', label:'Not participating', tone:'bad',
+    note:'Falls little, but rises little too — up-capture '+b.upCapture+'. This is the deadness trap, not resilience.' };
+  if(b.beta >= 1.3) return { k:'fragile', label:'High downside beta', tone:'bad',
+    note:'Falls '+b.beta+'x with BTC. Compensated risk — these earn more on average — but the drawdowns are larger, and in a real cascade they lead the losses.' };
+  if(b.beta <= 0.7 && b.upCapture != null && b.upCapture >= 0.5) return { k:'resilient', label:'Resilient and participating', tone:'good',
+    note:'Falls '+b.beta+'x with BTC while capturing '+Math.round(b.upCapture*100)+'% of the upside. The combination is what matters — either alone is uninformative.' };
+  return { k:'normal', label:'Ordinary sensitivity', tone:'neutral',
+    note:'Down-beta '+b.beta+', up-capture '+(b.upCapture!=null?b.upCapture:'n/a')+'.' };
+}
+
 function calcResilience(closes, btcCloses){
   if(!closes || !btcCloses) return null;
   var n = Math.min(closes.length, btcCloses.length);
@@ -4473,11 +4572,11 @@ function groqSearch(sys, usr, opts){
   var model = opts.model || 'groq/compound-mini';
   var body = {
     model: model,
-    messages: [{ role:'system', content: String(sys).slice(0, 900) },
-               { role:'user',   content: String(usr).slice(0, 400) }],
-    max_tokens: 800,
+    messages: [{ role:'system', content: String(sys).slice(0, 1600) },
+               { role:'user',   content: String(usr).slice(0, 700) }],
+    max_tokens: 1100,
     temperature: 0.2,
-    search_settings: { max_results: opts.maxResults || 3 }
+    search_settings: { max_results: opts.maxResults || 6 }
   };
   return fetch('https://api.groq.com/openai/v1/chat/completions', {
     method:'POST',
@@ -5273,22 +5372,29 @@ function verifyCatalysts(sym, targetId){
 
   var coin = d.pair.replace('/USDT','').replace('/JPY','');
   var name = (COIN_ALIASES[coin] && COIN_ALIASES[coin][0]) || coin;
-  var sys = 'Search the web and report only sourced facts with dates. Say "not found" rather than guessing.\n'
-    + 'CRITICAL: report only what the PROJECT or an EXCHANGE officially announced. Ignore opinions, predictions, '
-    + 'price targets, influencer commentary and community sentiment entirely — those are not facts. '
-    + 'If all you find is people talking about a coin, that is "not found".\n'
-    + 'No price predictions or trading opinions of your own. Under 130 words.\n'
-    + 'Format:\n'
-    + 'OFFICIAL: most recent announcement from the project account, with its date. Quote the substance, not the tone.\n'
-    + 'UNLOCKS: next unlock date and size, or not found.\n'
-    + 'UPCOMING: scheduled upgrade, listing or migration with dates.\n'
-    + 'LAST 7 DAYS: anything material that actually happened.\n'
-    + 'NOT FOUND: what you could not verify.';
+  var sys = 'Search the web thoroughly and report sourced facts with dates.\n\n'
+    + 'SEARCH BROADLY. Check the project blog and docs, crypto news outlets (CoinDesk, The Block, Cointelegraph, Decrypt, Blockworks), '
+    + 'exchange announcement pages, GitHub releases, governance forums, unlock trackers, and the project X account. '
+    + 'Do NOT restrict yourself to one source — if one comes up empty, try the others before concluding anything is unavailable.\n\n'
+    + 'WHAT COUNTS: announcements, upgrades, releases, listings, partnerships with named terms, unlock schedules, incidents, funding rounds, '
+    + 'integrations, and regulatory developments. Report what HAPPENED or is SCHEDULED.\n'
+    + 'WHAT DOES NOT: price predictions, analyst opinions, price targets, influencer commentary, and general community mood. '
+    + 'Those are not facts and must be left out.\n\n'
+    + 'Only write "not found" for a section if you searched several sources and genuinely found nothing. '
+    + 'For a large, actively developed project, "not found" across every section almost certainly means the search was too narrow — widen it and try again.\n\n'
+    + 'Under 160 words. Format:\n'
+    + 'RECENT: the most significant thing in the last 7-14 days, with its date and source.\n'
+    + 'UPCOMING: anything scheduled — upgrade, unlock, listing, mainnet, vote — with dates.\n'
+    + 'DEVELOPMENT: notable releases, integrations or ecosystem activity.\n'
+    + 'RISKS: incidents, outages, exploits, delistings or regulatory issues, if any.';
+
   var handle = COIN_HANDLES[coin];
-  var usr = name + ' (' + coin + '). Today is ' + new Date().toISOString().slice(0,10) + '. '
-    + (handle ? 'Check the official account @' + handle + ' on X for recent announcements. ' : '')
-    + (d.unlock ? 'One source claims an unlock in ' + Math.round(d.unlock.days) + ' days — verify. ' : '')
-    + 'What has the project officially announced, and what material events are scheduled or happened in the last 7 days?';
+  var usr = 'Research ' + name + ' (' + coin + '), a cryptocurrency. Today is ' + new Date().toISOString().slice(0,10) + '.\n'
+    + 'Search widely: the official ' + name + ' blog and documentation, major crypto news outlets, exchange announcements, '
+    + 'GitHub releases'
+    + (handle ? ', and the @' + handle + ' account' : '') + '.\n'
+    + (d.unlock ? 'One source claims a token unlock in ' + Math.round(d.unlock.days) + ' days — verify or correct it.\n' : '')
+    + 'What has happened recently, what is scheduled, and is there anything a holder should know?';
 
   groqSearch(sys, usr).then(function(txt){
     if(out) out.innerHTML = '<div style="background:var(--card3);border-radius:7px;padding:9px 11px;font-size:11px;line-height:1.6;white-space:pre-wrap;color:var(--text);margin-top:6px">'
@@ -5297,6 +5403,109 @@ function verifyCatalysts(sym, targetId){
   }).catch(function(e){
     if(out) out.innerHTML = '<div style="font-size:10px;color:var(--r);margin-top:5px">'+(e.message||e)+'</div>';
   });
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RISK TAB — the four staged recommendations from the asymmetric-beta research.
+//   1  demoted framing: this is risk context, not a coin-picking edge
+//   2  the rebuilt estimator: regression beta, shrunk, with a deadness gate
+//   3  regime detection, which the evidence says dominates coin selection
+//   4  honest validation state and the thresholds that decide keep-or-remove
+// ═══════════════════════════════════════════════════════════════════════════
+function renderBetaTab(){
+  var body = document.getElementById('beta-body');
+  if(!body) return;
+  var h = '';
+
+  // ── STAGE 1 — the framing, stated before any numbers ──
+  h += '<div style="background:rgba(245,158,11,.08);border-left:3px solid var(--am);border-radius:var(--rad);padding:1rem;margin-bottom:.8rem">';
+  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.35rem">🛡 Downside sensitivity — risk context, not a buy signal</div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.6">'
+     + 'Three things the research established, which decide how this should be used:<br>'
+     + '<b>1.</b> High downside beta is a <b>compensated</b> risk — those coins earn more on average. Avoiding them buys smaller drawdowns, not more return.<br>'
+     + '<b>2.</b> Crypto betas are far less persistent than equity betas. What held up last month is a weak forecast of what holds up next month.<br>'
+     + '<b>3.</b> In real crashes correlations converge toward 1. A coin that looks resilient in calm conditions offers little protection in the events that matter most.<br>'
+     + '<span style="color:var(--am)">So: an avoidance filter at entry, and an input to regime sizing. Not a reason to buy anything.</span></div></div>';
+
+  // ── STAGE 3 — regime first, because the evidence says it dominates ──
+  var reg = _regime ? _regime.mode : null;
+  var alt = _altIdx;
+  h += '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:.8rem">';
+  h += '<div style="font-size:12px;font-weight:700;margin-bottom:.3rem">📊 Regime — the dominant factor</div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">Most of the variation in how alts behave against BTC is <b>market-wide</b>, not coin-specific. That makes regime detection more valuable than coin selection — so read this before the table below.</div>';
+  h += '<div style="display:flex;gap:16px;flex-wrap:wrap">';
+  function stat(lbl, val, col, sub){
+    return '<div><div style="font-size:16px;font-weight:800;color:'+(col||'var(--text)')+'">'+val+'</div>'
+         + '<div style="font-size:10px;color:var(--t3)">'+lbl+'</div>'
+         + (sub?'<div style="font-size:9px;color:var(--t3)">'+sub+'</div>':'')+'</div>';
+  }
+  h += stat('regime', reg ? reg.replace('_',' ') : 'n/a',
+        reg==='altseason'?'var(--g)':reg==='risk_off'?'var(--r)':'var(--am)',
+        reg==='risk_off'?'alt exposure should be small':'');
+  if(alt) h += stat('alts vs BTC', (alt.rel>=0?'+':'')+alt.rel.toFixed(2)+'%', alt.rel>=0?'var(--g)':'var(--r)',
+        'equal-weighted, '+alt.n+' coins');
+  if(_btcDom != null) h += stat('BTC.D', _btcDom.toFixed(2)+'%', 'var(--text)',
+        _btcDomChg!=null ? ((_btcDomChg>=0?'+':'')+_btcDomChg+'pt/24h') : 'collecting');
+  h += stat('breadth', _breadth+'%', _breadth>=35?'var(--g)':'var(--r)', 'above 200EMA');
+  h += '</div></div>';
+
+  // ── STAGE 2 — the rebuilt estimator ──
+  var rows = (allData||[]).filter(function(d){ return d.dbeta && d.dbeta.valid && (d.vol24||0) > 5000000; });
+  h += '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:.8rem">';
+  h += '<div style="font-size:12px;font-weight:700;margin-bottom:.3rem">📉 Downside beta — rebuilt estimator</div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">'
+     + 'Regression slope on BTC-down bars (not a sum-of-returns ratio), shrunk toward the median because crypto betas decay fast, requiring 20+ down-bars. '
+     + 'A coin only counts as <b>resilient</b> if it also participates on the upside — otherwise low beta just means nothing is trading.</div>';
+  if(!rows.length){
+    h += '<div style="font-size:11px;color:var(--t3)">Not enough BTC weakness in the window yet — needs 20+ down-bars per coin.</div>';
+  } else {
+    rows.forEach(function(d){ d._bc = classifyBeta(d.dbeta); });
+    var groups = [
+      ['resilient','🟢 Resilient and participating','falls less than BTC while still capturing upside','var(--g)'],
+      ['fragile','🔴 High downside beta','avoid opening here in a weak tape','var(--r)'],
+      ['dead','⚫ Deadness trap','low beta because nothing is trading','var(--t3)']
+    ];
+    groups.forEach(function(g){
+      var list = rows.filter(function(d){ return d._bc && d._bc.k === g[0]; })
+                     .sort(function(a,b){ return a.dbeta.beta - b.dbeta.beta; });
+      if(!list.length) return;
+      h += '<div style="border-top:.5px solid var(--bd);padding:7px 0">';
+      h += '<div style="font-size:11px;font-weight:700;color:'+g[3]+'">'+g[1]
+         + ' <span style="font-weight:400;color:var(--t3);font-size:10px">'+list.length+' coins — '+g[2]+'</span></div>';
+      list.slice(0,8).forEach(function(d){
+        var b = d.dbeta;
+        h += '<div style="display:flex;gap:8px;align-items:baseline;font-size:10px;padding:2px 0">'
+           + '<b style="min-width:88px">'+d.pair+'</b>'
+           + '<span style="color:'+g[3]+';font-weight:700;min-width:44px">β '+b.beta.toFixed(2)+'</span>'
+           + '<span style="color:var(--t3)">up-capture '+(b.upCapture!=null?b.upCapture.toFixed(2):'n/a')+'</span>'
+           + '<span style="color:var(--t3)">beat BTC '+b.beatPct+'% of down-bars</span>'
+           + '<span style="margin-left:auto;color:var(--t3)">'+b.downBars+' bars · '+b.shrunk+'% shrunk</span></div>';
+      });
+      h += '</div>';
+    });
+  }
+  h += '</div>';
+
+  // ── STAGE 4 — validation state and the decision rule ──
+  var icN = 0;
+  try {
+    var ic = JSON.parse(localStorage.getItem('ic_snapshots')||'[]');
+    icN = Array.isArray(ic) ? ic.length : 0;
+  } catch(e){}
+  h += '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem">';
+  h += '<div style="font-size:12px;font-weight:700;margin-bottom:.3rem">🔬 Is this worth keeping?</div>';
+  h += '<div style="font-size:11px;color:var(--t2);line-height:1.6;margin-bottom:.6rem">'
+     + 'The IC Lab tracks down-bar resilience alongside every other score. The decision rule, set before the data arrives:</div>';
+  h += '<div style="font-size:10px;color:var(--t2);line-height:1.7;background:var(--card3);border-radius:7px;padding:9px 11px">'
+     + '🟢 <b>Keep and weight it</b> if the forward IC is stable above ~0.03 with a correlation-adjusted t above 2, across at least one full crash-and-recovery cycle.<br>'
+     + '🔴 <b>Remove it</b> if it cannot beat a plain market-cap or liquidity sort — because then it is only a proxy for illiquidity and adds nothing.<br>'
+     + '⚠️ Remember alts are roughly 0.9 correlated, so 80 coins is closer to a handful of independent bets. Raw t-statistics here will be badly overstated.</div>';
+  h += '<div style="font-size:10px;color:var(--t3);margin-top:8px">Currently <b>'+icN+'</b> IC snapshots collected. A verdict needs 30+, and this metric is newer than that.</div>';
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:8px;font-style:italic;line-height:1.5">One claim the research would not support: that coins holding up in a dip lead the next rally. No rigorous evidence backs it, and the cross-sectional literature rewards momentum and strength instead. Treat resilience as risk information, not as a forecast.</div>';
+  h += '</div>';
+
+  body.innerHTML = h;
 }
 
 function renderAgent(){
@@ -11989,7 +12198,7 @@ function togglePanel(id){
 
 // ── Market Intel tabbed bar ──────────────────────────────────────────────────
 function showIntel(which){
-  var tabs = ['macro','marketread','buyzone','regime','narr','sector','events','candle','moon','agent'];
+  var tabs = ['macro','marketread','buyzone','regime','narr','sector','events','candle','moon','agent','beta'];
   tabs.forEach(function(t){
     var tab = document.getElementById('it-'+t);
     var panel = document.getElementById('ip-'+t);
@@ -11999,6 +12208,7 @@ function showIntel(which){
   if(which==='buyzone') renderBuyZone();
   if(which==='marketread') renderMarketRead();
   if(which==='agent') renderAgent();
+  if(which==='beta') renderBetaTab();
   // Make sure body is expanded when a tab is clicked
   var body = document.getElementById('intel-body');
   var btn = document.getElementById('intel-collapse-btn');
