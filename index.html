@@ -720,7 +720,6 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
   <button class="scan-fab" onclick="openScanner()" title="Signal Scanner">🔍</button>
   <button class="scan-fab" onclick="openBacktester()" title="Backtester" style="background:var(--bl);box-shadow:0 4px 20px rgba(41,98,255,.4);margin-top:8px;font-size:18px">📈</button>
   <button class="scan-fab" onclick="openJournal()" title="Trade Journal" style="background:var(--am);box-shadow:0 4px 20px rgba(245,158,11,.4);margin-top:8px;font-size:18px">📓</button>
-  <button class="scan-fab" onclick="openHealth()" title="Health & Performance" style="background:#7c4dff;box-shadow:0 4px 20px rgba(124,77,255,.4);margin-top:8px;font-size:18px">🩺</button>
 </div>
 
 <!-- TRADE JOURNAL MODAL -->
@@ -742,18 +741,6 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
   </div>
 </div>
 
-<div class="ov scan-modal" id="health-ov" onclick="if(event.target===this)closeOv('health-ov')">
-  <div class="modal" style="max-width:680px;width:96vw;height:88vh;display:flex;flex-direction:column">
-    <div class="mhdr">
-      <div style="flex:1">
-        <div class="mtitle">🩺 Health & Performance</div>
-        <div style="font-size:11px;color:var(--t2);margin-top:1px">Is the screener running correctly — and is it actually working?</div>
-      </div>
-      <button class="mclose" onclick="closeOv('health-ov')">✕</button>
-    </div>
-    <div id="health-body" style="flex:1;overflow-y:auto;padding:1rem"></div>
-  </div>
-</div>
 
 <!-- BACKTESTER MODAL -->
 <div class="ov scan-modal" id="bt-ov" onclick="if(event.target===this)closeOv('bt-ov')">
@@ -4534,7 +4521,6 @@ function toggleMonitorAuto(sym, on){
 }
 
 
-
 // ═══════════════════════════════════════════════════════════════════════════
 // CATALYST VERIFICATION — the one place where searching the web adds FACTS
 // rather than atmosphere. Sentiment and news-following were both found to lag
@@ -7505,94 +7491,6 @@ function wilsonCI(wins, n){
 // It confidently reports "the machine works" but refuses to declare the strategy
 // "profitable" until the sample size statistically earns it.
 // ═══════════════════════════════════════════════════════════════════════════
-function runHealthCheck(){
-  var checks = [];   // {section, label, status:'ok'|'warn'|'bad', detail}
-
-  // ── SECTION 1: DATA HEALTH ──────────────────────────────────────────────
-  var total = allData.length;
-  var stale = allData.filter(function(d){return d._stale;}).length;
-  var fresh = total - stale;
-  var lastUpd = _lastDataTime ? Math.round((Date.now()-_lastDataTime)/1000) : null;
-
-  if(total === 0){
-    checks.push({section:'Data', label:'Coins loaded', status:'bad', detail:'No data loaded yet — scan hasn\'t completed.'});
-  } else if(stale === 0){
-    checks.push({section:'Data', label:'Coins loaded', status:'ok', detail:fresh+'/'+total+' coins fresh, none stale.'});
-  } else if(stale/total < 0.25){
-    checks.push({section:'Data', label:'Coins loaded', status:'warn', detail:fresh+'/'+total+' fresh, '+stale+' showing last-known data (minor proxy drops).'});
-  } else {
-    checks.push({section:'Data', label:'Coins loaded', status:'bad', detail:stale+'/'+total+' stale — proxy struggling. Signals on stale coins are suppressed; try Re-scan.'});
-  }
-
-  // Data freshness (time since last successful price update)
-  if(lastUpd === null){
-    checks.push({section:'Data', label:'Freshness', status:'warn', detail:'No successful update timestamp yet.'});
-  } else if(lastUpd < 120){
-    checks.push({section:'Data', label:'Freshness', status:'ok', detail:'Last update '+lastUpd+'s ago — live.'});
-  } else if(lastUpd < 600){
-    checks.push({section:'Data', label:'Freshness', status:'warn', detail:'Last update '+Math.round(lastUpd/60)+'min ago — refresh recommended.'});
-  } else {
-    checks.push({section:'Data', label:'Freshness', status:'bad', detail:'Last update '+Math.round(lastUpd/60)+'min ago — data may be stale. Re-scan.'});
-  }
-
-  // Connection mode
-  if(_directWorks === true){
-    checks.push({section:'Data', label:'Connection', status:'ok', detail:'Direct exchange access (fastest, most reliable).'});
-  } else if(_directWorks === false){
-    checks.push({section:'Data', label:'Connection', status:'warn', detail:'Using CORS proxy #'+(_proxyIdx+1)+' — works, but slower and rate-limit-prone. (Normal on file://; direct usually works on Netlify.)'});
-  } else {
-    checks.push({section:'Data', label:'Connection', status:'warn', detail:'Connection mode not yet determined.'});
-  }
-
-  // ── SECTION 2: SIGNAL SANITY ────────────────────────────────────────────
-  if(total > 0){
-    var buys = allData.filter(function(d){return d.buySignal && !d._stale;}).length;
-    var tiers = allData.filter(function(d){return d.buyTier;}).length;
-    checks.push({section:'Signals', label:'Firing', status:'ok',
-      detail:buys+' active buy signal'+(buys===1?'':'s')+', '+tiers+' tier-graded setup'+(tiers===1?'':'s')+' right now.'+(buys===0?' (Zero is normal in weak/bearish conditions — not a bug.)':'')});
-
-    // Malformed-signal check: any buy with broken R:R or inverted levels?
-    var malformed = allData.filter(function(d){
-      return d.buySignal && (d.rrRatio != null && d.rrRatio < 1.5);
-    }).length;
-    if(malformed === 0){
-      checks.push({section:'Signals', label:'R:R gate', status:'ok', detail:'All active signals pass the 1.5 R:R gate — no malformed entries.'});
-    } else {
-      checks.push({section:'Signals', label:'R:R gate', status:'bad', detail:malformed+' signal(s) with R:R below 1.5 leaked through — this is a bug, please report.'});
-    }
-
-    // BTC-state gate working?
-    var altsShould = (btcState === 'bullish' || btcState === 'stable');
-    var altBuys = allData.filter(function(d){return d.buySignal && d.sym!=='BTCUSDT' && d.sym!=='BTCJPY';}).length;
-    if(altsShould){
-      checks.push({section:'Signals', label:'BTC gate', status:'ok', detail:'BTC '+btcState+' → alt signals enabled (correct).'});
-    } else if(altBuys === 0){
-      checks.push({section:'Signals', label:'BTC gate', status:'ok', detail:'BTC '+btcState+' → alt signals correctly suppressed.'});
-    } else {
-      checks.push({section:'Signals', label:'BTC gate', status:'warn', detail:'BTC '+btcState+' but '+altBuys+' alt signal(s) showing — override may be on.'});
-    }
-  }
-
-  // ── SECTION 3: LOG INTEGRITY ────────────────────────────────────────────
-  var log = loadSignalLog();
-  var brokenLog = log.filter(function(s){
-    return (s.tp <= s.entry) || (s.sl >= s.entry) || (s.rr != null && s.rr < 1.5);
-  }).length;
-  if(log.length === 0){
-    checks.push({section:'Log', label:'Recording', status:'warn', detail:'No signals logged yet — log fills as A+/buy setups fire.'});
-  } else if(brokenLog === 0){
-    checks.push({section:'Log', label:'Integrity', status:'ok', detail:log.length+' logged, all with valid R:R-gated levels.'});
-  } else {
-    checks.push({section:'Log', label:'Integrity', status:'warn', detail:brokenLog+' old broken-R:R entries present — they\'ll be auto-purged on next log cycle.'});
-  }
-
-  var st = signalLogStats();
-  if(st.open > 0){
-    checks.push({section:'Log', label:'Outcome tracking', status:'ok', detail:st.open+' open, '+st.resolved+' resolved. Outcomes check on each app open.'});
-  }
-
-  return {checks:checks, perf:st};
-}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // THE COACH — evidence-based advice from YOUR REAL LOG (not market predictions).
@@ -8285,72 +8183,6 @@ function signalLogStats(){
   // (defined below — placeholder anchor)
   return _signalLogStatsImpl();
 }
-function openHealth(){
-  showOv('health-ov');
-  renderHealth();
-}
-function renderHealth(){
-  var body = document.getElementById('health-body');
-  if(!body) return;
-  var H = runHealthCheck();
-
-  // ── Overall system status (worst of all checks) ──
-  var anyBad = H.checks.some(function(c){return c.status==='bad';});
-  var anyWarn = H.checks.some(function(c){return c.status==='warn';});
-  var sysStatus = anyBad ? {t:'🔴 Issues detected', c:'var(--r)'}
-    : anyWarn ? {t:'🟡 Running with minor warnings', c:'var(--am)'}
-    : {t:'🟢 All systems healthy', c:'var(--g)'};
-
-  var h = '<div style="background:var(--card2);border-radius:var(--rad-lg);padding:1rem;margin-bottom:1rem;text-align:center">';
-  h += '<div style="font-size:16px;font-weight:800;color:'+sysStatus.c+'">'+sysStatus.t+'</div>';
-  h += '<div style="font-size:11px;color:var(--t3);margin-top:3px">System health = is the tool fetching, computing, and logging correctly</div>';
-  h += '<button onclick="renderHealth()" style="margin-top:8px;font-size:11px;padding:4px 12px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);cursor:pointer">↻ Re-check</button>';
-  h += '</div>';
-
-  // ── Group checks by section ──
-  var sections = {};
-  H.checks.forEach(function(c){ (sections[c.section] = sections[c.section] || []).push(c); });
-  Object.keys(sections).forEach(function(sec){
-    h += '<div style="font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;margin:.75rem 0 .4rem">'+sec+'</div>';
-    h += sections[sec].map(function(c){
-      var icon = c.status==='ok'?'🟢':c.status==='warn'?'🟡':'🔴';
-      var col = c.status==='ok'?'var(--g)':c.status==='warn'?'var(--am)':'var(--r)';
-      return '<div style="display:flex;gap:8px;padding:6px 0;border-bottom:.5px solid var(--bd);font-size:12px">' +
-        '<span>'+icon+'</span>' +
-        '<div style="flex:1"><span style="font-weight:600;color:'+col+'">'+c.label+'</span>' +
-        '<div style="font-size:11px;color:var(--t2);margin-top:1px;line-height:1.4">'+c.detail+'</div></div></div>';
-    }).join('');
-  });
-
-  // ── PERFORMANCE (honest, CI-gated) ──
-  var st = H.perf;
-  h += '<div style="font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;margin:1.25rem 0 .4rem">Performance — is it actually working?</div>';
-  h += '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem">';
-  if(st.resolved === 0){
-    h += '<div style="text-align:center;color:var(--t3);font-size:12px;padding:1rem 0">No resolved signals yet. Performance can\'t be measured until trades close (TP or SL hit). The system can be perfectly healthy while having no performance data yet — those are different things.</div>';
-  } else {
-    var wrCol = st.resolved<30 ? 'var(--t3)' : st.winRate>=55?'var(--g)':st.winRate>=45?'var(--am)':'var(--r)';
-    h += '<div style="display:flex;align-items:center;gap:14px">';
-    h += '<div style="text-align:center"><div style="font-size:26px;font-weight:800;color:'+wrCol+'">'+st.winRate+'%</div>';
-    h += '<div style="font-size:9px;color:var(--t3)">win rate</div></div>';
-    h += '<div style="flex:1;font-size:11px;color:var(--t2);line-height:1.5">';
-    h += st.won+'W / '+st.lost+'L across '+st.resolved+' resolved.';
-    if(st.ci) h += ' True rate likely <strong>'+st.ci.low+'–'+st.ci.high+'%</strong> (95% CI).';
-    h += '</div></div>';
-    // Honest verdict gated by sample size
-    h += '<div style="margin-top:.75rem;padding:8px;border-radius:6px;font-size:11px;line-height:1.5;'+
-      (st.resolved<30?'background:rgba(245,158,11,.12);color:var(--am)':st.resolved<150?'background:rgba(245,158,11,.08);color:var(--am)':'background:rgba(38,166,154,.1);color:var(--g)')+'">';
-    if(st.resolved<30) h += '⚠️ <strong>Can\'t say if it\'s working yet.</strong> '+st.resolved+' trades is statistically meaningless — the win rate could swing wildly. The system is running fine; we just don\'t have enough closed trades to judge the strategy. Need ~150+.';
-    else if(st.resolved<150) h += '⚠️ <strong>Early read.</strong> Trending, but error bars are wide ('+st.ci.low+'–'+st.ci.high+'%). Don\'t conclude it\'s working or failing yet — keep collecting to 150+.';
-    else h += '✓ <strong>Meaningful sample.</strong> With '+st.resolved+' resolved, this win rate is a real read. '+(st.winRate>=50?'The strategy is holding up.':'The win rate is below 50% — worth reviewing which setups underperform (see per-type below).');
-    h += '</div>';
-  }
-  h += '</div>';
-
-  h += '<div style="font-size:10px;color:var(--t3);margin-top:1rem;line-height:1.5">🩺 <strong>System Health</strong> = mechanical checks (is data loading, are signals well-formed, is the log recording). These are facts the tool can verify about itself right now. <strong>Performance</strong> = whether the signals make money, which only the live log can answer over 150+ trades. A green system with no performance verdict is normal and honest — the machine works; the strategy is still being measured.</div>';
-
-  body.innerHTML = h;
-}
 function _signalLogStatsImpl(){
   var log = loadSignalLog();
   var won = log.filter(function(s){return s.status==='won';}).length;
@@ -8440,7 +8272,7 @@ function renderJournal(){
 }
 
 function renderCoach(){
-  var _agentHTML = (function(){ try { return buildBreakVsRetestPanel() + buildConditionValuePanel() + buildExportPanel() + buildABPanel() + buildGateBlockPanel() + buildEarlyAuditPanel() + buildLatenessPanel(); } catch(e){ return ''; } })();
+  var _agentHTML = (function(){ try { return buildBreakVsRetestPanel() + buildConditionValuePanel() + buildExportPanel() + buildGateBlockPanel() + buildEarlyAuditPanel() + buildLatenessPanel(); } catch(e){ return ''; } })();
   var body=document.getElementById('journal-body');
   if(!body) return;
   var C = buildCoachAdvice();
@@ -14459,7 +14291,6 @@ function _drawChartNow() {
   } // end analyst marks
 
 
-
   // ── LIVE PRICE LINE — TradingView style ──────────────────────────────────────
   if (chartState.livePrice && chartState.livePrice >= pMin && chartState.livePrice <= pMax) {
     var lpy   = pY(chartState.livePrice);
@@ -14826,7 +14657,6 @@ function fmtVol(v) {
   if (v >= 1e3) return (v/1e3).toFixed(0)+'K';
   return v.toFixed(0);
 }
-
 
 
 // ── Modal maximize / minimize ─────────────────────────────────────────────
@@ -15216,7 +15046,6 @@ function checkAlerts(data){
   });
   try{sessionStorage.setItem('al_prev',JSON.stringify(cur));}catch(e){}
 }
-
 
 
 // ── Bybit WebSocket — live price streaming (replaces REST polling for live price) ──
@@ -17187,166 +17016,6 @@ function resolveEarlyWatch(data){
 // MEDIAN coin over the identical window.
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ═══════════════════════════════════════════════════════════════════════════
-// TRENDLINE A/B TEST — the research found NO peer-reviewed validation of
-// diagonal trendline breaks, while objective N-day-high (Donchian) breakouts
-// have a century of trend-following evidence. If the fitted line adds nothing
-// over the simple rule, the honest move is to delete several hundred lines of
-// pivot-fitting code. This test is deliberately SUBTRACTIVE.
-//
-// Three arms, identical gates and exits:
-//   A  trendline break        (the feature under test)
-//   B  20-day-high breakout   (objective benchmark, no fitting, no look-ahead)
-//   C  random entries         (control — proves the gates alone aren't the edge)
-//
-// Date-clustering matters: crypto breakouts arrive together, so 300 raw signals
-// may carry the weight of 20 independent observations.
-// ═══════════════════════════════════════════════════════════════════════════
-var AB_VERDICT_PREREGISTERED = {
-  keep:    'A beats B by >0.10R AND the clustered CI excludes zero → KEEP the trendline',
-  replace: 'A within 0.10R of B → REPLACE with Donchian; delete the fitting code',
-  remove:  'A within 0.10R of C → REMOVE the setup entirely'
-};
-
-function runTrendlineAB(){
-  var out = document.getElementById('ab-out');
-  if(!out) return;
-  var universe = (allData||[]).filter(function(d){ return d.vol24 > 3000000; })
-                 .sort(function(a,b){ return (b.vol24||0)-(a.vol24||0); }).slice(0, 45);
-  if(universe.length < 15){ out.innerHTML = '<div style="font-size:11px;color:var(--t3)">Load the board first.</div>'; return; }
-  out.innerHTML = '<div style="font-size:11px;color:var(--t3)">⏮ Running three arms over history…</div>';
-
-  var FWD = 12, DONCH = 20;
-  Promise.all(universe.map(function(d){
-    return bybitKlines(d.sym, TF, 200).then(function(kl){ return {sym:d.sym, kl:kl}; })
-                                      .catch(function(){ return null; });
-  })).then(function(res){
-    var coins = res.filter(function(x){ return x && x.kl && x.kl.length > 100; });
-    if(coins.length < 12){ out.innerHTML = '<div style="font-size:11px;color:var(--r)">Not enough history.</div>'; return; }
-    var minLen = Math.min.apply(null, coins.map(function(x){ return x.kl.length; }));
-    coins.forEach(function(x){
-      var k = x.kl.slice(-minLen);
-      x.h = k.map(function(r){return parseFloat(r[2]);});
-      x.l = k.map(function(r){return parseFloat(r[3]);});
-      x.c = k.map(function(r){return parseFloat(r[4]);});
-      x.v = k.map(function(r){return parseFloat(r[5]);});
-    });
-
-    function ema(arr, p, end){
-      var k = 2/(p+1), e = arr[Math.max(0,end-p*3)];
-      for(var i=Math.max(1,end-p*3)+1; i<=end; i++) e = arr[i]*k + e*(1-k);
-      return e;
-    }
-    function rsiAt(arr, i, p){
-      p = p||14; if(i < p+1) return 50;
-      var g=0, l=0;
-      for(var j=i-p+1; j<=i; j++){ var ch=arr[j]-arr[j-1]; if(ch>0) g+=ch; else l-=ch; }
-      if(l===0) return 100;
-      var rs=(g/p)/(l/p); return 100 - 100/(1+rs);
-    }
-    // IDENTICAL gates for every arm — so the arms differ only in the trigger
-    function gates(x, i){
-      function avg(a){ return a.length ? a.reduce(function(p,q){return p+q;},0)/a.length : 0; }
-      var volR = avg(x.v.slice(Math.max(0,i-2), i+1)) / Math.max(1e-9, avg(x.v.slice(Math.max(0,i-20), i-2)));
-      var e20 = ema(x.c, 20, i);
-      var r = rsiAt(x.c, i), rPrev = rsiAt(x.c, i-1);
-      return volR >= 1.2 && x.c[i] > e20 && r >= 45 && r > rPrev;
-    }
-
-    var arms = { A:[], B:[], C:[] }, byDate = { A:{}, B:{}, C:{} };
-    var seedRnd = 12345;
-    function rnd(){ seedRnd = (seedRnd*1103515245 + 12345) & 0x7fffffff; return seedRnd/0x7fffffff; }
-
-    for(var i = 100; i < minLen - FWD; i++){
-      coins.forEach(function(x){
-        if(!(x.c[i] > 0)) return;
-        if(!gates(x, i)) return;                       // same gate for all arms
-        var fwd = (x.c[i+FWD] - x.c[i]) / x.c[i] * 100;
-        // stop distance proxy → express result in R so arms are comparable
-        var atr = 0, n = 0;
-        for(var q=Math.max(1,i-13); q<=i; q++){ atr += Math.max(x.h[q]-x.l[q], Math.abs(x.h[q]-x.c[q-1]), Math.abs(x.l[q]-x.c[q-1])); n++; }
-        var stopPct = n ? (atr/n)/x.c[i]*100*1.5 : 3;
-        var R = stopPct > 0 ? fwd/stopPct : 0;
-
-        // ARM A — trendline break (uses the live detector on the window so far)
-        var tl = null;
-        try { tl = detectTrendlines(x.h.slice(0,i+1), x.l.slice(0,i+1), x.c.slice(0,i+1)); } catch(e){}
-        if(tl && tl.down && tl.down.brokeUpNow && (tl.down.touches||0) >= 2){
-          arms.A.push(R); (byDate.A[i] = byDate.A[i] || []).push(R);
-        }
-        // ARM B — objective 20-day-high breakout, no fitting at all
-        var hh = -Infinity;
-        for(var j=i-DONCH; j<i; j++) if(x.h[j] > hh) hh = x.h[j];
-        if(x.c[i] > hh){ arms.B.push(R); (byDate.B[i] = byDate.B[i] || []).push(R); }
-        // ARM C — random control, matched roughly to arm A's rate
-        if(rnd() < 0.02){ arms.C.push(R); (byDate.C[i] = byDate.C[i] || []).push(R); }
-      });
-    }
-
-    function stat(a, dates){
-      if(!a.length) return null;
-      var m = a.reduce(function(p,q){return p+q;},0)/a.length;
-      var win = a.filter(function(x){ return x > 0; }).length / a.length * 100;
-      // CLUSTERED: average within each bar first, so a market-wide break day
-      // counts once rather than 40 times
-      var keys = Object.keys(dates);
-      var clustered = keys.map(function(k){
-        var g = dates[k]; return g.reduce(function(p,q){return p+q;},0)/g.length;
-      });
-      var cm = clustered.length ? clustered.reduce(function(p,q){return p+q;},0)/clustered.length : 0;
-      var sd = clustered.length > 1
-        ? Math.sqrt(clustered.reduce(function(p,q){return p+(q-cm)*(q-cm);},0)/(clustered.length-1)) : 0;
-      var se = clustered.length ? sd/Math.sqrt(clustered.length) : 0;
-      return { n:a.length, effN:clustered.length, mean:m, clustMean:cm, se:se,
-               ci: 1.645*se, win:win };
-    }
-    var sA = stat(arms.A, byDate.A), sB = stat(arms.B, byDate.B), sC = stat(arms.C, byDate.C);
-    if(!sA || !sB){ out.innerHTML = '<div style="font-size:11px;color:var(--t3)">Too few signals in the available history to compare.</div>'; return; }
-
-    var diffAB = sA.clustMean - sB.clustMean;
-    var diffAC = sA.clustMean - sC ? (sA.clustMean - (sC?sC.clustMean:0)) : 0;
-    var seDiff = Math.sqrt(sA.se*sA.se + sB.se*sB.se);
-    var ciDiff = 1.645 * seDiff;
-    var verdict, vcol;
-    if(sA.effN < 20 || sB.effN < 20){
-      verdict = '⏳ Only '+sA.effN+' / '+sB.effN+' effective independent observations. Far too few — no verdict.'; vcol='var(--t3)';
-    } else if(diffAB > 0.10 && (diffAB - ciDiff) > 0){
-      verdict = '🟢 KEEP — the trendline beat Donchian by '+diffAB.toFixed(2)+'R and the interval excludes zero.'; vcol='var(--g)';
-    } else if(sC && Math.abs(sA.clustMean - sC.clustMean) < 0.10){
-      verdict = '🔴 REMOVE — the trendline is indistinguishable from random entries with the same gates. The gates were doing the work.'; vcol='var(--r)';
-    } else if(Math.abs(diffAB) <= 0.10){
-      verdict = '🟠 REPLACE — the trendline matched a plain 20-day-high breakout ('+(diffAB>=0?'+':'')+diffAB.toFixed(2)+'R). Same result, none of the fitting or subjectivity. Delete the pivot code.'; vcol='var(--am)';
-    } else {
-      verdict = '🔴 REPLACE — Donchian BEAT the trendline by '+Math.abs(diffAB).toFixed(2)+'R.'; vcol='var(--r)';
-    }
-
-    var h = '<div style="background:var(--card);border-radius:8px;padding:.85rem">';
-    h += '<table style="width:100%;font-size:11px;border-collapse:collapse">';
-    h += '<tr style="color:var(--t3);font-size:10px"><th style="text-align:left">Arm</th><th>mean R</th><th>clustered R</th><th>win %</th><th>signals</th><th>eff. N</th></tr>';
-    [['A · Trendline break', sA, 'var(--acc)'],
-     ['B · 20-day-high (Donchian)', sB, 'var(--t2)'],
-     ['C · Random control', sC, 'var(--t3)']].forEach(function(row){
-      if(!row[1]) return;
-      h += '<tr style="border-top:.5px solid var(--bd)">'
-         + '<td style="padding:5px 0;color:'+row[2]+';font-weight:700">'+row[0]+'</td>'
-         + '<td style="text-align:center;color:'+(row[1].mean>=0?'var(--g)':'var(--r)')+'">'+(row[1].mean>=0?'+':'')+row[1].mean.toFixed(2)+'</td>'
-         + '<td style="text-align:center;font-weight:700;color:'+(row[1].clustMean>=0?'var(--g)':'var(--r)')+'">'+(row[1].clustMean>=0?'+':'')+row[1].clustMean.toFixed(2)+'</td>'
-         + '<td style="text-align:center;color:var(--t3)">'+row[1].win.toFixed(0)+'%</td>'
-         + '<td style="text-align:center;color:var(--t3)">'+row[1].n+'</td>'
-         + '<td style="text-align:center;color:var(--t3)">'+row[1].effN+'</td></tr>';
-    });
-    h += '</table>';
-    h += '<div style="font-size:11px;font-weight:700;color:'+vcol+';margin-top:9px;line-height:1.55">'+verdict+'</div>';
-    h += '<div style="font-size:10px;color:var(--t3);margin-top:7px;line-height:1.6">'
-       + 'A − B = '+(diffAB>=0?'+':'')+diffAB.toFixed(2)+'R (90% CI ±'+ciDiff.toFixed(2)+')<br>'
-       + '<b>Clustered R</b> averages signals within the same bar first, so one market-wide break day counts once instead of 40 times. That is why eff. N is far below the raw signal count — and why the raw column overstates confidence.</div>';
-    h += '<div style="font-size:9px;color:var(--t3);margin-top:8px;font-style:italic;line-height:1.5">⚠️ In-sample, ~200 bars, one market period, survivorship (only coins on your list today). The trendline arm also carries look-ahead risk that Donchian does not — pivots need future bars to confirm — which biases this test IN FAVOUR of arm A. If A still fails to beat B here, that is decisive.</div>';
-    out.innerHTML = h + '</div>';
-  }).catch(function(e){
-    out.innerHTML = '<div style="font-size:11px;color:var(--r)">Failed: '+(e.message||e)+'</div>';
-  });
-}
-
 
 // ═══════════════════════════════════════════════════════════════════════════
 // EXPORT — every dataset the tool measures, downloadable as CSV or JSON.
@@ -17625,189 +17294,6 @@ function buildExportPanel(){
   return h;
 }
 
-function buildABPanel(){
-  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
-  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🧪 Trendline A/B test — does the fitted line beat a simple rule?</div>';
-  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">The research found no peer-reviewed validation of diagonal trendline breaks, while objective N-day-high breakouts have a century of evidence. This runs three arms with <b>identical gates and exits</b>, so they differ only in the trigger. If the fitted line adds nothing, the honest outcome is to delete it.</div>';
-  h += '<div style="background:var(--card3);border-radius:7px;padding:8px 10px;margin-bottom:.6rem">';
-  h += '<div style="font-size:10px;font-weight:700;color:var(--t2);margin-bottom:3px">📋 Verdict pre-registered BEFORE you see the numbers</div>';
-  h += '<div style="font-size:10px;color:var(--t3);line-height:1.6">'
-     + '• '+AB_VERDICT_PREREGISTERED.keep+'<br>'
-     + '• '+AB_VERDICT_PREREGISTERED.replace+'<br>'
-     + '• '+AB_VERDICT_PREREGISTERED.remove+'</div></div>';
-  h += '<button onclick="runTrendlineAB()" style="padding:7px 15px;border-radius:7px;border:.5px solid var(--acc);background:transparent;color:var(--acc);font-weight:700;font-size:11px;cursor:pointer;font-family:inherit">🧪 Run the three arms</button>';
-  h += '<div id="ab-out" style="margin-top:.7rem"></div>';
-  return h + '</div>';
-}
-
-function runCoilBacktest(){
-  var out = document.getElementById('coil-bt-out');
-  if(!out) return;
-  var universe = (allData||[]).filter(function(d){ return (d.vol24usd||d.vol24) > 3000000; })
-                 .sort(function(a,b){ return (b.vol24||0)-(a.vol24||0); }).slice(0, 45);
-  // BTC must be included — it defines the regime the results are split by
-  var btcD = (allData||[]).find(function(d){ return d.sym==='BTCUSDT' || d.sym==='BTCJPY'; });
-  if(btcD && !universe.some(function(d){ return d.sym===btcD.sym; })) universe.push(btcD);
-  if(universe.length < 15){ out.innerHTML = '<div style="font-size:11px;color:var(--t3)">Need a loaded board first.</div>'; return; }
-  out.innerHTML = '<div style="font-size:11px;color:var(--t3)">⏮ Fetching history for '+universe.length+' coins…</div>';
-
-  var FWD = 12;              // forward window in bars (on 4h ≈ 2 days)
-  Promise.all(universe.map(function(d){
-    return bybitKlines(d.sym, TF, 200).then(function(kl){ return {sym:d.sym, kl:kl}; })
-                                      .catch(function(){ return null; });
-  })).then(function(res){
-    var coins = res.filter(function(x){ return x && x.kl && x.kl.length > 90; });
-    if(coins.length < 15){ out.innerHTML = '<div style="font-size:11px;color:var(--r)">Not enough history returned.</div>'; return; }
-    var minLen = Math.min.apply(null, coins.map(function(x){ return x.kl.length; }));
-
-    // per-coin arrays
-    coins.forEach(function(x){
-      var k = x.kl.slice(-minLen);
-      x.h = k.map(function(r){return parseFloat(r[2]);});
-      x.l = k.map(function(r){return parseFloat(r[3]);});
-      x.c = k.map(function(r){return parseFloat(r[4]);});
-      x.v = k.map(function(r){return parseFloat(r[5]);});
-    });
-
-    // compression at bar i, measured against that coin's own prior history
-    function compressionAt(x, i){
-      function bwAt(j){
-        var w = x.c.slice(Math.max(0,j-19), j+1); if(w.length < 20) return null;
-        var m = w.reduce(function(a,b){return a+b;},0)/w.length;
-        var sd = Math.sqrt(w.reduce(function(a,b){return a+(b-m)*(b-m);},0)/w.length);
-        return m > 0 ? (4*sd)/m : null;
-      }
-      var now = bwAt(i); if(now == null) return null;
-      var hist = [];
-      for(var j = Math.max(20, i-80); j < i; j++){ var b = bwAt(j); if(b!=null) hist.push(b); }
-      if(hist.length < 25) return null;
-      var pct = hist.filter(function(z){ return z < now; }).length / hist.length;
-      // volume dry-up over the same moment
-      function avg(a){ return a.length ? a.reduce(function(p,q){return p+q;},0)/a.length : 0; }
-      var vd = avg(x.v.slice(Math.max(0,i-49), i+1)) > 0
-             ? avg(x.v.slice(Math.max(0,i-4), i+1)) / avg(x.v.slice(Math.max(0,i-49), i+1)) : 1;
-      // decline filter — same idea as the live detector
-      var lo90 = Math.min.apply(null, x.l.slice(Math.max(0,i-89), i+1));
-      var offLow = lo90 > 0 ? (x.c[i]-lo90)/lo90*100 : 0;
-      return { pct: pct, volRatio: vd, offLow: offLow };
-    }
-
-    // BTC REGIME per historical bar — a coil in a falling tape is a different
-    // animal from a coil in a rising one, and for SPOT (no shorting) only the
-    // absolute return is tradable. Split the results so this cannot hide.
-    var btcCoin = coins.find(function(x){ return x.sym==='BTCUSDT' || x.sym==='BTCJPY'; });
-    var btcUp = null;
-    if(btcCoin){
-      var bc = btcCoin.c, ema = [], k = 2/21, prev = null;
-      for(var q=0;q<bc.length;q++){ prev = (prev==null) ? bc[q] : bc[q]*k + prev*(1-k); ema.push(prev); }
-      btcUp = bc.map(function(p,q){ return q>0 ? (p > ema[q] && ema[q] >= ema[q-1]) : true; });
-    }
-    var coiled = [], board = [], byOffLow = {near:[], clear:[]};
-    var byRegime = { up:[], down:[] };
-    for(var i = 100; i < minLen - FWD; i++){
-      var snap = [];
-      coins.forEach(function(x){
-        var cm = compressionAt(x, i); if(!cm) return;
-        if(!(x.c[i] > 0)) return;
-        var fwd = (x.c[i+FWD] - x.c[i]) / x.c[i] * 100;
-        snap.push({ sym:x.sym, pct:cm.pct, vol:cm.volRatio, offLow:cm.offLow, fwd:fwd });
-      });
-      if(snap.length < 12) continue;
-      var med = snap.map(function(s){return s.fwd;}).sort(function(a,b){return a-b;})[Math.floor(snap.length/2)];
-      board.push(med);
-      // "coiled" = bottom quintile of its own bandwidth history + volume dried up
-      var regUp = btcUp ? btcUp[i] : null;
-      snap.filter(function(s){ return s.pct <= 0.20 && s.vol < 1.0; }).forEach(function(s){
-        var rec = { fwd:s.fwd, edge:s.fwd - med };
-        coiled.push(rec);
-        (s.offLow < 8 ? byOffLow.near : byOffLow.clear).push(s.fwd - med);
-        if(regUp === true) byRegime.up.push(rec);
-        else if(regUp === false) byRegime.down.push(rec);
-      });
-    }
-
-    if(coiled.length < 30){ out.innerHTML = '<div style="font-size:11px;color:var(--t3)">Only '+coiled.length+' coil instances in the available history — too few to say anything.</div>'; return; }
-    function m(a){ return a.length ? a.reduce(function(p,q){return p+q;},0)/a.length : 0; }
-    var avgFwd = m(coiled.map(function(x){return x.fwd;}));
-    var avgEdge = m(coiled.map(function(x){return x.edge;}));
-    var avgBoard = m(board);
-    var winRate = Math.round(coiled.filter(function(x){return x.edge > 0;}).length / coiled.length * 100);
-    var col = avgEdge > 0.3 ? 'var(--g)' : avgEdge < -0.3 ? 'var(--r)' : 'var(--am)';
-    var verdict = avgEdge > 0.3 ? '🟢 Compressed coins DID outperform the board in this history'
-                : avgEdge < -0.3 ? '🔴 Compressed coins UNDERPERFORMED — compression alone is not an edge here'
-                : '⚠️ No meaningful edge — compressed coins matched the board';
-
-    var h = '<div style="background:var(--card);border-radius:8px;padding:.75rem .875rem">';
-    h += '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:.5rem">';
-    h += '<div><div style="font-size:18px;font-weight:800;color:var(--text)">'+(avgFwd>=0?'+':'')+avgFwd.toFixed(2)+'%</div><div style="font-size:10px;color:var(--t3)">coiled, next '+FWD+' bars</div></div>';
-    h += '<div><div style="font-size:18px;font-weight:800;color:var(--t3)">'+(avgBoard>=0?'+':'')+avgBoard.toFixed(2)+'%</div><div style="font-size:10px;color:var(--t3)">median coin</div></div>';
-    h += '<div><div style="font-size:18px;font-weight:800;color:'+col+'">'+(avgEdge>=0?'+':'')+avgEdge.toFixed(2)+'%</div><div style="font-size:10px;color:var(--t3)">EDGE</div></div>';
-    h += '<div><div style="font-size:18px;font-weight:800;color:var(--t2)">'+coiled.length+'</div><div style="font-size:10px;color:var(--t3)">instances</div></div>';
-    h += '<div><div style="font-size:18px;font-weight:800;color:var(--t2)">'+winRate+'%</div><div style="font-size:10px;color:var(--t3)">beat the board</div></div>';
-    h += '</div>';
-    h += '<div style="font-size:11px;font-weight:700;color:'+col+';margin-bottom:6px">'+verdict+'</div>';
-    // ── THE REGIME SPLIT — the question that actually matters for spot ──
-    function regRow(label, rows){
-      if(rows.length < 10) return '<div style="font-size:10px;color:var(--t3);padding:2px 0">'+label+': only '+rows.length+' instances — too few</div>';
-      var af = m(rows.map(function(x){return x.fwd;})), ae = m(rows.map(function(x){return x.edge;}));
-      var win = Math.round(rows.filter(function(x){return x.fwd > 0;}).length/rows.length*100);
-      var acol = af >= 0 ? 'var(--g)' : 'var(--r)';
-      return '<div style="display:flex;gap:10px;font-size:10px;padding:3px 0;align-items:baseline">'
-        + '<span style="min-width:118px;color:var(--t2)">'+label+'</span>'
-        + '<span style="color:'+acol+';font-weight:800">'+(af>=0?'+':'')+af.toFixed(2)+'%</span>'
-        + '<span style="color:var(--t3)">absolute</span>'
-        + '<span style="color:var(--t3)">· edge '+(ae>=0?'+':'')+ae.toFixed(2)+'%</span>'
-        + '<span style="margin-left:auto;color:var(--t3)">'+win+'% up · n='+rows.length+'</span></div>';
-    }
-    if(btcUp){
-      h += '<div style="font-size:11px;font-weight:700;color:var(--t2);margin:8px 0 2px">Split by BTC regime — the question that decides tradability</div>';
-      h += regRow('BTC rising', byRegime.up);
-      h += regRow('BTC falling', byRegime.down);
-      var dn = byRegime.down, up = byRegime.up;
-      if(dn.length >= 10 && up.length >= 10){
-        // FIX: the old note branched ONLY on the absolute return, so a small
-        // positive absolute in a falling tape printed "✅ held up" even when the
-        // edge was clearly negative. Both numbers have to be read together, and
-        // the decisive comparison is where the edge actually came from.
-        var dAbs  = m(dn.map(function(x){return x.fwd;})),  dEdge = m(dn.map(function(x){return x.edge;}));
-        var uAbs  = m(up.map(function(x){return x.fwd;})),  uEdge = m(up.map(function(x){return x.edge;}));
-        var note, ncol = 'var(--am)';
-        if(dAbs < 0){
-          note = '⚠️ With BTC falling these coils LOST money in absolute terms ('+dAbs.toFixed(2)+'%)'
-               + (dEdge > 0 ? ', even though they beat the board by '+dEdge.toFixed(2)+'%. For SPOT that is not tradable — outperforming a decline is still a loss.' : '.')
-               + ' Treat coils as a bull-tape tool and stand aside when BTC falls.';
-          ncol = 'var(--r)';
-        } else if(dEdge < 0 && uEdge > 0){
-          note = '⚠️ Read the EDGE, not the absolute. With BTC falling these coils returned '+dAbs.toFixed(2)+'% but UNDERPERFORMED the board by '+Math.abs(dEdge).toFixed(2)+'%; with BTC rising they beat it by '+uEdge.toFixed(2)+'%. '
-               + 'All of the edge came from the BTC-rising half — compression is a bull-tape tool here, not an all-weather one.';
-          ncol = 'var(--am)';
-        } else if(dEdge < 0){
-          note = '⚠️ With BTC falling these coils underperformed the board by '+Math.abs(dEdge).toFixed(2)+'% despite a '+dAbs.toFixed(2)+'% absolute return. Being up while lagging the market is not an edge.';
-          ncol = 'var(--am)';
-        } else if(dAbs >= 0 && dEdge >= 0.3){
-          note = '✅ These coils beat the board by '+dEdge.toFixed(2)+'% even with BTC falling ('+dAbs.toFixed(2)+'% absolute) — genuinely unusual. Check the sample ('+dn.length+') before trusting it.';
-          ncol = 'var(--g)';
-        } else {
-          note = '➖ With BTC falling: '+dAbs.toFixed(2)+'% absolute, '+(dEdge>=0?'+':'')+dEdge.toFixed(2)+'% edge — essentially no signal either way in this regime.';
-          ncol = 'var(--t2)';
-        }
-        h += '<div style="font-size:10px;color:'+ncol+';margin-top:5px;line-height:1.55">'+note+'</div>';
-      }
-    } else {
-      h += '<div style="font-size:10px;color:var(--t3);margin-top:6px">BTC not in the sampled universe — regime split unavailable.</div>';
-    }
-    h += '<div style="font-size:11px;font-weight:700;color:var(--t2);margin:8px 0 2px">Split by location</div>';
-    h += '<div style="font-size:10px;color:var(--t3);line-height:1.6">'
-       + 'Coils near their 90-bar low: '+(m(byOffLow.near)>=0?'+':'')+m(byOffLow.near).toFixed(2)+'% edge (n='+byOffLow.near.length+')<br>'
-       + 'Coils clear of the low: '+(m(byOffLow.clear)>=0?'+':'')+m(byOffLow.clear).toFixed(2)+'% edge (n='+byOffLow.clear.length+')'
-       + '</div>';
-    h += '<div style="font-size:9px;color:var(--t3);margin-top:8px;font-style:italic;line-height:1.5">⚠️ Read this cautiously: it uses only the ~200 bars currently available, covers one market period, includes only coins on your list today (survivorship), and is in-sample — the same data that shaped the design. It is a sanity check, not proof. The forward audit above is the honest test.</div>';
-    out.innerHTML = h + '</div>';
-  }).catch(function(e){
-    out.innerHTML = '<div style="font-size:11px;color:var(--r)">Backtest failed: '+(e.message||e)+'</div>';
-  });
-}
-
 
 // ═══════════════════════════════════════════════════════════════════════════
 // GATE BLOCK LOG — every setup the gates suppressed. Without this, a correctly
@@ -17852,11 +17338,7 @@ function buildEarlyAuditPanel(){
   var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
   h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🌱 Early Watch — does it actually work?' + _expBtn('ew_audit','Early Watch audit','csv') + '</div>';
   h += '<div style="font-size:11px;color:var(--t2);line-height:1.5;margin-bottom:.6rem">Every listed candidate is recorded and checked 48h later, against the <b>median coin on the board</b> at the same moment. Beating zero is meaningless; beating the board is the real test. Also splits results by DNA personality, to show whether the DNA adjustment earns its place.</div>';
-  var btBtn = '<div style="margin-top:.7rem;border-top:.5px solid var(--bd);padding-top:.7rem">'
-    + '<div style="font-size:11px;font-weight:700;color:var(--t2);margin-bottom:3px">Do not want to wait weeks?</div>'
-    + '<div style="font-size:10px;color:var(--t3);margin-bottom:6px">Run the same test on the history already available — an answer in about a minute instead of a month.</div>'
-    + '<button onclick="runCoilBacktest()" style="padding:6px 14px;border-radius:7px;border:.5px solid var(--acc);background:transparent;color:var(--acc);font-weight:700;font-size:11px;cursor:pointer;font-family:inherit">⏮ Backtest coils on history</button>'
-    + '<div id="coil-bt-out" style="margin-top:.6rem"></div></div>';
+  var btBtn = '';   // coil backtest removed
   if(done.length < 8){
     return h + '<div style="font-size:11px;color:var(--t3)">⏳ '+a.length+' recorded · '+done.length+' resolved — needs 8+ (each takes 48h). Verdicts need far more; treat early numbers as noise.</div>'
              + btBtn + '</div>';
