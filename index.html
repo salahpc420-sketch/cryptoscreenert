@@ -3587,7 +3587,9 @@ function loadAll() {
       });
       if(_tlChanged) localStorage.setItem('tl_flip_seen', JSON.stringify(_tlSeen));
     } catch(e){}
-    try { checkConfluence(allData); } catch(e){}     // TA + catalyst hard-gate alignment
+    // scanCatalysts used to be called by the (now removed) catalyst panel. It must
+    // still run, because the pipeline's exploit/delist veto reads d.catalysts.
+    try { scanCatalysts(); } catch(e){}              // headline events → d.catalysts
     try { checkCascade(allData); } catch(e){}        // 1h → 4h → 1d trend cascade
     try { runPipeline(allData); } catch(e){}         // TA trigger → analyst → catalyst veto
     try { checkMonitors(allData); } catch(e){}       // monitored-coin event detection
@@ -4955,86 +4957,8 @@ function buildPipelinePanel(){
 // ═══════════════════════════════════════════════════════════════════════════
 // CONFLUENCE — evidenced conditions as hard gates, not a score.
 // ═══════════════════════════════════════════════════════════════════════════
-function evaluateConfluence(d){
-  if(!d || !d.price) return null;
-  var gates = [];
-  var regOk = _regime && (_regime.mode === 'altseason' || _regime.mode === 'neutral');
-  gates.push({ k:'regime', ok:regOk, label:'Market regime permits alt entries', detail:_regime?_regime.mode:'unknown' });
-  var dt = window._dailyTrend && window._dailyTrend[d.sym];
-  gates.push({ k:'htf', ok: dt===true, label:'Daily trend agrees',
-    detail: dt===true?'daily up':dt===false?'daily DOWN':'unknown' });
-  var capOk = d.resil && d.resil.downBars >= 6 && d.resil.capture < 0.5;
-  gates.push({ k:'rs', ok:!!capOk, label:'Held up while BTC fell',
-    detail: d.resil ? (d.resil.capture<=0?'rose while BTC fell':'absorbed '+Math.round(d.resil.capture*100)+'%') : 'not measurable' });
-  var structOk = !!(d.tlRetestHeld || d.resFlipHeld || d.earlyState==='continuation' || d.earlyState==='triggered');
-  gates.push({ k:'struct', ok:structOk, label:'Structure confirmed',
-    detail: d.resFlipHeld?'resistance flipped':d.tlRetestHeld?'trendline retest held'
-          : d.earlyState==='continuation'?'continuation base':d.earlyState==='triggered'?'breakout triggered':'nothing confirmed' });
-  var uSize = d.unlock ? ((d.unlock.pctMcap!=null?d.unlock.pctMcap:d.unlock.pctSupply)||0) : 0;
-  gates.push({ k:'unlock', ok: !d.unlock || d.unlock.days > 21 || uSize < 3, label:'No large unlock approaching',
-    detail: d.unlock ? (Math.round(d.unlock.days)+'d · '+uSize.toFixed(1)+'%') : 'none in 45 days' });
-  gates.push({ k:'vol', ok: d.volZ == null || d.volZ < 2.5, label:'Volume not in the caution zone',
-    detail: d.volZ != null ? d.volZ.toFixed(1)+'σ' : 'unknown' });
-  gates.push({ k:'liq', ok:(d.vol24||0) > 5000000, label:'Liquid enough to trade',
-    detail:'$'+Math.round((d.vol24||0)/1e6)+'M / 24h' });
-  var passed = gates.filter(function(g){ return g.ok; }).length;
-  return { gates:gates, passed:passed, total:gates.length, allPass: passed === gates.length };
-}
 
-function checkConfluence(data){
-  if(!data || !data.length) return;
-  var seen = {};
-  try { seen = JSON.parse(localStorage.getItem('confluence_seen')||'{}'); } catch(e){}
-  var now = Date.now(), changed = false;
-  data.forEach(function(d){
-    var r = evaluateConfluence(d);
-    d._conf = r;
-    if(!r || !r.allPass) return;
-    if(seen[d.sym] && (now - seen[d.sym]) < 24*3600000) return;
-    seen[d.sym] = now; changed = true;
-    var msg = '🎯 ' + d.pair + ' — ALL 7 conditions aligned (technical + catalyst).\n'
-            + 'A shortlist alert, not a recommendation — check the levels before acting.';
-    try { showToast(d, 'strong', msg); } catch(e){}
-    try { addAlHistory(d, 'confluence', msg); } catch(e){}
-    try { sendBrowserNotif(d, msg); } catch(e){}
-  });
-  if(changed){ try { localStorage.setItem('confluence_seen', JSON.stringify(seen)); } catch(e){} }
-}
 
-function buildConfluencePanel(){
-  var rows = (allData||[]).map(function(d){ return { d:d, r:d._conf || evaluateConfluence(d) }; })
-                          .filter(function(x){ return x.r; });
-  if(!rows.length) return '';
-  var full = rows.filter(function(x){ return x.r.allPass; });
-  var near = rows.filter(function(x){ return !x.r.allPass && x.r.passed >= x.r.total-1; });
-  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
-  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.3rem"><span style="font-size:15px">🎯</span>'
-     + '<span style="font-size:13px;font-weight:700">Confluence — technical and catalyst aligned</span>'
-     + '<span style="margin-left:auto;font-size:9px;color:var(--t3)">'+full.length+' of '+rows.length+' pass all 7</span></div>';
-  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">Seven conditions, each with measured support, and <b>all</b> must pass. Not a score — a score can be carried by two strong items while three are weak.</div>';
-  if(full.length){
-    full.slice(0,6).forEach(function(x){
-      h += '<div style="border-top:.5px solid var(--bd);padding:6px 0">'
-         + '<div style="display:flex;gap:8px;align-items:baseline;font-size:12px"><b style="min-width:92px">'+x.d.pair+'</b>'
-         + '<span style="color:var(--g);font-weight:700;font-size:11px">✅ all 7 aligned</span>'
-         + '<span style="margin-left:auto;font-size:10px;color:var(--t3)">'+fE(x.d.price)+'</span></div></div>';
-    });
-  } else {
-    h += '<div style="font-size:11px;color:var(--t3);padding:4px 0">No coin currently passes all seven. In a weak tape that is expected, not a failure.</div>';
-  }
-  if(near.length){
-    h += '<div style="font-size:10px;font-weight:700;color:var(--t2);margin:9px 0 3px">One condition short</div>';
-    near.slice(0,6).forEach(function(x){
-      var miss = x.r.gates.filter(function(g){ return !g.ok; })[0];
-      h += '<div style="display:flex;gap:8px;align-items:baseline;font-size:10px;padding:2px 0">'
-         + '<b style="min-width:88px;color:var(--t2)">'+x.d.pair+'</b>'
-         + '<span style="color:var(--am)">waiting on: '+(miss?miss.label:'—')+'</span>'
-         + '<span style="margin-left:auto;color:var(--t3)">'+(miss?miss.detail:'')+'</span></div>';
-    });
-  }
-  h += '<div style="font-size:9px;color:var(--t3);margin-top:9px;font-style:italic">Passing all seven is a reason to LOOK, not a reason to buy.</div>';
-  return h + '</div>';
-}
 
 // ── Catalyst checklist sources ─────────────────────────────────────────────
 var COIN_HANDLES = {
@@ -16418,46 +16342,6 @@ function buildUnlockPanel(){
   return h + '</div>';
 }
 
-function buildCatalystPanel(){
-  var found = {};
-  try { found = scanCatalysts(); } catch(e){ return ''; }
-  var syms = Object.keys(found);
-  if(!syms.length) return '';
-  // rank: bearish events first — they are the ones you must not miss
-  var order = { exploit:0, delist:1, unlock:2, regulatory:3, institution:4, listing:5, upgrade:6, supply:7, partner:8, whale:9 };
-  var items = [];
-  syms.forEach(function(s){
-    var d = (allData||[]).find(function(x){ return x.sym === s; });
-    if(!d) return;
-    found[s].forEach(function(ev){
-      ev.types.forEach(function(t){ items.push({ sym:s, pair:d.pair, price:d.price, chg:d.chg, type:t, ev:ev }); });
-    });
-  });
-  if(!items.length) return '';
-  items.sort(function(a,b){ return (order[a.type]||9) - (order[b.type]||9); });
-
-  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
-  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.3rem">'
-     + '<span style="font-size:15px">📌</span><span style="font-size:13px;font-weight:700">Catalysts on your coins</span>'
-     + '<span style="margin-left:auto;font-size:9px;color:var(--t3)">from '+((typeof newsCache!=='undefined'&&newsCache)?newsCache.length:0)+' headlines</span></div>';
-  h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">Events, not sentiment — unlocks, upgrades, listings, exploits. These have a <b>mechanism</b> (supply, liquidity, capital) rather than a mood. Keyword-classified, so read the headline before acting.</div>';
-  var seen = {};
-  items.slice(0, 14).forEach(function(it){
-    var k = it.sym + it.type; if(seen[k]) return; seen[k] = 1;
-    var def = CATALYST_TYPES[it.type];
-    var col = def.lean === 'bearish' ? 'var(--r)' : def.lean === 'bullish' ? 'var(--g)' : def.lean === 'mild_bullish' ? 'var(--am)' : 'var(--t2)';
-    h += '<div style="border-top:.5px solid var(--bd);padding:6px 0">';
-    h += '<div style="display:flex;gap:8px;align-items:baseline;font-size:11px">'
-       + '<span>'+def.icon+'</span><b style="min-width:88px">'+it.pair+'</b>'
-       + '<span style="color:'+col+';font-weight:700;font-size:10px">'+def.label+'</span>'
-       + '<span style="margin-left:auto;font-size:10px;color:'+((it.chg||0)>=0?'var(--g)':'var(--r)')+'">'+((it.chg||0)>=0?'+':'')+(it.chg||0).toFixed(1)+'%</span></div>';
-    h += '<a href="'+it.ev.link+'" target="_blank" rel="noopener" style="display:block;font-size:10px;color:var(--t2);text-decoration:none;margin-top:2px;line-height:1.45">'+it.ev.title+'</a>';
-    h += '<div style="font-size:9px;color:var(--t3);margin-top:2px">'+def.why+'</div>';
-    h += '</div>';
-  });
-  h += '<div style="font-size:9px;color:var(--t3);margin-top:9px;font-style:italic;line-height:1.5">⚠️ A headline is news OF an event — price has often moved already. Unlocks are the exception worth acting on early because they are SCHEDULED and knowable in advance; check the project calendar rather than waiting for the article.</div>';
-  return h + '</div>';
-}
 
 function buildResiliencePanel(){
   var rows = (allData||[]).filter(function(d){
@@ -17579,9 +17463,7 @@ function renderMarketRead(){
   try { h += buildRatiosPanel(); } catch(e){}
   try { h += buildCascadePanel(); } catch(e){}
   try { h += buildPipelinePanel(); } catch(e){}
-  try { h += buildConfluencePanel(); } catch(e){}
   try { h += buildUnlockPanel(); } catch(e){}
-  try { h += buildCatalystPanel(); } catch(e){}
   try { h += buildResiliencePanel(); } catch(e){}
   try { h += buildEarlyWatchPanel(); } catch(e){}
   // ── AI MARKET BRIEFING — one AI call summarizing the whole board on demand ──
