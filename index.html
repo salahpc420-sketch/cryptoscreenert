@@ -7846,6 +7846,42 @@ function _agentNews(f){
     }) };
 }
 
+// ── AGENT TOOL 5: ON-CHAIN intelligence (quota-aware, on request only) ──
+function _agentOnchain(f){
+  f=f||{}; var sym=String(f.sym||f.symbol||'').replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+  var chain=String(f.chain||'eth').toLowerCase(), address=String(f.address||'').trim();
+  var ark=(localStorage.getItem('arkham_api_key')||'').trim(), mor=(localStorage.getItem('moralis_api_key')||'').trim();
+  if(!ark&&!mor) return Promise.resolve({status:'not_configured',message:'No Arkham or Moralis API key configured.'});
+  var out={symbol:sym||null,chain:chain,address:address||null,sources:[]}, tasks=[];
+  if(mor&&sym&&!address){
+    var u='https://deep-index.moralis.io/api/v2.2/tokens/search?query='+encodeURIComponent(sym)+'&chains='+encodeURIComponent(chain)+'&limit=5&sortBy=volume24hDesc';
+    tasks.push(fetch(u,{headers:{'X-API-Key':mor},cache:'no-store'}).then(function(r){if(!r.ok)throw Error('Moralis token search HTTP '+r.status);return r.json();}).then(function(j){
+      out.moralisSearch=(j.result||[]).slice(0,5).map(function(x){return {name:x.name,symbol:x.symbol,address:x.tokenAddress,chainId:x.chainId,price:x.usdPrice,marketCap:x.marketCap,volume24h:x.volumeUsd&&x.volumeUsd.oneDay,netVolume24h:x.netVolumeUsd&&x.netVolumeUsd.oneDay,netBuyers24h:x.experiencedNetBuyers&&x.experiencedNetBuyers.oneDay,liquidityChange24h:x.liquidityChangeUSD&&x.liquidityChangeUSD.oneDay,holders:x.totalHolders,verified:x.isVerifiedContract};});
+      out.sources.push('Moralis token search');
+    }).catch(function(e){out.moralisError=e.message;}));
+  }
+  var tokenAddress=address;
+  if(!tokenAddress&&out.moralisSearch&&out.moralisSearch.length) tokenAddress=out.moralisSearch[0].address;
+  if(mor&&tokenAddress&&/^0x[a-fA-F0-9]{40}$/.test(tokenAddress)){
+    var hu='https://deep-index.moralis.io/api/v2.2/erc20/'+tokenAddress+'/holders?chain='+encodeURIComponent(chain);
+    tasks.push(fetch(hu,{headers:{'X-API-Key':mor},cache:'no-store'}).then(function(r){if(!r.ok)throw Error('Moralis holders HTTP '+r.status);return r.json();}).then(function(j){
+      out.moralisHolders={totalHolders:j.totalHolders,top10Pct:j.holderSupply&&j.holderSupply.top10&&j.holderSupply.top10.supplyPercent,top25Pct:j.holderSupply&&j.holderSupply.top25&&j.holderSupply.top25.supplyPercent,top100Pct:j.holderSupply&&j.holderSupply.top100&&j.holderSupply.top100.supplyPercent,holderChange1h:j.holderChange&&j.holderChange['1h'],holderChange24h:j.holderChange&&j.holderChange['1d']}; out.sources.push('Moralis holder metrics');
+    }).catch(function(e){out.moralisHoldersError=e.message;}));
+  }
+  if(ark){
+    var au='https://api.arkm.com/intelligence/search?query='+encodeURIComponent(address||sym);
+    tasks.push(fetch(au,{headers:{'API-Key':ark},cache:'no-store'}).then(function(r){if(!r.ok)throw Error('Arkham search HTTP '+r.status);return r.json();}).then(function(j){
+      var rows=j.results||j.result||j.data||[]; if(!Array.isArray(rows))rows=[rows];
+      out.arkhamSearch=rows.slice(0,8).map(function(x){return {id:x.id||x.entity||x.tokenId||x.pricingId||null,type:x.type||x.kind||null,name:x.name||x.label||null,address:x.address||null,chain:x.chain||x.chainType||null,symbol:x.symbol||null};}); out.sources.push('Arkham entity/token search');
+    }).catch(function(e){out.arkhamError=e.message;}));
+  }
+  return Promise.all(tasks).then(function(){
+    var hit=out.arkhamSearch&&out.arkhamSearch.find(function(x){return x.id;}); if(!ark||!hit)return out;
+    var jobs=['market','top_flow','holders'].map(function(kind){var path=kind==='market'?'/token/market/'+encodeURIComponent(hit.id):kind==='top_flow'?'/token/top_flow/'+encodeURIComponent(hit.id):'/token/holders/'+encodeURIComponent(hit.id); return fetch('https://api.arkm.com'+path,{headers:{'API-Key':ark},cache:'no-store'}).then(function(r){if(!r.ok)throw Error('HTTP '+r.status);return r.json();}).then(function(j){out['arkham_'+kind]=j;}).catch(function(e){out['arkham_'+kind+'_error']=e.message;});});
+    return Promise.all(jobs).then(function(){return out;});
+  });
+}
+
 // ── AGENT TOOL 5: chart VISION for one coin (quota-aware, on request only) ──
 function _agentChartImage(sym){
   return new Promise(function(res){
@@ -7882,6 +7918,7 @@ function runResearchAgent(){
     + 'BOARD {json} - the LIVE board of all scanned coins right now. filters: signalsOnly, tier, minOpportunity, minRsRank, struct, trendlineBreak, sweep, sym, sortBy, limit. per coin returns price, chg24h, opportunity, score, rsRank, momQuintile, trendQ, accum, rsi, volR, struct, tier, buySignal, extAboveEMA20pct, dailyTrendUp, trendline, sweep, support, resistance. '
     + 'CONTEXT {} - market regime plus the tool grading ITSELF: btcState, breadth, ethVsBtc, altWeather, suppressionReasons, buyZone, the user track record, scoringAudit (which of its own scores predict wins), icLab (information coefficients). '
     + 'NEWS {json} - recent headlines. filters: contains, limit. '
+    + 'ONCHAIN {json} - live Arkham/Moralis intelligence. args: sym or symbol, optional chain, optional token contract address. Use for holder concentration, token flows, entity/wallet evidence and on-chain confirmation. It returns only configured-provider data; missing keys mean unavailable, not zero activity. Query at most once unless necessary. '
     + 'CHART {\"sym\":\"BTCUSDT\"} - renders that coin chart so you can SEE it. Costs quota: use at most once, only when a visual read genuinely matters. '
     + 'WORKFLOW: call a tool, read the result, call another if needed, maximum 5 calls, then give your FINAL ANSWER with no tool line. '
     + 'STATISTICAL HONESTY IS MANDATORY: for LOG slices, under 10 resolved means the slice cannot support a conclusion, under 30 is a weak hint that must cite the confidence interval, and comparing many slices inflates false positives. BOARD data is CURRENT CONDITIONS, not outcomes - describe setup quality, never predict. '
@@ -7913,14 +7950,17 @@ function runResearchAgent(){
           });
           return;
         }
-        var res = tool==='LOG' ? _agentQuery(args)
-                : tool==='BOARD' ? _agentBoard(args)
-                : tool==='CONTEXT' ? _agentContext()
-                : tool==='NEWS' ? _agentNews(args) : {};
-        steps.push({ tool: tool, q: args, r: res });
-        history.push({ role:'user', content: tool+' RESULT: '+JSON.stringify(res) });
-        renderProgress();
-        step(i+1);
+        var res = tool==='LOG' ? Promise.resolve(_agentQuery(args))
+                : tool==='BOARD' ? Promise.resolve(_agentBoard(args))
+                : tool==='CONTEXT' ? Promise.resolve(_agentContext())
+                : tool==='NEWS' ? Promise.resolve(_agentNews(args))
+                : tool==='ONCHAIN' ? _agentOnchain(args) : Promise.resolve({});
+        Promise.resolve(res).then(function(resolved){
+          steps.push({ tool: tool, q: args, r: resolved });
+          history.push({ role:'user', content: tool+' RESULT: '+JSON.stringify(resolved).slice(0,18000) });
+          renderProgress(); step(i+1);
+        }).catch(function(e){ history.push({role:'user',content:tool+' RESULT: ERROR '+(e.message||e)}); renderProgress(); step(i+1); });
+        return;
       } else {
         history.push({ role:'assistant', content: text });
         render(text);
@@ -7935,6 +7975,7 @@ function runResearchAgent(){
     var got = r.matched && r.matched.n!==undefined ? 'n='+r.matched.n
             : r.coins ? (r.matched+' of '+r.totalScanned+' coins')
             : r.headlines ? (r.headlines.length+' headlines')
+            : r.sources ? (r.sources.length+' on-chain sources')
             : 'ok';
     out.innerHTML = '<div style="font-size:11px;color:var(--t3)">🔬 Step '+steps.length+': '+(last.tool||'LOG')+' → '+got+' … thinking</div>';
   }
@@ -7949,6 +7990,7 @@ function runResearchAgent(){
               ? ('n='+r.matched.n + (r.matched.winRate!=null?', WR '+r.matched.winRate+'%':'') + (r.matched.expectancyR!=null?', '+r.matched.expectancyR+'R':''))
               : r.coins ? (r.matched+' of '+r.totalScanned+' coins')
               : r.headlines ? (r.headlines.length+' headlines')
+              : r.sources ? (r.sources.length+' on-chain sources')
               : r.rendered!==undefined ? (r.rendered?'chart seen':'render failed') : 'ok';
         h += '<div style="font-size:10px;color:var(--t2);padding:2px 0"><b style="color:#7c4dff">'+(s.tool||'LOG')+'</b> '+JSON.stringify(s.q||{})+' → '+sm+'</div>';
       });
@@ -8023,6 +8065,8 @@ function buildLatenessPanel(){
   return h;
 }
 
+function buildIntelAgentPanel(){ try { var el=document.getElementById('ip-agent'); if(el) el.innerHTML=buildResearchAgentPanel(); } catch(e){} }
+
 function buildResearchAgentPanel(){
   var hasKey = !!(localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key'));
   var st = signalLogStats();
@@ -8033,6 +8077,14 @@ function buildResearchAgentPanel(){
     h += '<div style="font-size:11px;color:var(--t3)">Add your free Gemini key (any coin → Analyst tab) to enable the agent.</div></div>';
     return h;
   }
+  var _ak = (localStorage.getItem('arkham_api_key')||'').trim();
+  var _mk = (localStorage.getItem('moralis_api_key')||'').trim();
+  h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:8px 10px;margin-bottom:8px">';
+  h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">⛓ On-chain intelligence</b><span style="font-size:9px;color:var(--t3)">optional · queried only when needed</span><span style="margin-left:auto;font-size:9px;color:' + (_ak?'var(--g)':'var(--t3)') + '">Arkham ' + (_ak?'✓':'—') + '</span><span style="font-size:9px;color:' + (_mk?'var(--g)':'var(--t3)') + '">Moralis ' + (_mk?'✓':'—') + '</span></div>';
+  h += '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">';
+  h += '<button onclick="var v=prompt(\'Arkham API key. Leave blank to remove.\',localStorage.getItem(\'arkham_api_key\')||\'\');if(v!==null){v=v.trim();if(v)localStorage.setItem(\'arkham_api_key\',v);else localStorage.removeItem(\'arkham_api_key\');buildIntelAgentPanel();}" style="font-size:10px;padding:4px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);cursor:pointer">Arkham key</button>';
+  h += '<button onclick="var v=prompt(\'Moralis API key. Leave blank to remove.\',localStorage.getItem(\'moralis_api_key\')||\'\');if(v!==null){v=v.trim();if(v)localStorage.setItem(\'moralis_api_key\',v);else localStorage.removeItem(\'moralis_api_key\');buildIntelAgentPanel();}" style="font-size:10px;padding:4px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);cursor:pointer">Moralis key</button>';
+  h += '</div><div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.4">Arkham: entity labels, token holders, flows and wallet intelligence. Moralis: token, holder and transfer data. On-chain data is evidence only, never an automatic BUY/SELL signal.</div></div>';
   h += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
   h += '<input id="agent-q" placeholder="e.g. best setups right now? / does my daily-trend gate help?" onkeydown="if(event.key===\'Enter\')runResearchAgent()" style="flex:1;min-width:200px;padding:8px 10px;border-radius:8px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:12px;font-family:inherit">';
   h += '<button onclick="runResearchAgent()" style="padding:8px 16px;border-radius:8px;border:none;background:#7c4dff;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">Investigate</button></div>';
