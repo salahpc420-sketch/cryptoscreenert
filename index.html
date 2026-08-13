@@ -4433,6 +4433,46 @@ function checkMonitors(data){
 }
 
 // Called on candle close, and on demand. Costs one AI call.
+function monitorOnchain(sym){
+  var d=(allData||[]).find(function(x){return x.sym===sym;});
+  var out=document.getElementById('mon-chain-'+sym);
+  if(!out) return;
+  if(!d){out.innerHTML='<span style="color:var(--r);font-size:10px">Coin data not loaded.</span>';return;}
+  var ak=(localStorage.getItem('arkham_api_key')||'').trim(), mk=(localStorage.getItem('moralis_api_key')||'').trim();
+  if(!ak&&!mk){out.innerHTML='<div style="font-size:10px;color:var(--am)">Add an Arkham or Moralis key above first.</div>';return;}
+  out.innerHTML='<div style="font-size:10px;color:var(--t3)">⛓ Reading on-chain intelligence…</div>';
+  _agentOnchain({sym:d.pair||d.sym,chain:'eth'}).then(function(x){
+    var lines=[];
+    if(x.moralisSearch&&x.moralisSearch.length){
+      var m=x.moralisSearch[0];
+      lines.push('<b>Moralis</b>: '+(m.name||d.pair)+' · holders '+(m.holders!=null?m.holders.toLocaleString():'n/a')+' · 24h vol '+(m.volume24h!=null?fE(m.volume24h):'n/a'));
+      if(m.netBuyers24h!=null) lines.push('Net buyers 24h: '+m.netBuyers24h);
+    }
+    if(x.moralisHolders){
+      var mh=x.moralisHolders;
+      lines.push('Holder concentration: top10 '+(mh.top10Pct!=null?Number(mh.top10Pct).toFixed(1)+'%':'n/a')+' · top25 '+(mh.top25Pct!=null?Number(mh.top25Pct).toFixed(1)+'%':'n/a'));
+      if(mh.holderChange24h!=null) lines.push('Holder change 24h: '+mh.holderChange24h);
+    }
+    if(x.arkhamSearch&&x.arkhamSearch.length){
+      lines.push('<b>Arkham</b>: '+x.arkhamSearch.slice(0,4).map(function(a){return (a.name||a.label||a.id||'entity')+(a.type?' ['+a.type+']':'');}).join(' · '));
+    }
+    if(x.arkham_top_flow) lines.push('Arkham top flow data received.');
+    if(x.arkham_holders) lines.push('Arkham holder/entity data received.');
+    if(!lines.length) lines.push('No usable on-chain result returned. Missing data is not zero activity.');
+    out.innerHTML='<div style="font-size:10px;color:var(--t2);line-height:1.5;background:var(--card3);border-radius:6px;padding:7px 9px">'+lines.join('<br>')+'<div style="margin-top:4px;color:var(--t3);font-size:9px">Evidence only — not an automatic BUY/SELL signal.</div></div>';
+  }).catch(function(e){out.innerHTML='<span style="color:var(--r);font-size:10px">On-chain error: '+String(e.message||e).replace(/</g,'&lt;')+'</span>';});
+}
+
+function setOnchainKey(provider){
+  var key=provider==='arkham'?'arkham_api_key':'moralis_api_key';
+  var label=provider==='arkham'?'Arkham':'Moralis';
+  var v=prompt(label+' API key. Leave blank to remove.',localStorage.getItem(key)||'');
+  if(v===null) return;
+  v=v.trim();
+  if(v)localStorage.setItem(key,v); else localStorage.removeItem(key);
+  renderAgent();
+}
+
 function monitorAnalyse(sym, why){
   var mons = loadMonitors();
   var mon = mons.find(function(x){ return x.sym===sym; });
@@ -4505,7 +4545,14 @@ function monitorAnalyse(sym, why){
     + (recent ? '\nRECENT EVENTS ON THIS COIN:\n' + recent + '\n' : '')
     + '\nTRIGGER FOR THIS UPDATE: ' + (why||'manual request');
 
-  _aiCallModel(sys, [{role:'user', content:usr}], null).then(function(txt){
+  // On-chain intelligence is fetched only when the monitor actually asks the AI to analyse.
+  // This keeps Arkham/Moralis quota usage low and makes the result part of the same reasoning context.
+  _agentOnchain({sym:d.pair||d.sym, chain:'eth'}).then(function(onchain){
+    var oc=JSON.stringify(onchain||{}).slice(0,12000);
+    usr += '\n\nON-CHAIN INTELLIGENCE (Arkham/Moralis; current evidence only):\n' + oc
+         + '\nTreat missing/unavailable fields as UNKNOWN, never as zero activity. Do not invent whale activity. Use on-chain data as confirmation/evidence, not as an automatic BUY/SELL trigger.';
+    return _aiCallModel(sys, [{role:'user', content:usr}], null);
+  }).then(function(txt){
     // If the agent produced a setup, save it as a memo so the normal condition
     // watcher, alerts and auto-logging all apply — the agent does not get a
     // private path around the guards.
@@ -5238,6 +5285,13 @@ function renderAgent(){
      + (canVerify() ? ' · <span onclick="groqTest()" style="text-decoration:underline;cursor:pointer;color:var(--acc)">test connection</span>' : '')
      + '<div id="groq-test-out"></div>'
      + '<span style="display:block;margin-top:2px">Separate from your analysis key and used only for this — so a large analysis payload can never hit the search limit.</span></div>';
+  var _akm=(localStorage.getItem('arkham_api_key')||'').trim(), _mrm=(localStorage.getItem('moralis_api_key')||'').trim();
+  h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:8px 10px;margin-bottom:8px">';
+  h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">⛓ On-chain intelligence</b><span style="font-size:9px;color:var(--t3)">used by this AI Agent Monitor when analysing a watched coin</span><span style="margin-left:auto;font-size:9px;color:' + (_akm?'var(--g)':'var(--t3)') + '">Arkham ' + (_akm?'✓':'—') + '</span><span style="font-size:9px;color:' + (_mrm?'var(--g)':'var(--t3)') + '">Moralis ' + (_mrm?'✓':'—') + '</span></div>';
+  h += '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">';
+  h += '<button onclick="setOnchainKey(\'arkham\')" style="font-size:10px;padding:4px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);cursor:pointer">Arkham key</button>';
+  h += '<button onclick="setOnchainKey(\'moralis\')" style="font-size:10px;padding:4px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);cursor:pointer">Moralis key</button>';
+  h += '</div><div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.4">Checks token/entity search, holder concentration and available flow evidence. It is queried on demand, not every scan. Missing data is UNKNOWN, not zero activity.</div></div>';
   h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.7rem">Tell it which coins to watch and it keeps a running timeline: what changed, when, and what it means. It analyses on <b>events</b> — a candle closing, the chart state flipping, a level breaking, conditions gained or lost — not continuously, because re-running the AI when nothing has changed costs quota to repeat itself.</div>';
   var opts = (allData||[]).slice().sort(function(a,b){ return (b.vol24||0)-(a.vol24||0); }).slice(0,80);
   h += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">';
@@ -5275,6 +5329,8 @@ function renderAgent(){
        + '<input type="checkbox" '+(mon.auto?'checked':'')+' onchange="toggleMonitorAuto(\''+mon.sym+'\',this.checked)" style="cursor:pointer">'
        + 'auto-update on 4h / 1d close</label>';
     h += '<button onclick="buildCatalystChecklist(\''+mon.sym+'\')" title="Check unlocks, development, governance, volume, strength and news" style="padding:5px 12px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:10px;cursor:pointer;font-family:inherit">🔍 Catalyst checklist</button>';
+    h += '<button onclick="monitorOnchain(\''+mon.sym+'\')" title="Read Arkham/Moralis evidence for this coin" style="padding:5px 12px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:10px;cursor:pointer;font-family:inherit">⛓ On-chain</button>';
+    h += '<span id="mon-chain-'+mon.sym+'" style="display:block;width:100%;margin-top:2px"></span>';
     h += '<span id="mon-ai-'+mon.sym+'" style="font-size:10px"></span>';
     h += '</div>';
     h += '<div id="verify-'+mon.sym+'"></div>';
