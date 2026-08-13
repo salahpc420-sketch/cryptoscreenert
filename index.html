@@ -2347,7 +2347,7 @@ function calcPP(rsi, trend, volR, st, chg, price, e20, e50, liq) {
 // ═══════════════════════════════════════════════════════════
 // PROCESS SYMBOL — wires all indicator fixes
 // ═══════════════════════════════════════════════════════════
-function processSymbol(ticker) {
+function processSymbol(ticker, btcClosesOverride) {
   var sym = ticker.symbol;
   return bybitKlines(sym, TF, 150).then(function(klines) {
     var cAll = klines.map(function(k){ return parseFloat(k[4]); });
@@ -2381,8 +2381,13 @@ function processSymbol(ticker) {
     var vB = candleClosed ? vBase.slice(0, -1) : vBase;
     if (c.length < 30) { c = cAll; h = hAll; l = lAll; v = vAll; } // safety: too few bars
 
-    // Cache BTC CLOSED closes globally so other coins compute relative strength
-    if (sym === 'BTCUSDT' || sym === 'BTCJPY') _btcCloses = c.slice();
+    // Cache BTC CLOSED closes globally so other coins compute relative strength.
+    // Callers may provide an immutable snapshot to avoid concurrent-scan races.
+    var btcClosesForCalc = (btcClosesOverride && btcClosesOverride.length) ? btcClosesOverride.slice() : (_btcCloses ? _btcCloses.slice() : null);
+    if (sym === 'BTCUSDT' || sym === 'BTCJPY') {
+      _btcCloses = c.slice();
+      btcClosesForCalc = c.slice();
+    }
 
     // FIX 1: Full-history EMAs (on closed candles)
     var e20  = calcEMA(c, 20);
@@ -2403,7 +2408,7 @@ function processSymbol(ticker) {
     // while every liquidity threshold in this tool is written in USD. At ~150
     // JPY/USD the filters were roughly 150x too loose in JPY mode, so they
     // effectively did nothing. Carry a normalized USD figure alongside.
-    var vol24usd = (typeof MODE !== 'undefined' && MODE === 'JPY')
+    var vol24usd = (Q === 'JPY')
       ? vol24 / (window._jpyRate || 150)
       : vol24;
 
@@ -2633,13 +2638,13 @@ function processSymbol(ticker) {
     var pumpDump = calcPumpDump(h, l, c, v);
 
     // FIX 10+4+9: Weighted score engine with ATR filter
-    var sc = calcScore(rsi, trend, volR, st, chg, liq, price, e20, e50, e200, atrPct);
+    var sc = calcScore(rsi, trend, volR, st, chg, liq, closePx, e20, e50, e200, atrPct);
 
     // FIX 5: Pass resistance to BP for distance-to-resistance check
-    var bp = calcBP(rsi, trend, volR, st, chg, price, e20, e50, liq, sr.res);
+    var bp = calcBP(rsi, trend, volR, st, chg, closePx, e20, e50, liq, sr.res);
 
     // FIX 6: EMA-extension-primary pullback model
-    var pp = calcPP(rsi, trend, volR, st, chg, price, e20, e50, liq);
+    var pp = calcPP(rsi, trend, volR, st, chg, closePx, e20, e50, liq);
 
     // FIX 7: Buy signal — add momentum filter (chg > 0.5% or recent 3-bar gain)
     var bar3gain = c.length >= 3 ? (c[c.length-1] - c[c.length-4]) / c[c.length-4] * 100 : 0;
@@ -2658,8 +2663,8 @@ function processSymbol(ticker) {
     //    In a BEAR/RANGING market, that's nearly impossible, so instead reward
     //    price above the 50 EMA (reclaiming shorter-term trend = valid bounce setup).
     //    This way bear-market relief rallies still qualify instead of being filtered out.
-    var btcBull = _btcCloses && _btcCloses.length >= 50
-                  ? _btcCloses[_btcCloses.length-1] > calcEMA(_btcCloses, Math.min(200,_btcCloses.length))
+    var btcBull = btcClosesForCalc && btcClosesForCalc.length >= 50
+                  ? btcClosesForCalc[btcClosesForCalc.length-1] > calcEMA(btcClosesForCalc, Math.min(200,btcClosesForCalc.length))
                   : true; // default to bull if BTC data not ready
     var aboveEMA200 = e200 > 0 ? closePx > e200 : true;   // closed-candle (no repaint)
     var aboveEMA50  = e50  > 0 ? closePx > e50  : true;
@@ -2712,12 +2717,13 @@ function processSymbol(ticker) {
     var buyOK = (breakoutBuy || pullbackBuy);
     var buySignal = (buyOK || sweepBuy) && !exhausted;
 
-    // FIX B — REWARD:RISK GATE. Levels reference the LIVE price (actual entry),
-    //   but the gate itself only matters when buySignal is true (closed-candle gated).
-    var rrStop = sr.sup > 0 && sr.sup < price ? sr.sup * 0.99 : price * 0.95;
-    var rrTarget = sr.res > price ? sr.res * 0.998 : price * 1.06;
-    var rrRisk = (price - rrStop) / price * 100;
-    var rrReward = (rrTarget - price) / price * 100;
+    // FIX B — REWARD:RISK GATE. Use the last CLOSED candle as the signal
+    // reference so live ticker movement cannot change a signal intrabar.
+    var signalPrice = closePx;
+    var rrStop = sr.sup > 0 && sr.sup < signalPrice ? sr.sup * 0.99 : signalPrice * 0.95;
+    var rrTarget = sr.res > signalPrice ? sr.res * 0.998 : signalPrice * 1.06;
+    var rrRisk = (signalPrice - rrStop) / signalPrice * 100;
+    var rrReward = (rrTarget - signalPrice) / signalPrice * 100;
     var rrRatio = rrRisk > 0 ? rrReward / rrRisk : 0;
     var rrOK = rrRatio >= 1.5; // reward must be at least 1.5× the risk
 
@@ -2750,7 +2756,7 @@ function processSymbol(ticker) {
                        && !exhausted;     // FIX C: not parabolic/exhausted
 
     // Entry-quality filter: optionally skip signals with no room to resistance
-    var distToRes = sr.res > price ? (sr.res - price) / price * 100 : 99;
+    var distToRes = sr.res > signalPrice ? (sr.res - signalPrice) / signalPrice * 100 : 99;
     if (CONFIG.REQUIRE_ROOM && buyConfirmed && distToRes < CONFIG.MIN_DIST_RESISTANCE) {
       buyConfirmed = false;
     }
@@ -2825,9 +2831,9 @@ function processSymbol(ticker) {
     var meta = META[sym] || {cat:'', col:'#888'};
 
     // PHASE 7+6: Relative strength vs BTC + accumulation score
-    var relStr = calcRelStrength(c, _btcCloses);
-    var resil = calcResilience(c, _btcCloses);
-    var dbeta = calcDownBeta(c, _btcCloses);
+    var relStr = calcRelStrength(c, btcClosesForCalc);
+    var resil = calcResilience(c, btcClosesForCalc);
+    var dbeta = calcDownBeta(c, btcClosesForCalc);
     var accum  = calcAccumulation(h, l, c, v, relStr, e20, e50);
     // Trend quality — how clean/smooth is the trend
     var trendQ = calcTrendQuality(c, e20, e50, e200);
@@ -2859,8 +2865,8 @@ function processSymbol(ticker) {
 
     // long-horizon drawdown (not 90 bars) — matches the holding period
     var hiLong = Math.max.apply(null, c.slice(-Math.min(c.length, 400)));
-    var ddLong = hiLong > 0 ? (price - hiLong)/hiLong*100 : 0;
-    var distE200pct = e200 > 0 ? (price - e200)/e200*100 : 0;
+    var ddLong = hiLong > 0 ? (closePx - hiLong)/hiLong*100 : 0;
+    var distE200pct = e200 > 0 ? (closePx - e200)/e200*100 : 0;
     var e200Rising = c.length >= 15
       ? e200 > calcEMA(c.slice(0, -10), Math.min(200, c.length-10)) : false;
 
@@ -2874,14 +2880,14 @@ function processSymbol(ticker) {
       // 3. REGIME MULTIPLIER — the corrected 200 EMA logic. Cheap AND trend
       //    intact is the prize; cheap below a FALLING 200 EMA is a falling knife.
       var regime;
-      if(price > e200 && e200Rising)      regime = 1.00;   // discount inside an intact uptrend
-      else if(price > e200)               regime = 0.75;   // above, but MA flat/rolling
+      if(closePx > e200 && e200Rising)      regime = 1.00;   // discount inside an intact uptrend
+      else if(closePx > e200)               regime = 0.75;   // above, but MA flat/rolling
       else if(e200Rising)                 regime = 0.45;   // dip beneath a still-rising MA
       else                                regime = 0.12;   // below a falling MA — was +18 in v1
       // 4. Rank credit — top-10 has materially better survival odds than 11-25
       var rankMult = coinRank <= 10 ? 1.0 : 0.75;
       // 5. Still crashing? wait for it to stop.
-      var falling5 = c.length>=6 ? (price-c[c.length-6])/c[c.length-6]*100 : 0;
+      var falling5 = c.length>=6 ? (closePx-c[c.length-6])/c[c.length-6]*100 : 0;
       var freefall = falling5 < -15 ? 0.6 : 1.0;
 
       invScore = Math.round(100 * cheapness * regime * rankMult * freefall);
@@ -2894,7 +2900,7 @@ function processSymbol(ticker) {
     var ddHigh = ddLong;
 
     return {
-      sym:sym, pair:pair, price:price, chg:chg, vol24:vol24, vol24usd:vol24usd,
+      sym:sym, pair:pair, price:price, signalPrice:closePx, chg:chg, vol24:vol24, vol24usd:vol24usd,
       tlBreakUp:tlBreakUp, tlTouches:tlTouches,
       cascade: _casc, cascPhase: _casc ? _casc.phase : null,
       resFlipHeld: !!_resFlip, resFlipLevel: _resFlip ? _resFlip.level : null,
@@ -3313,11 +3319,32 @@ function loadAll() {
     var completed = 0;
     var total = tickers.length;
 
+    // BTC must finish first so all concurrent coins use one immutable closed-candle snapshot.
+    var btcScanItem = null;
+    for (var bti = 0; bti < qItems.length; bti++) {
+      if (qItems[bti].t.symbol === 'BTCUSDT' || qItems[bti].t.symbol === 'BTCJPY') { btcScanItem = qItems[bti]; break; }
+    }
+    var btcScanSnapshot = null;
+    var btcScanPromise = Promise.resolve();
+    if (btcScanItem) {
+      qItems.splice(qItems.indexOf(btcScanItem), 1);
+      btcScanPromise = processSymbol(btcScanItem.t, null).then(function(res){
+        results[btcScanItem.i] = res;
+        btcScanSnapshot = _btcCloses ? _btcCloses.slice() : null;
+        completed = 1;
+        setLP(20, 'BTC reference loaded · scanning ' + (total-1) + ' coins…');
+      }).catch(function(){
+        btcScanSnapshot = _btcCloses ? _btcCloses.slice() : null;
+        completed = 1;
+        setLP(20, 'BTC reference unavailable · using last known BTC snapshot…');
+      });
+    }
+
     return new Promise(function(resolve) {
       function next() {
         if (!qItems.length) return;
         var item = qItems.shift();
-        processSymbol(item.t).then(function(res) {
+        processSymbol(item.t, btcScanSnapshot).then(function(res) {
           results[item.i] = res;
         }).catch(function() {
           failedItems.push(item); // remember failures for one retry pass
@@ -3334,7 +3361,7 @@ function loadAll() {
               function retryNext() {
                 if (!retryQ.length) return;
                 var it = retryQ.shift();
-                processSymbol(it.t).then(function(res){ results[it.i] = res; })
+                processSymbol(it.t, btcScanSnapshot).then(function(res){ results[it.i] = res; })
                   .catch(function(){})
                   .finally(function(){
                     retryDone++;
@@ -3351,8 +3378,11 @@ function loadAll() {
           } else next();
         });
       }
-      var workers = Math.min(CONCURRENCY, tickers.length);
-      for (var w = 0; w < workers; w++) next();
+      btcScanPromise.then(function(){
+        var workers = Math.min(CONCURRENCY, qItems.length);
+        for (var w = 0; w < workers; w++) next();
+        if (!qItems.length) resolve(results);
+      });
     });
 
   }).then(function(results) {
@@ -7271,9 +7301,20 @@ function backgroundLogAllTFs(){
       return bnFetch('/api/v3/ticker/24hr?symbols='+encodeURIComponent(JSON.stringify(syms)));
     }).then(function(tickers){
       TF = tf;  // temporarily switch so processSymbol fetches THIS tf's klines
-      return Promise.all(tickers.map(function(t){
-        return processSymbol(t).catch(function(){ return null; });
+      var btcTicker = null;
+      for(var bt=0; bt<tickers.length; bt++){
+        if(tickers[bt].symbol === 'BTCUSDT' || tickers[bt].symbol === 'BTCJPY'){ btcTicker = tickers[bt]; break; }
+      }
+      if(!btcTicker) return Promise.all(tickers.map(function(t){
+        return processSymbol(t, _btcCloses ? _btcCloses.slice() : null).catch(function(){ return null; });
       }));
+      return processSymbol(btcTicker, null).then(function(btcData){
+        var snapshot = _btcCloses ? _btcCloses.slice() : null;
+        return Promise.all(tickers.map(function(t){
+          if(t === btcTicker) return Promise.resolve(btcData);
+          return processSymbol(t, snapshot).catch(function(){ return null; });
+        }));
+      });
     }).then(function(results){
       var tfData = results.filter(Boolean);
       // Cache each coin's DAILY trend (Murphy M6: higher TF dominates) so signals
@@ -15144,7 +15185,13 @@ function renderBacktestResults(sym, tf, klines, holdBars, exitRule, bars) {
     var c  = slice.map(function(k){ return parseFloat(k[4]); });
     var h  = slice.map(function(k){ return parseFloat(k[2]); });
     var l  = slice.map(function(k){ return parseFloat(k[3]); });
-    var v  = slice.map(function(k){ return parseFloat(k[5]); });
+    // Match live volume logic: quote turnover (index 7), fallback to base*close.
+    var v  = slice.map(function(k){
+      var q = parseFloat(k[7]);
+      if (isFinite(q) && q > 0) return q;
+      var px = parseFloat(k[4]), b = parseFloat(k[5]);
+      return (isFinite(px) && isFinite(b)) ? px * b : 0;
+    });
 
     if (inTrade) {
       // Check exit conditions
@@ -15178,7 +15225,15 @@ function renderBacktestResults(sym, tf, klines, holdBars, exitRule, bars) {
         if (barsHeld >= holdBars) shouldExit = true; // max hold safety
       }
       if (exitRule === 'fixed' && barsHeld >= holdBars) shouldExit = true;
-      if (exitRule === 'tp_sl' && (pnlPct >= TP_EXIT || pnlPct <= -SL_EXIT)) shouldExit = true;
+      if (exitRule === 'tp_sl') {
+        // OHLC cannot tell which was hit first when TP and SL are both touched.
+        // Use the conservative assumption: SL first.
+        var hitTP = highPct >= TP_EXIT;
+        var hitSL = lowPct <= -SL_EXIT;
+        if (hitTP && hitSL) { shouldExit = true; trailExitPnl = -SL_EXIT; }
+        else if (hitTP) { shouldExit = true; trailExitPnl = TP_EXIT; }
+        else if (hitSL) { shouldExit = true; trailExitPnl = -SL_EXIT; }
+      }
       if (exitRule === 'tp_sl' && barsHeld >= holdBars) shouldExit = true; // max hold
       if (exitRule === 'ema') {
         var e20x = calcEMA(c, 20);
@@ -15192,8 +15247,11 @@ function renderBacktestResults(sym, tf, klines, holdBars, exitRule, bars) {
       if (shouldExit) {
         // Exit at next bar open (or at the trail level if trailing fired intrabar)
         var exitBar   = Math.min(i + 1, klines.length - 1);
-        var exitPrice = parseFloat(klines[exitBar][1]); // open of next bar
+        var exitPrice = parseFloat(klines[exitBar][1]); // next-bar open for normal exits
         var grossPnl  = (trailExitPnl !== null) ? trailExitPnl : (exitPrice - entryP) / entryP * 100;
+        // When an intrabar level was hit, report the actual simulated fill level
+        // rather than showing the next open while calculating P&L at another price.
+        if (trailExitPnl !== null) exitPrice = entryP * (1 + trailExitPnl / 100);
         // REALISM: deduct round-trip cost (fee both sides + slippage both sides)
         var finalPnl  = grossPnl - BT_COST.totalPct;
         trades[trades.length - 1].exitBar    = exitBar;
@@ -15202,6 +15260,7 @@ function renderBacktestResults(sym, tf, klines, holdBars, exitRule, bars) {
         trades[trades.length - 1].pnlPct     = finalPnl;
         trades[trades.length - 1].barsHeld   = exitBar - entryBar;
         trades[trades.length - 1].exitDate   = new Date(parseInt(klines[exitBar][0]));
+        trades[trades.length - 1].open       = false;
         inTrade = false;
       }
       continue;
@@ -15276,7 +15335,7 @@ function renderBacktestResults(sym, tf, klines, holdBars, exitRule, bars) {
   }
 
   // ── Calculate stats ────────────────────────────────────────────────────────
-  var closed    = trades.filter(function(t){ return t.pnlPct !== null; });
+  var closed    = trades.filter(function(t){ return !t.open && t.pnlPct !== null; });
   var wins      = closed.filter(function(t){ return t.pnlPct > 0; });
   var losses    = closed.filter(function(t){ return t.pnlPct <= 0; });
   var winRate   = closed.length ? (wins.length / closed.length * 100) : 0;
@@ -15448,7 +15507,7 @@ function renderBacktestResults(sym, tf, klines, holdBars, exitRule, bars) {
 
   // Disclaimer
   h2 += '<div style="margin-top:1rem;padding:.75rem;background:var(--card2);border-radius:var(--rad);font-size:11px;color:var(--t3);line-height:1.7">';
-  h2 += '⚠️ <strong>Educational only.</strong> Backtesting has inherent limitations: slippage, spread, fees not included. Past performance does not guarantee future results. This backtest uses the same indicator engine as the live screener — it measures signal quality only, not a trading strategy. Always use proper risk management.';
+  h2 += '⚠️ <strong>Educational only.</strong> Backtesting has inherent limitations: slippage and spread are simplified; estimated fees/slippage are included at 0.30% round-trip. Past performance does not guarantee future results. This backtest uses the aligned core indicators, but it does not reproduce every live gate (macro, AI, news, on-chain, etc.) — it measures signal quality, not a complete trading strategy. Always use proper risk management.';
   h2 += '</div>';
 
   body.innerHTML = h2;
@@ -15460,6 +15519,7 @@ function fmtBTPrice(p) { return typeof fmtPrice==='function'?fmtPrice(p):(p>=100
 
 
 var _ws = null, _wsSyms = [], _wsRetry = 0, _wsActive = false;
+var _wsPingTmr = null, _wsWatchTmr = null, _wsLastMsg = 0;
 var _lastDataTime = Date.now(); // updated on every fresh price (scan or WS tick) — for stale detection
 // Binance combined ticker stream — built dynamically from subscribed symbols
 // (WebSocket now uses Bybit — see _connectWS below)
@@ -15479,7 +15539,17 @@ function _connectWS() {
     // Bybit spot public stream — works in regions where Binance is geo-blocked (e.g. Japan)
     _ws = new WebSocket('wss://stream.bybit.com/v5/public/spot');
     _ws.onopen = function() {
-      _wsActive = true; _wsRetry = 0;
+      _wsActive = true; _wsRetry = 0; _wsLastMsg = Date.now();
+      if (_wsPingTmr) clearInterval(_wsPingTmr);
+      _wsPingTmr = setInterval(function(){
+        try { if (_ws && _ws.readyState === WebSocket.OPEN) _ws.send(JSON.stringify({op:'ping'})); } catch(e) {}
+      }, 20000);
+      if (_wsWatchTmr) clearInterval(_wsWatchTmr);
+      _wsWatchTmr = setInterval(function(){
+        if (_wsActive && _ws && _ws.readyState === WebSocket.OPEN && _wsLastMsg && Date.now() - _wsLastMsg > 90000) {
+          try { _ws.close(); } catch(e) {}
+        }
+      }, 30000);
       // Bybit subscribes via a message; topic = tickers.<SYMBOL>. Max ~10 args per msg.
       for (var i = 0; i < syms.length; i += 10) {
         var batch = syms.slice(i, i+10).map(function(s){ return 'tickers.' + s; });
@@ -15490,6 +15560,7 @@ function _connectWS() {
     _ws.onmessage = function(e) {
       try {
         var msg = JSON.parse(e.data);
+        _wsLastMsg = Date.now();
         if (!msg.topic || msg.topic.indexOf('tickers.') !== 0 || !msg.data) return;
         var tick = msg.data;
         var sym  = tick.symbol; // e.g. BTCUSDT
@@ -15515,6 +15586,8 @@ function _connectWS() {
     _ws.onerror = function() { _wsActive = false; };
     _ws.onclose = function() {
       _wsActive = false;
+      if (_wsPingTmr) { clearInterval(_wsPingTmr); _wsPingTmr = null; }
+      if (_wsWatchTmr) { clearInterval(_wsWatchTmr); _wsWatchTmr = null; }
       if (_wsRetry < 8) {
         var delay = Math.min(30000, 1000 * Math.pow(1.5, _wsRetry));
         _wsRetry++;
@@ -15527,6 +15600,8 @@ function _connectWS() {
 }
 
 function stopWebSocket() {
+  if (_wsPingTmr) { clearInterval(_wsPingTmr); _wsPingTmr = null; }
+  if (_wsWatchTmr) { clearInterval(_wsWatchTmr); _wsWatchTmr = null; }
   if (_ws) { try { _ws.close(); } catch(e) {} _ws = null; }
   _wsActive = false;
 }
