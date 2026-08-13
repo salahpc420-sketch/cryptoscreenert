@@ -4438,14 +4438,14 @@ function monitorOnchain(sym){
   var out=document.getElementById('mon-chain-'+sym);
   if(!out) return;
   if(!d){out.innerHTML='<span style="color:var(--r);font-size:10px">Coin data not loaded.</span>';return;}
-  var ak=(localStorage.getItem('arkham_api_key')||'').trim(), mk=(localStorage.getItem('moralis_api_key')||'').trim();
-  if(!ak&&!mk){out.innerHTML='<div style="font-size:10px;color:var(--am)">Add an Arkham or Moralis key above first.</div>';return;}
-  out.innerHTML='<div style="font-size:10px;color:var(--t3)">⛓ Reading Arkham/Moralis on-chain intelligence…</div>';
+  var mk=(localStorage.getItem('moralis_api_key')||'').trim();
+  if(!mk){out.innerHTML='<div style="font-size:10px;color:var(--am)">Add your Moralis API key above first.</div>';return;}
+  out.innerHTML='<div style="font-size:10px;color:var(--t3)">⛓ Reading Moralis on-chain intelligence…</div>';
   _agentOnchain({sym:d.pair||d.sym}).then(function(x){
     var h='', esc=function(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');};
     h+='<div style="font-size:10px;line-height:1.55;background:var(--card3);border-radius:6px;padding:8px 9px">';
     h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:5px"><b>⛓ On-chain intelligence — '+esc(x.symbol||d.pair)+'</b><span style="color:var(--t3)">'+new Date().toLocaleTimeString()+'</span></div>';
-    if(x.chainName) h+='<div style="font-size:9px;color:var(--t3);margin-bottom:5px">Network: '+esc(x.chainName)+(x.tokenAddress?' · contract '+esc(x.tokenAddress):'')+'</div>';
+    if(x.chainName||x.tokenAddress) h+='<div style="font-size:9px;color:var(--t3);margin-bottom:5px">'+(x.chainName?'Network: '+esc(x.chainName):'')+(x.tokenAddress?' · contract '+esc(x.tokenAddress):'')+'</div>';
     if(x.moralisSearch&&x.moralisSearch.length){
       var m=x.moralisSearch[0];
       h+='<div><b>Moralis</b> · '+esc(m.name||x.symbol);
@@ -4458,10 +4458,7 @@ function monitorOnchain(sym){
       if(m.liquidityChange24h!=null) h+='<div>Liquidity change (24h): <b>'+fV(m.liquidityChange24h)+'</b></div>';
     }
     if(x.moralisStats){var ms=x.moralisStats;h+='<div style="margin-top:4px"><b>Holder structure</b>'+(ms.totalHolders!=null?' · '+Number(ms.totalHolders).toLocaleString()+' holders':'')+(ms.top10Pct!=null?' · top 10 '+Number(ms.top10Pct).toFixed(1)+'%':'')+(ms.top25Pct!=null?' · top 25 '+Number(ms.top25Pct).toFixed(1)+'%':'')+'</div>';}
-    if(x.arkhamContract) h+='<div style="margin-top:5px"><b>Arkham</b> · contract/entity intelligence received'+(x.arkhamContract.name?' · '+esc(x.arkhamContract.name):'')+'</div>';
-    if(x.arkhamHolders) h+='<div>Arkham holders: <b>'+esc(x.arkhamHolders.count!=null?x.arkhamHolders.count:'data received')+'</b>'+(x.arkhamHolders.top10Pct!=null?' · top 10 '+Number(x.arkhamHolders.top10Pct).toFixed(1)+'%':'')+'</div>';
-    if(x.arkhamFlow) h+='<div>Arkham token flow: '+esc(x.arkhamFlow.summary||'data received')+'</div>';
-    if(x.arkhamVolume) h+='<div>Arkham token volume: '+esc(x.arkhamVolume.summary||'data received')+'</div>';
+    if(x.warnings&&x.warnings.length) h+='<div style="margin-top:6px;color:var(--am)"><b>Provider notes</b><br>'+x.warnings.map(function(e){return '• '+esc(e);}).join('<br>')+'</div>';
     if(x.errors&&x.errors.length) h+='<div style="margin-top:6px;color:var(--r)"><b>Provider diagnostics</b><br>'+x.errors.map(function(e){return '• '+esc(e);}).join('<br>')+'</div>';
     if(!x.sources||!x.sources.length) h+='<div style="color:var(--am);margin-top:4px"><b>UNKNOWN — no usable on-chain data.</b> Missing data is not zero activity.</div>';
     else {var bias=x.bias||'UNKNOWN';h+='<div style="margin-top:7px;padding-top:6px;border-top:.5px solid var(--bd)"><b>On-chain bias:</b> <span style="font-weight:800;color:'+(bias==='BULLISH'?'var(--g)':bias==='BEARISH'?'var(--r)':'var(--t2)')+'">'+esc(bias)+'</span>'+(x.biasReason?'<div style="font-size:9px;color:var(--t3);margin-top:2px">'+esc(x.biasReason)+'</div>':'')+'</div>';}
@@ -4471,13 +4468,12 @@ function monitorOnchain(sym){
 }
 
 function setOnchainKey(provider){
-  var key=provider==='arkham'?'arkham_api_key':'moralis_api_key';
-  var label=provider==='arkham'?'Arkham':'Moralis';
-  var v=prompt(label+' API key. Leave blank to remove.',localStorage.getItem(key)||'');
+  var key='moralis_api_key';
+  var v=prompt('Moralis API key. Leave blank to remove.',localStorage.getItem(key)||'');
   if(v===null) return;
   v=v.trim();
   if(v)localStorage.setItem(key,v); else localStorage.removeItem(key);
-  renderAgent();
+  try{ buildIntelAgentPanel(); }catch(e){}
 }
 
 function monitorAnalyse(sym, why){
@@ -4553,10 +4549,10 @@ function monitorAnalyse(sym, why){
     + '\nTRIGGER FOR THIS UPDATE: ' + (why||'manual request');
 
   // On-chain intelligence is fetched only when the monitor actually asks the AI to analyse.
-  // This keeps Arkham/Moralis quota usage low and makes the result part of the same reasoning context.
+  // This keeps Moralis quota usage low and makes the result part of the same reasoning context.
   _agentOnchain({sym:d.pair||d.sym, chain:'eth'}).then(function(onchain){
     var oc=JSON.stringify(onchain||{}).slice(0,12000);
-    usr += '\n\nON-CHAIN INTELLIGENCE (Arkham/Moralis; current evidence only):\n' + oc
+    usr += '\n\nON-CHAIN INTELLIGENCE (Moralis; current evidence only):\n' + oc
          + '\nTreat missing/unavailable fields as UNKNOWN, never as zero activity. Do not invent whale activity. Use on-chain data as confirmation/evidence, not as an automatic BUY/SELL trigger.';
     return _aiCallModel(sys, [{role:'user', content:usr}], null);
   }).then(function(txt){
@@ -5292,13 +5288,12 @@ function renderAgent(){
      + (canVerify() ? ' · <span onclick="groqTest()" style="text-decoration:underline;cursor:pointer;color:var(--acc)">test connection</span>' : '')
      + '<div id="groq-test-out"></div>'
      + '<span style="display:block;margin-top:2px">Separate from your analysis key and used only for this — so a large analysis payload can never hit the search limit.</span></div>';
-  var _akm=(localStorage.getItem('arkham_api_key')||'').trim(), _mrm=(localStorage.getItem('moralis_api_key')||'').trim();
+  var _mrm=(localStorage.getItem('moralis_api_key')||'').trim();
   h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:8px 10px;margin-bottom:8px">';
-  h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">⛓ On-chain intelligence</b><span style="font-size:9px;color:var(--t3)">used by this AI Agent Monitor when analysing a watched coin</span><span style="margin-left:auto;font-size:9px;color:' + (_akm?'var(--g)':'var(--t3)') + '">Arkham ' + (_akm?'✓':'—') + '</span><span style="font-size:9px;color:' + (_mrm?'var(--g)':'var(--t3)') + '">Moralis ' + (_mrm?'✓':'—') + '</span></div>';
+  h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">⛓ On-chain intelligence</b><span style="font-size:9px;color:var(--t3)">used by this AI Agent Monitor when analysing a watched coin</span><span style="margin-left:auto;font-size:9px;color:' + (_mrm?'var(--g)':'var(--t3)') + '">Moralis ' + (_mrm?'✓':'—') + '</span></div>';
   h += '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">';
-  h += '<button onclick="setOnchainKey(\'arkham\')" style="font-size:10px;padding:4px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);cursor:pointer">Arkham key</button>';
   h += '<button onclick="setOnchainKey(\'moralis\')" style="font-size:10px;padding:4px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);cursor:pointer">Moralis key</button>';
-  h += '</div><div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.4">Checks token/entity search, holder concentration and available flow evidence. It is queried on demand, not every scan. Missing data is UNKNOWN, not zero activity.</div></div>';
+  h += '</div><div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.4">Moralis-only on-chain intelligence. Holder statistics and top-owner data are queried on demand when a supported EVM token contract is known. The plan-gated Moralis token-search endpoint is not used. Missing data is UNKNOWN, not zero activity.</div></div>';
   h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.7rem">Tell it which coins to watch and it keeps a running timeline: what changed, when, and what it means. It analyses on <b>events</b> — a candle closing, the chart state flipping, a level breaking, conditions gained or lost — not continuously, because re-running the AI when nothing has changed costs quota to repeat itself.</div>';
   var opts = (allData||[]).slice().sort(function(a,b){ return (b.vol24||0)-(a.vol24||0); }).slice(0,80);
   h += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">';
@@ -5336,7 +5331,7 @@ function renderAgent(){
        + '<input type="checkbox" '+(mon.auto?'checked':'')+' onchange="toggleMonitorAuto(\''+mon.sym+'\',this.checked)" style="cursor:pointer">'
        + 'auto-update on 4h / 1d close</label>';
     h += '<button onclick="buildCatalystChecklist(\''+mon.sym+'\')" title="Check unlocks, development, governance, volume, strength and news" style="padding:5px 12px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:10px;cursor:pointer;font-family:inherit">🔍 Catalyst checklist</button>';
-    h += '<button onclick="monitorOnchain(\''+mon.sym+'\')" title="Read Arkham/Moralis evidence for this coin" style="padding:5px 12px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:10px;cursor:pointer;font-family:inherit">⛓ On-chain</button>';
+    h += '<button onclick="monitorOnchain(\''+mon.sym+'\')" title="Read Moralis on-chain evidence for this coin" style="padding:5px 12px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:10px;cursor:pointer;font-family:inherit">⛓ On-chain</button>';
     h += '<span id="mon-chain-'+mon.sym+'" style="display:block;width:100%;margin-top:2px"></span>';
     h += '<span id="mon-ai-'+mon.sym+'" style="font-size:10px"></span>';
     h += '</div>';
@@ -7909,61 +7904,65 @@ function _agentNews(f){
     }) };
 }
 
-// ── AGENT TOOL 5: ON-CHAIN intelligence (quota-aware, on request only) ──
-// The old implementation had two bugs: it used the pair string as the search
-// term (e.g. NEARUSDT) and tried to use the token address before async Moralis
-// discovery had completed. It also forced every coin onto Ethereum. This version
-// normalizes the symbol, discovers the token first, then runs holder/Arkham calls.
+// ── AGENT TOOL 5: ON-CHAIN intelligence (Moralis-only, quota-aware) ──
+// Moralis token search is intentionally NOT used because it is plan-gated for some accounts.
+// The agent therefore works only when a supported EVM token contract is already known.
+var _MORALIS_CHAIN_MAP={'eth':'eth','ethereum':'eth','bsc':'bsc','polygon':'polygon','base':'base','arbitrum':'arbitrum','optimism':'optimism','avalanche':'avalanche','linea':'linea','fantom':'fantom'};
+var _MORALIS_CONTRACTS={
+  LINK:{chain:'eth',address:'0x514910771AF9Ca656af840dff83E8264EcF986CA'},
+  AAVE:{chain:'eth',address:'0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9'},
+  UNI:{chain:'eth',address:'0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984'},
+  MKR:{chain:'eth',address:'0x9f8F72aA9304c8B593d555F12eF6589cC3A579A2'},
+  COMP:{chain:'eth',address:'0xc00e94Cb662C3520282E6f5717214004A7f26888'},
+  CRV:{chain:'eth',address:'0xD533a949740bb3306d119CC777fa900bA034cd52'},
+  SNX:{chain:'eth',address:'0xC011a72400E58ec99Ee497CF89E3775d4bd732F4'},
+  LDO:{chain:'eth',address:'0x5A98FcBEA516Cf06857215779Fd812CA3beF1B32'},
+  MATIC:{chain:'eth',address:'0x7D1AfA7B718fb893dB30A3aBc0Cfc608AaCfebb0'},
+  POL:{chain:'eth',address:'0x0000000000000000000000000000000000001010'},
+  USDC:{chain:'eth',address:'0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'},
+  USDT:{chain:'eth',address:'0xdAC17F958D2ee523a2206206994597C13D831ec7'}
+};
 function _agentOnchain(f){
   f=f||{};
-  var raw=String(f.sym||f.symbol||'').trim().toUpperCase();
-  var sym=raw.replace(/\/(USDT|USDC|USD|JPY|BTC|ETH)$/,'').replace(/(USDT|USDC|USD|JPY|BTC|ETH)$/,'').replace(/[^A-Z0-9]/g,'');
-  var suppliedChain=String(f.chain||'').toLowerCase().trim();
-  var address=String(f.address||'').trim();
-  var ark=(localStorage.getItem('arkham_api_key')||'').trim();
+  var raw=String(f.sym||f.symbol||'').toUpperCase().trim();
+  var sym=raw.replace(/(USDT|USDC|USD|JPY|BTC|ETH)$/,'').replace(/[^A-Z0-9]/g,'');
   var mor=(localStorage.getItem('moralis_api_key')||'').trim();
-  var out={symbol:sym||null,rawSymbol:raw,chain:suppliedChain||null,address:address||null,sources:[],errors:[],status:'unknown'};
-  if(!ark&&!mor){out.status='not_configured';out.message='No Arkham or Moralis API key configured.';return Promise.resolve(out);}
-  var chainMap={'eth':'ethereum','ethereum':'ethereum','0x1':'ethereum','bsc':'bsc','0x38':'bsc','polygon':'polygon','0x89':'polygon','base':'base','0x2105':'base','arbitrum':'arbitrum','0xa4b1':'arbitrum','optimism':'optimism','0xa':'optimism','avalanche':'avalanche','0xa86a':'avalanche','linea':'linea','0xe708':'linea','fantom':'fantom','0xfa':'fantom'};
-  var tokenAddress=address;
-  function discover(){
-    if(!mor||tokenAddress||!sym)return Promise.resolve();
-    var u='https://deep-index.moralis.io/api/v2.2/tokens/search?query='+encodeURIComponent(sym)+'&limit=10&sortBy=volume24hDesc&boostVerifiedContracts=true';
-    return fetch(u,{headers:{'X-API-Key':mor},cache:'no-store'}).then(function(r){if(!r.ok)return r.text().then(function(t){throw Error('Moralis token search HTTP '+r.status+(t?' — '+t.slice(0,160):''));});return r.json();}).then(function(j){
-      var rows=Array.isArray(j.result)?j.result:[];
-      rows.sort(function(a,b){var as=(String(a.symbol||'').toUpperCase()===sym?10:0)+(a.isVerifiedContract?3:0)+(Number(a.volumeUsd&&a.volumeUsd.oneDay)||0)/1e12;var bs=(String(b.symbol||'').toUpperCase()===sym?10:0)+(b.isVerifiedContract?3:0)+(Number(b.volumeUsd&&b.volumeUsd.oneDay)||0)/1e12;return bs-as;});
-      var best=rows[0];
-      if(!best){out.errors.push('Moralis: no token matched '+sym);return;}
-      tokenAddress=best.tokenAddress||tokenAddress;
-      var impl=best.implementations&&best.implementations[0];
-      out.chain=(best.chain||impl&&impl.chain||best.chainId||suppliedChain||'').toString().toLowerCase();
-      out.chainName=(impl&&impl.chainName)||chainMap[out.chain]||out.chain;
-      out.tokenAddress=tokenAddress;
-      out.moralisSearch=rows.slice(0,5).map(function(x){return {name:x.name,symbol:x.symbol,address:x.tokenAddress,chainId:x.chainId,chain:(x.implementations&&x.implementations[0]&&x.implementations[0].chain)||x.chain,price:x.usdPrice,marketCap:x.marketCap,volume24h:x.volumeUsd&&x.volumeUsd.oneDay,netVolume24h:x.netVolumeUsd&&x.netVolumeUsd.oneDay,netBuyers24h:x.experiencedNetBuyers&&x.experiencedNetBuyers.oneDay,liquidityChange24h:x.liquidityChangeUSD&&x.liquidityChangeUSD.oneDay,holders:x.totalHolders,verified:x.isVerifiedContract};});
-      out.sources.push('Moralis token search');
-    }).catch(function(e){out.errors.push(String(e.message||e));});
+  var suppliedChain=String(f.chain||'').toLowerCase().trim();
+  var suppliedAddress=String(f.address||f.tokenAddress||'').trim();
+  var meta=_MORALIS_CONTRACTS[sym]||{};
+  var address=suppliedAddress || meta.address || '';
+  var chain=_MORALIS_CHAIN_MAP[suppliedChain] || suppliedChain || meta.chain || '';
+  var out={symbol:sym||null,rawSymbol:raw,chain:chain||null,address:address||null,sources:[],errors:[],warnings:[],status:'unknown',provider:'Moralis'};
+  if(!mor){out.status='not_configured';out.message='No Moralis API key configured.';return Promise.resolve(out);}
+  if(!/^0x[a-fA-F0-9]{40}$/.test(address)){
+    out.warnings.push('Moralis token search is not used because it is unavailable on this API plan. '+(sym||'This coin')+' needs a supported EVM contract address for holder/owner intelligence.');
+    if(sym==='NEAR'||sym==='SOL'||sym==='ADA'||sym==='XRP'||sym==='DOGE'||sym==='DOT'||sym==='ATOM'||sym==='SUI'||sym==='APT'||sym==='SEI'||sym==='TIA'||sym==='HBAR'||sym==='ICP'||sym==='ALGO'||sym==='KAS') out.warnings.push(sym+' is a non-EVM/native asset for this Moralis EVM endpoint, so holder intelligence is UNKNOWN here.');
+    out.status='unknown'; out.message='No supported Moralis contract address available.'; return Promise.resolve(out);
   }
-  function moralisData(){
-    if(!mor||!tokenAddress||!/^0x[a-fA-F0-9]{40}$/.test(tokenAddress))return Promise.resolve();
-    var ch=out.chain||'eth', base='https://deep-index.moralis.io/api/v2.2/erc20/'+encodeURIComponent(tokenAddress);
-    return Promise.all([
-      fetch(base+'/holders/stats?chain='+encodeURIComponent(ch),{headers:{'X-API-Key':mor},cache:'no-store'}).then(function(r){if(!r.ok)throw Error('Moralis holder stats HTTP '+r.status);return r.json();}).then(function(j){var hp=j.holderSupply||j;out.moralisStats={totalHolders:j.totalHolders,top10Pct:hp.top10&&hp.top10.supplyPercent,top25Pct:hp.top25&&hp.top25.supplyPercent,raw:j};out.sources.push('Moralis holder stats');}).catch(function(e){out.errors.push(String(e.message||e));}),
-      fetch(base+'/owners?chain='+encodeURIComponent(ch)+'&limit=25',{headers:{'X-API-Key':mor},cache:'no-store'}).then(function(r){if(!r.ok)throw Error('Moralis token owners HTTP '+r.status);return r.json();}).then(function(j){var a=Array.isArray(j.result)?j.result:[];out.moralisOwners=a.slice(0,10).map(function(x){return {address:x.owner_address||x.ownerAddress||x.address||null,balance:x.balance_formatted||x.balance||null,percentage:x.percentage_relative_to_total_supply||x.percentage||null};});if(a.length)out.sources.push('Moralis token owners');}).catch(function(e){out.errors.push(String(e.message||e));})
-    ]);
+  if(!chain || !_MORALIS_CHAIN_MAP[chain] && chain!=='eth'){
+    out.warnings.push('Moralis: network '+(chain||'unknown')+' is not handled by the EVM token endpoint used here.');
+    out.status='unknown'; return Promise.resolve(out);
   }
-  function arkhamData(){
-    if(!ark||!tokenAddress||!/^0x[a-fA-F0-9]{40}$/.test(tokenAddress))return Promise.resolve();
-    var ch=chainMap[out.chain]||out.chain||'ethereum', base='https://api.arkm.com', hd={'API-Key':ark}, jobs=[];
-    jobs.push(fetch(base+'/token/holders/'+encodeURIComponent(ch)+'/'+encodeURIComponent(tokenAddress)+'?groupByEntity=true',{headers:hd,cache:'no-store'}).then(function(r){if(!r.ok)throw Error('Arkham token holders HTTP '+r.status);return r.json();}).then(function(j){var a=Array.isArray(j)?j:(j.holders||j.results||j.data||[]);out.arkhamHolders={count:Array.isArray(a)?a.length:null,raw:j};if(Array.isArray(a)&&a.length){var pct=a.map(function(x){return Number(x.percentage||x.pct||x.percent||x.share||x.supplyPercent);}).filter(isFinite);if(pct.length)out.arkhamHolders.top10Pct=pct.slice(0,10).reduce(function(a,b){return a+b;},0);}out.sources.push('Arkham token holders');}).catch(function(e){out.errors.push(String(e.message||e));}));
-    jobs.push(fetch(base+'/token/top_flow/'+encodeURIComponent(ch)+'/'+encodeURIComponent(tokenAddress),{headers:hd,cache:'no-store'}).then(function(r){if(!r.ok)throw Error('Arkham token flow HTTP '+r.status);return r.json();}).then(function(j){out.arkhamFlow={summary:'top token-flow data received',raw:j};out.sources.push('Arkham token flow');}).catch(function(e){out.errors.push(String(e.message||e));}));
-    jobs.push(fetch(base+'/token/volume/'+encodeURIComponent(ch)+'/'+encodeURIComponent(tokenAddress),{headers:hd,cache:'no-store'}).then(function(r){if(!r.ok)throw Error('Arkham token volume HTTP '+r.status);return r.json();}).then(function(j){out.arkhamVolume={summary:'token volume data received',raw:j};out.sources.push('Arkham token volume');}).catch(function(e){out.errors.push(String(e.message||e));}));
-    jobs.push(fetch(base+'/intelligence/contract/'+encodeURIComponent(ch)+'/'+encodeURIComponent(tokenAddress),{headers:hd,cache:'no-store'}).then(function(r){if(!r.ok)throw Error('Arkham contract intelligence HTTP '+r.status);return r.json();}).then(function(j){out.arkhamContract=j;out.sources.push('Arkham contract intelligence');}).catch(function(e){out.errors.push(String(e.message||e));}));
-    return Promise.all(jobs);
+  var base='https://deep-index.moralis.io/api/v2.2/erc20/'+encodeURIComponent(address), hd={'X-API-Key':mor};
+  function get(path,label,assign){
+    return fetch(base+path,{headers:hd,cache:'no-store'}).then(function(r){
+      if(!r.ok)return r.text().then(function(t){throw Error('Moralis '+label+' HTTP '+r.status+(t?' — '+t.slice(0,220):''));});
+      return r.json();
+    }).then(function(j){if(assign)assign(j);out.sources.push('Moralis '+label);}).catch(function(e){out.errors.push(String(e.message||e));});
   }
-  return discover().then(function(){return Promise.all([moralisData(),arkhamData()]);}).then(function(){
+  var jobs=[];
+  jobs.push(get('/holders/stats?chain='+encodeURIComponent(chain),'holder stats',function(j){
+    var hp=j.holderSupply||j;
+    out.moralisStats={totalHolders:j.totalHolders,top10Pct:hp.top10&&hp.top10.supplyPercent,top25Pct:hp.top25&&hp.top25.supplyPercent,raw:j};
+  }));
+  jobs.push(get('/owners?chain='+encodeURIComponent(chain)+'&limit=25','top owners',function(j){
+    var a=Array.isArray(j.result)?j.result:[];
+    out.moralisOwners=a.slice(0,10).map(function(x){return {address:x.owner_address||x.ownerAddress||x.address||null,balance:x.balance_formatted||x.balance||null,percentage:x.percentage_relative_to_total_supply||x.percentage||null};});
+  }));
+  return Promise.all(jobs).then(function(){
     out.status=out.sources.length?'ok':'unknown';
-    var m=out.moralisSearch&&out.moralisSearch[0], nb=m&&Number(m.netBuyers24h), nv=m&&Number(m.netVolume24h);
-    if(isFinite(nb)||isFinite(nv)){var pos=(isFinite(nb)&&nb>0)||(isFinite(nv)&&nv>0),neg=(isFinite(nb)&&nb<0)||(isFinite(nv)&&nv<0);if(pos&&!neg){out.bias='BULLISH';out.biasReason='Positive experienced net buyers and/or positive net token volume over 24h.';}else if(neg&&!pos){out.bias='BEARISH';out.biasReason='Negative experienced net buyers and/or negative net token volume over 24h.';}else out.bias='NEUTRAL';}else out.bias='UNKNOWN';
+    if(!out.sources.length) out.message='Moralis returned no usable on-chain data.';
+    out.bias='UNKNOWN';
     return out;
   });
 }
@@ -8004,7 +8003,7 @@ function runResearchAgent(){
     + 'BOARD {json} - the LIVE board of all scanned coins right now. filters: signalsOnly, tier, minOpportunity, minRsRank, struct, trendlineBreak, sweep, sym, sortBy, limit. per coin returns price, chg24h, opportunity, score, rsRank, momQuintile, trendQ, accum, rsi, volR, struct, tier, buySignal, extAboveEMA20pct, dailyTrendUp, trendline, sweep, support, resistance. '
     + 'CONTEXT {} - market regime plus the tool grading ITSELF: btcState, breadth, ethVsBtc, altWeather, suppressionReasons, buyZone, the user track record, scoringAudit (which of its own scores predict wins), icLab (information coefficients). '
     + 'NEWS {json} - recent headlines. filters: contains, limit. '
-    + 'ONCHAIN {json} - live Arkham/Moralis intelligence. args: sym or symbol, optional chain, optional token contract address. Use for holder concentration, token flows, entity/wallet evidence and on-chain confirmation. It returns only configured-provider data; missing keys mean unavailable, not zero activity. Query at most once unless necessary. '
+    + 'ONCHAIN {json} - live Moralis on-chain intelligence. args: sym or symbol, optional chain and token contract address. Use for holder concentration, top-owner evidence and on-chain confirmation. It returns only configured-provider data; missing keys mean unavailable, not zero activity. Query at most once unless necessary. '
     + 'CHART {\"sym\":\"BTCUSDT\"} - renders that coin chart so you can SEE it. Costs quota: use at most once, only when a visual read genuinely matters. '
     + 'WORKFLOW: call a tool, read the result, call another if needed, maximum 5 calls, then give your FINAL ANSWER with no tool line. '
     + 'STATISTICAL HONESTY IS MANDATORY: for LOG slices, under 10 resolved means the slice cannot support a conclusion, under 30 is a weak hint that must cite the confidence interval, and comparing many slices inflates false positives. BOARD data is CURRENT CONDITIONS, not outcomes - describe setup quality, never predict. '
@@ -8163,14 +8162,12 @@ function buildResearchAgentPanel(){
     h += '<div style="font-size:11px;color:var(--t3)">Add your free Gemini key (any coin → Analyst tab) to enable the agent.</div></div>';
     return h;
   }
-  var _ak = (localStorage.getItem('arkham_api_key')||'').trim();
   var _mk = (localStorage.getItem('moralis_api_key')||'').trim();
   h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:8px 10px;margin-bottom:8px">';
-  h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">⛓ On-chain intelligence</b><span style="font-size:9px;color:var(--t3)">optional · queried only when needed</span><span style="margin-left:auto;font-size:9px;color:' + (_ak?'var(--g)':'var(--t3)') + '">Arkham ' + (_ak?'✓':'—') + '</span><span style="font-size:9px;color:' + (_mk?'var(--g)':'var(--t3)') + '">Moralis ' + (_mk?'✓':'—') + '</span></div>';
+  h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">⛓ On-chain intelligence</b><span style="font-size:9px;color:var(--t3)">optional · queried only when needed</span><span style="margin-left:auto;font-size:9px;color:' + (_mk?'var(--g)':'var(--t3)') + '">Moralis ' + (_mk?'✓':'—') + '</span></div>';
   h += '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">';
-  h += '<button onclick="var v=prompt(\'Arkham API key. Leave blank to remove.\',localStorage.getItem(\'arkham_api_key\')||\'\');if(v!==null){v=v.trim();if(v)localStorage.setItem(\'arkham_api_key\',v);else localStorage.removeItem(\'arkham_api_key\');buildIntelAgentPanel();}" style="font-size:10px;padding:4px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);cursor:pointer">Arkham key</button>';
   h += '<button onclick="var v=prompt(\'Moralis API key. Leave blank to remove.\',localStorage.getItem(\'moralis_api_key\')||\'\');if(v!==null){v=v.trim();if(v)localStorage.setItem(\'moralis_api_key\',v);else localStorage.removeItem(\'moralis_api_key\');buildIntelAgentPanel();}" style="font-size:10px;padding:4px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);cursor:pointer">Moralis key</button>';
-  h += '</div><div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.4">Arkham: entity labels, token holders, flows and wallet intelligence. Moralis: token, holder and transfer data. On-chain data is evidence only, never an automatic BUY/SELL signal.</div></div>';
+  h += '</div><div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.4">Moralis-only: holder statistics and owner data when a supported EVM contract is known. The plan-gated token-search endpoint is not used. On-chain data is evidence only, never an automatic BUY/SELL signal.</div></div>';
   h += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
   h += '<input id="agent-q" placeholder="e.g. best setups right now? / does my daily-trend gate help?" onkeydown="if(event.key===\'Enter\')runResearchAgent()" style="flex:1;min-width:200px;padding:8px 10px;border-radius:8px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:12px;font-family:inherit">';
   h += '<button onclick="runResearchAgent()" style="padding:8px 16px;border-radius:8px;border:none;background:#7c4dff;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">Investigate</button></div>';
@@ -16101,7 +16098,7 @@ var NEWS_SOURCES = [
   { layer:'On-chain', free:false, items:[
     { n:'Glassnode', u:'https://glassnode.com/', d:'PAID — proprietary metrics' },
     { n:'CryptoQuant', u:'https://cryptoquant.com/', d:'PAID — exchange flows' },
-    { n:'Arkham', u:'https://intel.arkm.com/', d:'free tier — whale wallets' },
+    { n:'Moralis', u:'https://moralis.com/', d:'token holders and owner data when supported' },
     { n:'blockchain.com charts', u:'https://www.blockchain.com/charts', d:'FREE — fetched below ✓' }
   ]},
   { layer:'Derivatives', free:true, items:[
