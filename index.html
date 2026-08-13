@@ -4440,27 +4440,34 @@ function monitorOnchain(sym){
   if(!d){out.innerHTML='<span style="color:var(--r);font-size:10px">Coin data not loaded.</span>';return;}
   var ak=(localStorage.getItem('arkham_api_key')||'').trim(), mk=(localStorage.getItem('moralis_api_key')||'').trim();
   if(!ak&&!mk){out.innerHTML='<div style="font-size:10px;color:var(--am)">Add an Arkham or Moralis key above first.</div>';return;}
-  out.innerHTML='<div style="font-size:10px;color:var(--t3)">⛓ Reading on-chain intelligence…</div>';
-  _agentOnchain({sym:d.pair||d.sym,chain:'eth'}).then(function(x){
-    var lines=[];
+  out.innerHTML='<div style="font-size:10px;color:var(--t3)">⛓ Reading Arkham/Moralis on-chain intelligence…</div>';
+  _agentOnchain({sym:d.pair||d.sym}).then(function(x){
+    var h='', esc=function(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');};
+    h+='<div style="font-size:10px;line-height:1.55;background:var(--card3);border-radius:6px;padding:8px 9px">';
+    h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:5px"><b>⛓ On-chain intelligence — '+esc(x.symbol||d.pair)+'</b><span style="color:var(--t3)">'+new Date().toLocaleTimeString()+'</span></div>';
+    if(x.chainName) h+='<div style="font-size:9px;color:var(--t3);margin-bottom:5px">Network: '+esc(x.chainName)+(x.tokenAddress?' · contract '+esc(x.tokenAddress):'')+'</div>';
     if(x.moralisSearch&&x.moralisSearch.length){
       var m=x.moralisSearch[0];
-      lines.push('<b>Moralis</b>: '+(m.name||d.pair)+' · holders '+(m.holders!=null?m.holders.toLocaleString():'n/a')+' · 24h vol '+(m.volume24h!=null?fE(m.volume24h):'n/a'));
-      if(m.netBuyers24h!=null) lines.push('Net buyers 24h: '+m.netBuyers24h);
+      h+='<div><b>Moralis</b> · '+esc(m.name||x.symbol);
+      if(m.holders!=null) h+=' · holders '+Number(m.holders).toLocaleString();
+      if(m.marketCap!=null) h+=' · mcap '+fV(m.marketCap);
+      if(m.volume24h!=null) h+=' · 24h volume '+fV(m.volume24h);
+      h+='</div>';
+      if(m.netBuyers24h!=null) h+='<div>Net experienced buyers (24h): <b>'+esc(m.netBuyers24h)+'</b></div>';
+      if(m.netVolume24h!=null) h+='<div>Net token volume (24h): <b>'+fV(m.netVolume24h)+'</b></div>';
+      if(m.liquidityChange24h!=null) h+='<div>Liquidity change (24h): <b>'+fV(m.liquidityChange24h)+'</b></div>';
     }
-    if(x.moralisHolders){
-      var mh=x.moralisHolders;
-      lines.push('Holder concentration: top10 '+(mh.top10Pct!=null?Number(mh.top10Pct).toFixed(1)+'%':'n/a')+' · top25 '+(mh.top25Pct!=null?Number(mh.top25Pct).toFixed(1)+'%':'n/a'));
-      if(mh.holderChange24h!=null) lines.push('Holder change 24h: '+mh.holderChange24h);
-    }
-    if(x.arkhamSearch&&x.arkhamSearch.length){
-      lines.push('<b>Arkham</b>: '+x.arkhamSearch.slice(0,4).map(function(a){return (a.name||a.label||a.id||'entity')+(a.type?' ['+a.type+']':'');}).join(' · '));
-    }
-    if(x.arkham_top_flow) lines.push('Arkham top flow data received.');
-    if(x.arkham_holders) lines.push('Arkham holder/entity data received.');
-    if(!lines.length) lines.push('No usable on-chain result returned. Missing data is not zero activity.');
-    out.innerHTML='<div style="font-size:10px;color:var(--t2);line-height:1.5;background:var(--card3);border-radius:6px;padding:7px 9px">'+lines.join('<br>')+'<div style="margin-top:4px;color:var(--t3);font-size:9px">Evidence only — not an automatic BUY/SELL signal.</div></div>';
-  }).catch(function(e){out.innerHTML='<span style="color:var(--r);font-size:10px">On-chain error: '+String(e.message||e).replace(/</g,'&lt;')+'</span>';});
+    if(x.moralisStats){var ms=x.moralisStats;h+='<div style="margin-top:4px"><b>Holder structure</b>'+(ms.totalHolders!=null?' · '+Number(ms.totalHolders).toLocaleString()+' holders':'')+(ms.top10Pct!=null?' · top 10 '+Number(ms.top10Pct).toFixed(1)+'%':'')+(ms.top25Pct!=null?' · top 25 '+Number(ms.top25Pct).toFixed(1)+'%':'')+'</div>';}
+    if(x.arkhamContract) h+='<div style="margin-top:5px"><b>Arkham</b> · contract/entity intelligence received'+(x.arkhamContract.name?' · '+esc(x.arkhamContract.name):'')+'</div>';
+    if(x.arkhamHolders) h+='<div>Arkham holders: <b>'+esc(x.arkhamHolders.count!=null?x.arkhamHolders.count:'data received')+'</b>'+(x.arkhamHolders.top10Pct!=null?' · top 10 '+Number(x.arkhamHolders.top10Pct).toFixed(1)+'%':'')+'</div>';
+    if(x.arkhamFlow) h+='<div>Arkham token flow: '+esc(x.arkhamFlow.summary||'data received')+'</div>';
+    if(x.arkhamVolume) h+='<div>Arkham token volume: '+esc(x.arkhamVolume.summary||'data received')+'</div>';
+    if(x.errors&&x.errors.length) h+='<div style="margin-top:6px;color:var(--r)"><b>Provider diagnostics</b><br>'+x.errors.map(function(e){return '• '+esc(e);}).join('<br>')+'</div>';
+    if(!x.sources||!x.sources.length) h+='<div style="color:var(--am);margin-top:4px"><b>UNKNOWN — no usable on-chain data.</b> Missing data is not zero activity.</div>';
+    else {var bias=x.bias||'UNKNOWN';h+='<div style="margin-top:7px;padding-top:6px;border-top:.5px solid var(--bd)"><b>On-chain bias:</b> <span style="font-weight:800;color:'+(bias==='BULLISH'?'var(--g)':bias==='BEARISH'?'var(--r)':'var(--t2)')+'">'+esc(bias)+'</span>'+(x.biasReason?'<div style="font-size:9px;color:var(--t3);margin-top:2px">'+esc(x.biasReason)+'</div>':'')+'</div>';}
+    h+='<div style="margin-top:5px;color:var(--t3);font-size:9px">Evidence only — not an automatic BUY/SELL signal.</div></div>';
+    out.innerHTML=h;
+  }).catch(function(e){out.innerHTML='<div style="font-size:10px;color:var(--r)">On-chain error: '+String(e.message||e).replace(/</g,'&lt;')+'</div>';});
 }
 
 function setOnchainKey(provider){
@@ -7903,38 +7910,61 @@ function _agentNews(f){
 }
 
 // ── AGENT TOOL 5: ON-CHAIN intelligence (quota-aware, on request only) ──
+// The old implementation had two bugs: it used the pair string as the search
+// term (e.g. NEARUSDT) and tried to use the token address before async Moralis
+// discovery had completed. It also forced every coin onto Ethereum. This version
+// normalizes the symbol, discovers the token first, then runs holder/Arkham calls.
 function _agentOnchain(f){
-  f=f||{}; var sym=String(f.sym||f.symbol||'').replace(/[^A-Za-z0-9]/g,'').toUpperCase();
-  var chain=String(f.chain||'eth').toLowerCase(), address=String(f.address||'').trim();
-  var ark=(localStorage.getItem('arkham_api_key')||'').trim(), mor=(localStorage.getItem('moralis_api_key')||'').trim();
-  if(!ark&&!mor) return Promise.resolve({status:'not_configured',message:'No Arkham or Moralis API key configured.'});
-  var out={symbol:sym||null,chain:chain,address:address||null,sources:[]}, tasks=[];
-  if(mor&&sym&&!address){
-    var u='https://deep-index.moralis.io/api/v2.2/tokens/search?query='+encodeURIComponent(sym)+'&chains='+encodeURIComponent(chain)+'&limit=5&sortBy=volume24hDesc';
-    tasks.push(fetch(u,{headers:{'X-API-Key':mor},cache:'no-store'}).then(function(r){if(!r.ok)throw Error('Moralis token search HTTP '+r.status);return r.json();}).then(function(j){
-      out.moralisSearch=(j.result||[]).slice(0,5).map(function(x){return {name:x.name,symbol:x.symbol,address:x.tokenAddress,chainId:x.chainId,price:x.usdPrice,marketCap:x.marketCap,volume24h:x.volumeUsd&&x.volumeUsd.oneDay,netVolume24h:x.netVolumeUsd&&x.netVolumeUsd.oneDay,netBuyers24h:x.experiencedNetBuyers&&x.experiencedNetBuyers.oneDay,liquidityChange24h:x.liquidityChangeUSD&&x.liquidityChangeUSD.oneDay,holders:x.totalHolders,verified:x.isVerifiedContract};});
-      out.sources.push('Moralis token search');
-    }).catch(function(e){out.moralisError=e.message;}));
-  }
+  f=f||{};
+  var raw=String(f.sym||f.symbol||'').trim().toUpperCase();
+  var sym=raw.replace(/\/(USDT|USDC|USD|JPY|BTC|ETH)$/,'').replace(/(USDT|USDC|USD|JPY|BTC|ETH)$/,'').replace(/[^A-Z0-9]/g,'');
+  var suppliedChain=String(f.chain||'').toLowerCase().trim();
+  var address=String(f.address||'').trim();
+  var ark=(localStorage.getItem('arkham_api_key')||'').trim();
+  var mor=(localStorage.getItem('moralis_api_key')||'').trim();
+  var out={symbol:sym||null,rawSymbol:raw,chain:suppliedChain||null,address:address||null,sources:[],errors:[],status:'unknown'};
+  if(!ark&&!mor){out.status='not_configured';out.message='No Arkham or Moralis API key configured.';return Promise.resolve(out);}
+  var chainMap={'eth':'ethereum','ethereum':'ethereum','0x1':'ethereum','bsc':'bsc','0x38':'bsc','polygon':'polygon','0x89':'polygon','base':'base','0x2105':'base','arbitrum':'arbitrum','0xa4b1':'arbitrum','optimism':'optimism','0xa':'optimism','avalanche':'avalanche','0xa86a':'avalanche','linea':'linea','0xe708':'linea','fantom':'fantom','0xfa':'fantom'};
   var tokenAddress=address;
-  if(!tokenAddress&&out.moralisSearch&&out.moralisSearch.length) tokenAddress=out.moralisSearch[0].address;
-  if(mor&&tokenAddress&&/^0x[a-fA-F0-9]{40}$/.test(tokenAddress)){
-    var hu='https://deep-index.moralis.io/api/v2.2/erc20/'+tokenAddress+'/holders?chain='+encodeURIComponent(chain);
-    tasks.push(fetch(hu,{headers:{'X-API-Key':mor},cache:'no-store'}).then(function(r){if(!r.ok)throw Error('Moralis holders HTTP '+r.status);return r.json();}).then(function(j){
-      out.moralisHolders={totalHolders:j.totalHolders,top10Pct:j.holderSupply&&j.holderSupply.top10&&j.holderSupply.top10.supplyPercent,top25Pct:j.holderSupply&&j.holderSupply.top25&&j.holderSupply.top25.supplyPercent,top100Pct:j.holderSupply&&j.holderSupply.top100&&j.holderSupply.top100.supplyPercent,holderChange1h:j.holderChange&&j.holderChange['1h'],holderChange24h:j.holderChange&&j.holderChange['1d']}; out.sources.push('Moralis holder metrics');
-    }).catch(function(e){out.moralisHoldersError=e.message;}));
+  function discover(){
+    if(!mor||tokenAddress||!sym)return Promise.resolve();
+    var u='https://deep-index.moralis.io/api/v2.2/tokens/search?query='+encodeURIComponent(sym)+'&limit=10&sortBy=volume24hDesc&boostVerifiedContracts=true';
+    return fetch(u,{headers:{'X-API-Key':mor},cache:'no-store'}).then(function(r){if(!r.ok)return r.text().then(function(t){throw Error('Moralis token search HTTP '+r.status+(t?' — '+t.slice(0,160):''));});return r.json();}).then(function(j){
+      var rows=Array.isArray(j.result)?j.result:[];
+      rows.sort(function(a,b){var as=(String(a.symbol||'').toUpperCase()===sym?10:0)+(a.isVerifiedContract?3:0)+(Number(a.volumeUsd&&a.volumeUsd.oneDay)||0)/1e12;var bs=(String(b.symbol||'').toUpperCase()===sym?10:0)+(b.isVerifiedContract?3:0)+(Number(b.volumeUsd&&b.volumeUsd.oneDay)||0)/1e12;return bs-as;});
+      var best=rows[0];
+      if(!best){out.errors.push('Moralis: no token matched '+sym);return;}
+      tokenAddress=best.tokenAddress||tokenAddress;
+      var impl=best.implementations&&best.implementations[0];
+      out.chain=(best.chain||impl&&impl.chain||best.chainId||suppliedChain||'').toString().toLowerCase();
+      out.chainName=(impl&&impl.chainName)||chainMap[out.chain]||out.chain;
+      out.tokenAddress=tokenAddress;
+      out.moralisSearch=rows.slice(0,5).map(function(x){return {name:x.name,symbol:x.symbol,address:x.tokenAddress,chainId:x.chainId,chain:(x.implementations&&x.implementations[0]&&x.implementations[0].chain)||x.chain,price:x.usdPrice,marketCap:x.marketCap,volume24h:x.volumeUsd&&x.volumeUsd.oneDay,netVolume24h:x.netVolumeUsd&&x.netVolumeUsd.oneDay,netBuyers24h:x.experiencedNetBuyers&&x.experiencedNetBuyers.oneDay,liquidityChange24h:x.liquidityChangeUSD&&x.liquidityChangeUSD.oneDay,holders:x.totalHolders,verified:x.isVerifiedContract};});
+      out.sources.push('Moralis token search');
+    }).catch(function(e){out.errors.push(String(e.message||e));});
   }
-  if(ark){
-    var au='https://api.arkm.com/intelligence/search?query='+encodeURIComponent(address||sym);
-    tasks.push(fetch(au,{headers:{'API-Key':ark},cache:'no-store'}).then(function(r){if(!r.ok)throw Error('Arkham search HTTP '+r.status);return r.json();}).then(function(j){
-      var rows=j.results||j.result||j.data||[]; if(!Array.isArray(rows))rows=[rows];
-      out.arkhamSearch=rows.slice(0,8).map(function(x){return {id:x.id||x.entity||x.tokenId||x.pricingId||null,type:x.type||x.kind||null,name:x.name||x.label||null,address:x.address||null,chain:x.chain||x.chainType||null,symbol:x.symbol||null};}); out.sources.push('Arkham entity/token search');
-    }).catch(function(e){out.arkhamError=e.message;}));
+  function moralisData(){
+    if(!mor||!tokenAddress||!/^0x[a-fA-F0-9]{40}$/.test(tokenAddress))return Promise.resolve();
+    var ch=out.chain||'eth', base='https://deep-index.moralis.io/api/v2.2/erc20/'+encodeURIComponent(tokenAddress);
+    return Promise.all([
+      fetch(base+'/holders/stats?chain='+encodeURIComponent(ch),{headers:{'X-API-Key':mor},cache:'no-store'}).then(function(r){if(!r.ok)throw Error('Moralis holder stats HTTP '+r.status);return r.json();}).then(function(j){var hp=j.holderSupply||j;out.moralisStats={totalHolders:j.totalHolders,top10Pct:hp.top10&&hp.top10.supplyPercent,top25Pct:hp.top25&&hp.top25.supplyPercent,raw:j};out.sources.push('Moralis holder stats');}).catch(function(e){out.errors.push(String(e.message||e));}),
+      fetch(base+'/owners?chain='+encodeURIComponent(ch)+'&limit=25',{headers:{'X-API-Key':mor},cache:'no-store'}).then(function(r){if(!r.ok)throw Error('Moralis token owners HTTP '+r.status);return r.json();}).then(function(j){var a=Array.isArray(j.result)?j.result:[];out.moralisOwners=a.slice(0,10).map(function(x){return {address:x.owner_address||x.ownerAddress||x.address||null,balance:x.balance_formatted||x.balance||null,percentage:x.percentage_relative_to_total_supply||x.percentage||null};});if(a.length)out.sources.push('Moralis token owners');}).catch(function(e){out.errors.push(String(e.message||e));})
+    ]);
   }
-  return Promise.all(tasks).then(function(){
-    var hit=out.arkhamSearch&&out.arkhamSearch.find(function(x){return x.id;}); if(!ark||!hit)return out;
-    var jobs=['market','top_flow','holders'].map(function(kind){var path=kind==='market'?'/token/market/'+encodeURIComponent(hit.id):kind==='top_flow'?'/token/top_flow/'+encodeURIComponent(hit.id):'/token/holders/'+encodeURIComponent(hit.id); return fetch('https://api.arkm.com'+path,{headers:{'API-Key':ark},cache:'no-store'}).then(function(r){if(!r.ok)throw Error('HTTP '+r.status);return r.json();}).then(function(j){out['arkham_'+kind]=j;}).catch(function(e){out['arkham_'+kind+'_error']=e.message;});});
-    return Promise.all(jobs).then(function(){return out;});
+  function arkhamData(){
+    if(!ark||!tokenAddress||!/^0x[a-fA-F0-9]{40}$/.test(tokenAddress))return Promise.resolve();
+    var ch=chainMap[out.chain]||out.chain||'ethereum', base='https://api.arkm.com', hd={'API-Key':ark}, jobs=[];
+    jobs.push(fetch(base+'/token/holders/'+encodeURIComponent(ch)+'/'+encodeURIComponent(tokenAddress)+'?groupByEntity=true',{headers:hd,cache:'no-store'}).then(function(r){if(!r.ok)throw Error('Arkham token holders HTTP '+r.status);return r.json();}).then(function(j){var a=Array.isArray(j)?j:(j.holders||j.results||j.data||[]);out.arkhamHolders={count:Array.isArray(a)?a.length:null,raw:j};if(Array.isArray(a)&&a.length){var pct=a.map(function(x){return Number(x.percentage||x.pct||x.percent||x.share||x.supplyPercent);}).filter(isFinite);if(pct.length)out.arkhamHolders.top10Pct=pct.slice(0,10).reduce(function(a,b){return a+b;},0);}out.sources.push('Arkham token holders');}).catch(function(e){out.errors.push(String(e.message||e));}));
+    jobs.push(fetch(base+'/token/top_flow/'+encodeURIComponent(ch)+'/'+encodeURIComponent(tokenAddress),{headers:hd,cache:'no-store'}).then(function(r){if(!r.ok)throw Error('Arkham token flow HTTP '+r.status);return r.json();}).then(function(j){out.arkhamFlow={summary:'top token-flow data received',raw:j};out.sources.push('Arkham token flow');}).catch(function(e){out.errors.push(String(e.message||e));}));
+    jobs.push(fetch(base+'/token/volume/'+encodeURIComponent(ch)+'/'+encodeURIComponent(tokenAddress),{headers:hd,cache:'no-store'}).then(function(r){if(!r.ok)throw Error('Arkham token volume HTTP '+r.status);return r.json();}).then(function(j){out.arkhamVolume={summary:'token volume data received',raw:j};out.sources.push('Arkham token volume');}).catch(function(e){out.errors.push(String(e.message||e));}));
+    jobs.push(fetch(base+'/intelligence/contract/'+encodeURIComponent(ch)+'/'+encodeURIComponent(tokenAddress),{headers:hd,cache:'no-store'}).then(function(r){if(!r.ok)throw Error('Arkham contract intelligence HTTP '+r.status);return r.json();}).then(function(j){out.arkhamContract=j;out.sources.push('Arkham contract intelligence');}).catch(function(e){out.errors.push(String(e.message||e));}));
+    return Promise.all(jobs);
+  }
+  return discover().then(function(){return Promise.all([moralisData(),arkhamData()]);}).then(function(){
+    out.status=out.sources.length?'ok':'unknown';
+    var m=out.moralisSearch&&out.moralisSearch[0], nb=m&&Number(m.netBuyers24h), nv=m&&Number(m.netVolume24h);
+    if(isFinite(nb)||isFinite(nv)){var pos=(isFinite(nb)&&nb>0)||(isFinite(nv)&&nv>0),neg=(isFinite(nb)&&nb<0)||(isFinite(nv)&&nv<0);if(pos&&!neg){out.bias='BULLISH';out.biasReason='Positive experienced net buyers and/or positive net token volume over 24h.';}else if(neg&&!pos){out.bias='BEARISH';out.biasReason='Negative experienced net buyers and/or negative net token volume over 24h.';}else out.bias='NEUTRAL';}else out.bias='UNKNOWN';
+    return out;
   });
 }
 
@@ -7990,7 +8020,7 @@ function runResearchAgent(){
     if(i > 5){ render('Reached the query limit without a final answer.'); return; }
     _aiCallModel(sys, history, _agentChartImg).then(function(text){
       _agentChartImg = null;
-      var m = text.match(/(LOG|BOARD|CONTEXT|NEWS|CHART|QUERY)\s*(\{[\s\S]*?\})/);
+      var m = text.match(/(LOG|BOARD|CONTEXT|NEWS|ONCHAIN|CHART|QUERY)\s*(\{[\s\S]*?\})/);
       if(m){
         var tool = m[1]==='QUERY' ? 'LOG' : m[1];
         var args = {}; try { args = JSON.parse(m[2]); } catch(e){}
