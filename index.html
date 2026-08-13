@@ -4438,42 +4438,56 @@ function monitorOnchain(sym){
   var out=document.getElementById('mon-chain-'+sym);
   if(!out) return;
   if(!d){out.innerHTML='<span style="color:var(--r);font-size:10px">Coin data not loaded.</span>';return;}
-  var mk=(localStorage.getItem('moralis_api_key')||'').trim();
-  if(!mk){out.innerHTML='<div style="font-size:10px;color:var(--am)">Add your Moralis API key above first.</div>';return;}
-  out.innerHTML='<div style="font-size:10px;color:var(--t3)">⛓ Reading Moralis on-chain intelligence…</div>';
-  _agentOnchain({sym:d.pair||d.sym}).then(function(x){
+  out.innerHTML='<div style="font-size:10px;color:var(--t3)">⛓ Combining free on-chain sources…</div>';
+  _agentOnchain({sym:d.pair||d.sym, price:d.price}).then(function(x){
     var h='', esc=function(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');};
     h+='<div style="font-size:10px;line-height:1.55;background:var(--card3);border-radius:6px;padding:8px 9px">';
     h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:5px"><b>⛓ On-chain intelligence — '+esc(x.symbol||d.pair)+'</b><span style="color:var(--t3)">'+new Date().toLocaleTimeString()+'</span></div>';
-    if(x.chainName||x.tokenAddress) h+='<div style="font-size:9px;color:var(--t3);margin-bottom:5px">'+(x.chainName?'Network: '+esc(x.chainName):'')+(x.tokenAddress?' · contract '+esc(x.tokenAddress):'')+'</div>';
-    if(x.moralisSearch&&x.moralisSearch.length){
-      var m=x.moralisSearch[0];
-      h+='<div><b>Moralis</b> · '+esc(m.name||x.symbol);
-      if(m.holders!=null) h+=' · holders '+Number(m.holders).toLocaleString();
-      if(m.marketCap!=null) h+=' · mcap '+fV(m.marketCap);
-      if(m.volume24h!=null) h+=' · 24h volume '+fV(m.volume24h);
+    h+='<div style="font-size:9px;color:var(--t3);margin-bottom:6px">FREE sources: '+esc((x.sources||[]).join(' · ')||'none')+'</div>';
+    if(x.market){
+      h+='<div><b>💧 DEX liquidity / activity</b>';
+      if(x.market.liquidity!=null) h+='<div style="font-size:9px;color:var(--t3)">Liquidity: $'+Number(x.market.liquidity).toLocaleString(undefined,{maximumFractionDigits:0})+'</div>';
+      if(x.market.volume24h!=null) h+='<div style="font-size:9px;color:var(--t3)">DEX volume 24h: $'+Number(x.market.volume24h).toLocaleString(undefined,{maximumFractionDigits:0})+'</div>';
+      if(x.market.buys!=null||x.market.sells!=null) h+='<div style="font-size:9px;color:var(--t3)">Buys '+(x.market.buys||0)+' · sells '+(x.market.sells||0)+' · buy/sell ratio '+(x.market.buySellRatio!=null?Number(x.market.buySellRatio).toFixed(2):'—')+'</div>';
       h+='</div>';
-      if(m.netBuyers24h!=null) h+='<div>Net experienced buyers (24h): <b>'+esc(m.netBuyers24h)+'</b></div>';
-      if(m.netVolume24h!=null) h+='<div>Net token volume (24h): <b>'+fV(m.netVolume24h)+'</b></div>';
-      if(m.liquidityChange24h!=null) h+='<div>Liquidity change (24h): <b>'+fV(m.liquidityChange24h)+'</b></div>';
     }
-    if(x.moralisStats){var ms=x.moralisStats;h+='<div style="margin-top:4px"><b>Holder structure</b>'+(ms.totalHolders!=null?' · '+Number(ms.totalHolders).toLocaleString()+' holders':'')+(ms.top10Pct!=null?' · top 10 '+Number(ms.top10Pct).toFixed(1)+'%':'')+(ms.top25Pct!=null?' · top 25 '+Number(ms.top25Pct).toFixed(1)+'%':'')+'</div>';}
-    if(x.warnings&&x.warnings.length) h+='<div style="margin-top:6px;color:var(--am)"><b>Provider notes</b><br>'+x.warnings.map(function(e){return '• '+esc(e);}).join('<br>')+'</div>';
+    if(x.holders){
+      h+='<div style="margin-top:6px"><b>🐋 Holder / whale structure</b>';
+      if(x.holders.count!=null) h+='<div style="font-size:9px;color:var(--t3)">Holders: '+Number(x.holders.count).toLocaleString()+'</div>';
+      if(x.holders.top10Pct!=null) h+='<div style="font-size:9px;color:var(--t3)">Top 10 concentration: '+Number(x.holders.top10Pct).toFixed(2)+'%</div>';
+      if(x.holders.top25Pct!=null) h+='<div style="font-size:9px;color:var(--t3)">Top 25 concentration: '+Number(x.holders.top25Pct).toFixed(2)+'%</div>';
+      if(x.holders.topHolders&&x.holders.topHolders.length){
+        x.holders.topHolders.slice(0,5).forEach(function(o,i){h+='<div style="font-size:9px;color:var(--t3);margin-top:2px">#'+(i+1)+' '+esc(o.label||o.address||'wallet')+(o.pct!=null?' · '+Number(o.pct).toFixed(2)+'%':'')+'</div>';});
+      }
+      h+='</div>';
+    }
+    if(x.transfers){
+      h+='<div style="margin-top:6px"><b>🔄 Recent large transfers</b>';
+      if(x.transfers.largeCount!=null) h+='<div style="font-size:9px;color:var(--t3)">Large transfers observed: '+x.transfers.largeCount+' (latest free-indexed transfers)</div>';
+      if(x.transfers.exchangeIn!=null||x.transfers.exchangeOut!=null) h+='<div style="font-size:9px;color:var(--t3)">Known exchange in $'+Number(x.transfers.exchangeIn||0).toLocaleString(undefined,{maximumFractionDigits:0})+' · out $'+Number(x.transfers.exchangeOut||0).toLocaleString(undefined,{maximumFractionDigits:0})+' · net '+(Number(x.transfers.exchangeOut||0)-Number(x.transfers.exchangeIn||0)>=0?'outflow':'inflow')+'</div>';
+      if(x.transfers.note) h+='<div style="font-size:9px;color:var(--t3)">'+esc(x.transfers.note)+'</div>';
+      h+='</div>';
+    }
+    if(x.warnings&&x.warnings.length) h+='<div style="margin-top:6px;color:var(--am)"><b>Source notes</b><br>'+x.warnings.map(function(e){return '• '+esc(e);}).join('<br>')+'</div>';
     if(x.errors&&x.errors.length) h+='<div style="margin-top:6px;color:var(--r)"><b>Provider diagnostics</b><br>'+x.errors.map(function(e){return '• '+esc(e);}).join('<br>')+'</div>';
-    if(!x.sources||!x.sources.length) h+='<div style="color:var(--am);margin-top:4px"><b>UNKNOWN — no usable on-chain data.</b> Missing data is not zero activity.</div>';
-    else {var bias=x.bias||'UNKNOWN';h+='<div style="margin-top:7px;padding-top:6px;border-top:.5px solid var(--bd)"><b>On-chain bias:</b> <span style="font-weight:800;color:'+(bias==='BULLISH'?'var(--g)':bias==='BEARISH'?'var(--r)':'var(--t2)')+'">'+esc(bias)+'</span>'+(x.biasReason?'<div style="font-size:9px;color:var(--t3);margin-top:2px">'+esc(x.biasReason)+'</div>':'')+'</div>';}
-    h+='<div style="margin-top:5px;color:var(--t3);font-size:9px">Evidence only — not an automatic BUY/SELL signal.</div></div>';
+    if(x.providerErrors&&x.providerErrors.length) h+='<div style="margin-top:6px;color:var(--am)"><b>Optional provider diagnostics</b><br>'+x.providerErrors.map(function(e){return '• '+esc(e);}).join('<br>')+'</div>';
+    if(x.coinPaprika) h+='<div style="margin-top:6px"><b>📊 CoinPaprika</b><div style="font-size:9px;color:var(--t3)">Rank '+(x.coinPaprika.rank||'—')+' · MCap '+(x.coinPaprika.marketCap!=null?'$'+Number(x.coinPaprika.marketCap).toLocaleString(undefined,{maximumFractionDigits:0}):'—')+' · 24h volume '+(x.coinPaprika.volume24h!=null?'$'+Number(x.coinPaprika.volume24h).toLocaleString(undefined,{maximumFractionDigits:0}):'—')+'</div></div>';
+    if(x.coinStats) h+='<div style="margin-top:6px"><b>🟢 CoinStats</b><div style="font-size:9px;color:var(--t3)">Risk '+(x.coinStats.riskScore!=null?x.coinStats.riskScore.toFixed(1):'—')+' · Liquidity '+(x.coinStats.liquidityScore!=null?x.coinStats.liquidityScore.toFixed(1):'—')+' · Volatility '+(x.coinStats.volatilityScore!=null?x.coinStats.volatilityScore.toFixed(1):'—')+'</div></div>';
+    if(x.messari) h+='<div style="margin-top:6px"><b>🔵 Messari</b><div style="font-size:9px;color:var(--t3)">Rank '+(x.messari.rank||'—')+' · market data '+(x.messari.hasMarketData?'available':'unavailable')+' · research '+(x.messari.hasResearch?'available':'unavailable')+'</div></div>';
+    if(x.goldRush) h+='<div style="margin-top:6px"><b>🟣 Covalent / GoldRush</b><div style="font-size:9px;color:var(--t3)">Holder snapshot: '+(x.goldRush.holderCount!=null?Number(x.goldRush.holderCount).toLocaleString():'—')+' · updated '+(x.goldRush.updatedAt?new Date(x.goldRush.updatedAt).toLocaleString():'—')+'</div></div>';
+    if(x.stealthEX) h+='<div style="margin-top:6px"><b>🔁 StealthEX</b><div style="font-size:9px;color:var(--t3)">Available swap routes: '+x.stealthEX.pairsCount+'</div></div>';
+    if(x.moralis) h+='<div style="margin-top:6px"><b>🟠 Moralis</b><div style="font-size:9px;color:var(--t3)">Top-holder share: '+(x.moralis.top10Pct!=null?x.moralis.top10Pct.toFixed(2)+'%':'—')+' · labeled entities: '+(x.moralis.knownEntities&&x.moralis.knownEntities.length?x.moralis.knownEntities.slice(0,4).join(', '):'none returned')+'</div></div>';
+    var bias=x.bias||'UNKNOWN';
+    h+='<div style="margin-top:7px;padding-top:6px;border-top:.5px solid var(--bd)"><b>On-chain bias:</b> <span style="font-weight:800;color:'+(bias==='BULLISH'?'var(--g)':bias==='BEARISH'?'var(--r)':'var(--t2)')+'">'+esc(bias)+'</span>'+(x.biasReason?'<div style="font-size:9px;color:var(--t3);margin-top:2px">'+esc(x.biasReason)+'</div>':'')+'</div>';
+    h+='<div style="margin-top:5px;color:var(--t3);font-size:9px">Evidence only — not an automatic BUY/SELL signal. Free-source data can be incomplete.</div></div>';
     out.innerHTML=h;
   }).catch(function(e){out.innerHTML='<div style="font-size:10px;color:var(--r)">On-chain error: '+String(e.message||e).replace(/</g,'&lt;')+'</div>';});
 }
 
 function setOnchainKey(provider){
-  var key='moralis_api_key';
-  var v=prompt('Moralis API key. Leave blank to remove.',localStorage.getItem(key)||'');
-  if(v===null) return;
-  v=v.trim();
-  if(v)localStorage.setItem(key,v); else localStorage.removeItem(key);
-  try{ buildIntelAgentPanel(); }catch(e){}
+  // Kept for compatibility with older saved UI. No paid key is required anymore.
+  try { buildIntelAgentPanel(); }catch(e){}
+  try { if(typeof renderAgent==='function') renderAgent(); }catch(e){}
 }
 
 function monitorAnalyse(sym, why){
@@ -4549,10 +4563,10 @@ function monitorAnalyse(sym, why){
     + '\nTRIGGER FOR THIS UPDATE: ' + (why||'manual request');
 
   // On-chain intelligence is fetched only when the monitor actually asks the AI to analyse.
-  // This keeps Moralis quota usage low and makes the result part of the same reasoning context.
-  _agentOnchain({sym:d.pair||d.sym, chain:'eth'}).then(function(onchain){
+  // This keeps public free-source quota usage low and makes the result part of the same reasoning context.
+  _agentOnchain({sym:d.pair||d.sym, price:d.price}).then(function(onchain){
     var oc=JSON.stringify(onchain||{}).slice(0,12000);
-    usr += '\n\nON-CHAIN INTELLIGENCE (Moralis; current evidence only):\n' + oc
+    usr += '\n\nON-CHAIN INTELLIGENCE (free-source aggregator; current evidence only):\n' + oc
          + '\nTreat missing/unavailable fields as UNKNOWN, never as zero activity. Do not invent whale activity. Use on-chain data as confirmation/evidence, not as an automatic BUY/SELL trigger.';
     return _aiCallModel(sys, [{role:'user', content:usr}], null);
   }).then(function(txt){
@@ -5288,12 +5302,9 @@ function renderAgent(){
      + (canVerify() ? ' · <span onclick="groqTest()" style="text-decoration:underline;cursor:pointer;color:var(--acc)">test connection</span>' : '')
      + '<div id="groq-test-out"></div>'
      + '<span style="display:block;margin-top:2px">Separate from your analysis key and used only for this — so a large analysis payload can never hit the search limit.</span></div>';
-  var _mrm=(localStorage.getItem('moralis_api_key')||'').trim();
   h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:8px 10px;margin-bottom:8px">';
-  h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">⛓ On-chain intelligence</b><span style="font-size:9px;color:var(--t3)">used by this AI Agent Monitor when analysing a watched coin</span><span style="margin-left:auto;font-size:9px;color:' + (_mrm?'var(--g)':'var(--t3)') + '">Moralis ' + (_mrm?'✓':'—') + '</span></div>';
-  h += '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">';
-  h += '<button onclick="setOnchainKey(\'moralis\')" style="font-size:10px;padding:4px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);cursor:pointer">Moralis key</button>';
-  h += '</div><div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.4">Moralis-only on-chain intelligence. Holder statistics and top-owner data are queried on demand when a supported EVM token contract is known. The plan-gated Moralis token-search endpoint is not used. Missing data is UNKNOWN, not zero activity.</div></div>';
+  h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">⛓ Free On-chain Intelligence</b><span style="font-size:9px;color:var(--g)">No paid API required</span></div>';
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.45">Combines CoinGecko keyless metadata + Blockscout community explorer data + GeckoTerminal keyless DEX data on demand. It measures holder concentration, recent transfers, labeled exchange flows and DEX buy/sell activity. Missing data is UNKNOWN, never zero activity.</div></div>';
   h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.7rem">Tell it which coins to watch and it keeps a running timeline: what changed, when, and what it means. It analyses on <b>events</b> — a candle closing, the chart state flipping, a level breaking, conditions gained or lost — not continuously, because re-running the AI when nothing has changed costs quota to repeat itself.</div>';
   var opts = (allData||[]).slice().sort(function(a,b){ return (b.vol24||0)-(a.vol24||0); }).slice(0,80);
   h += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">';
@@ -5331,7 +5342,7 @@ function renderAgent(){
        + '<input type="checkbox" '+(mon.auto?'checked':'')+' onchange="toggleMonitorAuto(\''+mon.sym+'\',this.checked)" style="cursor:pointer">'
        + 'auto-update on 4h / 1d close</label>';
     h += '<button onclick="buildCatalystChecklist(\''+mon.sym+'\')" title="Check unlocks, development, governance, volume, strength and news" style="padding:5px 12px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:10px;cursor:pointer;font-family:inherit">🔍 Catalyst checklist</button>';
-    h += '<button onclick="monitorOnchain(\''+mon.sym+'\')" title="Read Moralis on-chain evidence for this coin" style="padding:5px 12px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:10px;cursor:pointer;font-family:inherit">⛓ On-chain</button>';
+    h += '<button onclick="monitorOnchain(\''+mon.sym+'\')" title="Read free on-chain evidence for this coin" style="padding:5px 12px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:10px;cursor:pointer;font-family:inherit">⛓ On-chain</button>';
     h += '<span id="mon-chain-'+mon.sym+'" style="display:block;width:100%;margin-top:2px"></span>';
     h += '<span id="mon-ai-'+mon.sym+'" style="font-size:10px"></span>';
     h += '</div>';
@@ -7904,67 +7915,258 @@ function _agentNews(f){
     }) };
 }
 
-// ── AGENT TOOL 5: ON-CHAIN intelligence (Moralis-only, quota-aware) ──
-// Moralis token search is intentionally NOT used because it is plan-gated for some accounts.
-// The agent therefore works only when a supported EVM token contract is already known.
-var _MORALIS_CHAIN_MAP={'eth':'eth','ethereum':'eth','bsc':'bsc','polygon':'polygon','base':'base','arbitrum':'arbitrum','optimism':'optimism','avalanche':'avalanche','linea':'linea','fantom':'fantom'};
-var _MORALIS_CONTRACTS={
-  LINK:{chain:'eth',address:'0x514910771AF9Ca656af840dff83E8264EcF986CA'},
-  AAVE:{chain:'eth',address:'0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9'},
-  UNI:{chain:'eth',address:'0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984'},
-  MKR:{chain:'eth',address:'0x9f8F72aA9304c8B593d555F12eF6589cC3A579A2'},
-  COMP:{chain:'eth',address:'0xc00e94Cb662C3520282E6f5717214004A7f26888'},
-  CRV:{chain:'eth',address:'0xD533a949740bb3306d119CC777fa900bA034cd52'},
-  SNX:{chain:'eth',address:'0xC011a72400E58ec99Ee497CF89E3775d4bd732F4'},
-  LDO:{chain:'eth',address:'0x5A98FcBEA516Cf06857215779Fd812CA3beF1B32'},
-  MATIC:{chain:'eth',address:'0x7D1AfA7B718fb893dB30A3aBc0Cfc608AaCfebb0'},
-  POL:{chain:'eth',address:'0x0000000000000000000000000000000000001010'},
-  USDC:{chain:'eth',address:'0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'},
-  USDT:{chain:'eth',address:'0xdAC17F958D2ee523a2206206994597C13D831ec7'}
+// ── AGENT TOOL 5: FREE ON-CHAIN intelligence aggregator ────────────────
+// No paid API or API key is required.
+// Sources are queried only on demand for a watched coin.
+var FREE_EVM_EXPLORERS = {
+  ethereum:'https://eth.blockscout.com',
+  base:'https://base.blockscout.com',
+  arbitrum_one:'https://arbitrum.blockscout.com',
+  optimism:'https://optimism.blockscout.com',
+  polygon_pos:'https://polygon.blockscout.com',
+  bsc:'https://bsc.blockscout.com',
+  avalanche:'https://avalanche.blockscout.com',
+  gnosis:'https://gnosis.blockscout.com',
+  linea:'https://linea.blockscout.com',
+  scroll:'https://scroll.blockscout.com',
+  zksync:'https://zksync.blockscout.com',
+  celo:'https://celo.blockscout.com'
 };
-function _agentOnchain(f){
-  f=f||{};
-  var raw=String(f.sym||f.symbol||'').toUpperCase().trim();
-  var sym=raw.replace(/(USDT|USDC|USD|JPY|BTC|ETH)$/,'').replace(/[^A-Z0-9]/g,'');
-  var mor=(localStorage.getItem('moralis_api_key')||'').trim();
-  var suppliedChain=String(f.chain||'').toLowerCase().trim();
-  var suppliedAddress=String(f.address||f.tokenAddress||'').trim();
-  var meta=_MORALIS_CONTRACTS[sym]||{};
-  var address=suppliedAddress || meta.address || '';
-  var chain=_MORALIS_CHAIN_MAP[suppliedChain] || suppliedChain || meta.chain || '';
-  var out={symbol:sym||null,rawSymbol:raw,chain:chain||null,address:address||null,sources:[],errors:[],warnings:[],status:'unknown',provider:'Moralis'};
-  if(!mor){out.status='not_configured';out.message='No Moralis API key configured.';return Promise.resolve(out);}
-  if(!/^0x[a-fA-F0-9]{40}$/.test(address)){
-    out.warnings.push('Moralis token search is not used because it is unavailable on this API plan. '+(sym||'This coin')+' needs a supported EVM contract address for holder/owner intelligence.');
-    if(sym==='NEAR'||sym==='SOL'||sym==='ADA'||sym==='XRP'||sym==='DOGE'||sym==='DOT'||sym==='ATOM'||sym==='SUI'||sym==='APT'||sym==='SEI'||sym==='TIA'||sym==='HBAR'||sym==='ICP'||sym==='ALGO'||sym==='KAS') out.warnings.push(sym+' is a non-EVM/native asset for this Moralis EVM endpoint, so holder intelligence is UNKNOWN here.');
-    out.status='unknown'; out.message='No supported Moralis contract address available.'; return Promise.resolve(out);
-  }
-  if(!chain || !_MORALIS_CHAIN_MAP[chain] && chain!=='eth'){
-    out.warnings.push('Moralis: network '+(chain||'unknown')+' is not handled by the EVM token endpoint used here.');
-    out.status='unknown'; return Promise.resolve(out);
-  }
-  var base='https://deep-index.moralis.io/api/v2.2/erc20/'+encodeURIComponent(address), hd={'X-API-Key':mor};
-  function get(path,label,assign){
-    return fetch(base+path,{headers:hd,cache:'no-store'}).then(function(r){
-      if(!r.ok)return r.text().then(function(t){throw Error('Moralis '+label+' HTTP '+r.status+(t?' — '+t.slice(0,220):''));});
-      return r.json();
-    }).then(function(j){if(assign)assign(j);out.sources.push('Moralis '+label);}).catch(function(e){out.errors.push(String(e.message||e));});
-  }
-  var jobs=[];
-  jobs.push(get('/holders/stats?chain='+encodeURIComponent(chain),'holder stats',function(j){
-    var hp=j.holderSupply||j;
-    out.moralisStats={totalHolders:j.totalHolders,top10Pct:hp.top10&&hp.top10.supplyPercent,top25Pct:hp.top25&&hp.top25.supplyPercent,raw:j};
-  }));
-  jobs.push(get('/owners?chain='+encodeURIComponent(chain)+'&limit=25','top owners',function(j){
-    var a=Array.isArray(j.result)?j.result:[];
-    out.moralisOwners=a.slice(0,10).map(function(x){return {address:x.owner_address||x.ownerAddress||x.address||null,balance:x.balance_formatted||x.balance||null,percentage:x.percentage_relative_to_total_supply||x.percentage||null};});
-  }));
-  return Promise.all(jobs).then(function(){
-    out.status=out.sources.length?'ok':'unknown';
-    if(!out.sources.length) out.message='Moralis returned no usable on-chain data.';
-    out.bias='UNKNOWN';
-    return out;
+var FREE_CG_PLATFORM_TO_NETWORK = {
+  ethereum:'ethereum', 'base':'base', 'arbitrum-one':'arbitrum_one',
+  'optimistic-ethereum':'optimism', 'polygon-pos':'polygon_pos',
+  'binance-smart-chain':'bsc', 'avalanche':'avalanche', 'gnosis':'gnosis',
+  'linea':'linea', 'scroll':'scroll', 'zksync':'zksync', 'celo':'celo', 'solana':'solana'
+};
+var FREE_GT_NETWORK = {
+  ethereum:'eth', base:'base', arbitrum_one:'arbitrum', optimism:'optimism',
+  polygon_pos:'polygon_pos', bsc:'bsc', avalanche:'avax', gnosis:'gnosis',
+  linea:'linea', scroll:'scroll', zksync:'zksync', celo:'celo', solana:'solana'
+};
+var FREE_EXCHANGE_WORDS = /binance|coinbase|kraken|okx|bybit|bitfinex|bitstamp|kucoin|gate\.io|gemini|crypto\.com|bitget|mexc|upbit|bithumb|robinhood|deribit/i;
+var _freeOnchainCache = {};
+
+function _freeSym(raw){ return String(raw||'').toUpperCase().trim().replace(/(USDT|USDC|USD|JPY|BTC|ETH)$/,'').replace(/[^A-Z0-9]/g,''); }
+function _freeJson(url,ms){ return _pfetch(url,ms||9000); }
+function _freeNum(v){ var n=Number(v); return isFinite(n)?n:null; }
+
+function _freeFindCoin(sym){
+  sym=_freeSym(sym);
+  var key='cgsearch_'+sym, now=Date.now();
+  if(_freeOnchainCache[key] && now-_freeOnchainCache[key].ts<86400000) return Promise.resolve(_freeOnchainCache[key].d);
+  return _freeJson('https://api.coingecko.com/api/v3/search?query='+encodeURIComponent(sym),8000).then(function(j){
+    var arr=(j&&j.coins)||[];
+    arr.sort(function(a,b){
+      var ae=String(a.symbol||'').toUpperCase()===sym?1:0, be=String(b.symbol||'').toUpperCase()===sym?1:0;
+      return be-ae || (Number(a.market_cap_rank)||999999)-(Number(b.market_cap_rank)||999999);
+    });
+    var c=arr[0];
+    if(!c) throw Error('CoinGecko could not identify '+sym);
+    return _freeJson('https://api.coingecko.com/api/v3/coins/'+encodeURIComponent(c.id)+'?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false&sparkline=false',9000).then(function(meta){
+      var d={id:c.id,name:c.name,symbol:sym,platforms:(meta&&meta.platforms)||{}};
+      _freeOnchainCache[key]={ts:now,d:d}; return d;
+    });
   });
+}
+
+function _freePickPlatform(meta){
+  var p=meta&&meta.platforms||{};
+  var preferred=['ethereum','base','arbitrum-one','optimistic-ethereum','polygon-pos','binance-smart-chain','avalanche','gnosis','linea','scroll','zksync','celo','solana'];
+  for(var i=0;i<preferred.length;i++) if(p[preferred[i]]) return {platform:preferred[i],address:p[preferred[i]],network:FREE_CG_PLATFORM_TO_NETWORK[preferred[i]]};
+  return null;
+}
+
+function _freeHolders(base,contract){
+  return Promise.all([
+    _freeJson(base+'/api/v2/tokens/'+contract+'/counters',8000),
+    _freeJson(base+'/api/v2/tokens/'+contract+'/holders?items_count=100',10000)
+  ]).then(function(a){
+    var counter=a[0]||{}, raw=a[1]||{}, items=raw.items||[];
+    var vals=items.map(function(x){return _freeNum(x.value);}).filter(function(x){return x!=null&&x>=0;}).sort(function(x,y){return y-x;});
+    var total=vals.reduce(function(s,x){return s+x;},0);
+    var top10=vals.slice(0,10).reduce(function(s,x){return s+x;},0), top25=vals.slice(0,25).reduce(function(s,x){return s+x;},0);
+    var decimals=18;
+    var infoP=_freeJson(base+'/api/v2/tokens/'+contract,8000).catch(function(){return {};});
+    return infoP.then(function(info){
+      decimals=_freeNum(info&&info.decimals)!=null?_freeNum(info.decimals):18;
+      var denom=total||_freeNum(info&&info.total_supply);
+      return {count:_freeNum(counter.token_holders_count)!=null?_freeNum(counter.token_holders_count):(_freeNum(info&&info.holders_count)),
+        totalSupply:denom,top10Pct:denom?top10/denom*100:null,top25Pct:denom?top25/denom*100:null,
+        topHolders:items.slice(0,8).map(function(x){var a=x.address_hash||{};return {address:a.hash||x.address||'',label:(a.name||a.ens_domain_name||((a.public_tags&&a.public_tags[0]&&a.public_tags[0].display_name)||''))||'',pct:denom&&_freeNum(x.value)!=null?_freeNum(x.value)/denom*100:null};})};
+    });
+  });
+}
+
+function _freeTransfers(base,contract,price){
+  return _freeJson(base+'/api/v2/tokens/'+contract+'/transfers?items_count=100',10000).then(function(j){
+    var rows=j&&j.items||[], large=0, ein=0,eout=0, now=Date.now();
+    rows.forEach(function(r){
+      var total=r.total||{}, raw=_freeNum(total.value), dec=_freeNum(total.decimals)||18;
+      var amount=raw!=null?raw/Math.pow(10,dec):0;
+      var usd=price?amount*price:0;
+      if(usd>=100000) large++;
+      var fa=r.from||{},ta=r.to||{};
+      var fl=String(fa.name||fa.ens_domain_name||((fa.public_tags&&fa.public_tags[0]&&fa.public_tags[0].display_name)||''));
+      var tl=String(ta.name||ta.ens_domain_name||((ta.public_tags&&ta.public_tags[0]&&ta.public_tags[0].display_name)||''));
+      var ts=Date.parse(r.timestamp||'');
+      if(ts && now-ts<=86400000){
+        if(FREE_EXCHANGE_WORDS.test(fl) && !FREE_EXCHANGE_WORDS.test(tl)) eout+=usd;
+        if(FREE_EXCHANGE_WORDS.test(tl) && !FREE_EXCHANGE_WORDS.test(fl)) ein+=usd;
+      }
+    });
+    return {largeCount:large,exchangeIn:ein,exchangeOut:eout,note:'Exchange flow uses only explorer-labeled exchange addresses visible in the latest indexed token transfers; unlabeled wallets are not assumed to be exchanges.'};
+  });
+}
+
+function _freeDex(network,contract,sym){
+  var gt=FREE_GT_NETWORK[network];
+  var url=gt && contract ? 'https://api.geckoterminal.com/api/v2/networks/'+gt+'/tokens/'+encodeURIComponent(contract)+'/pools?include=base_token,quote_token,dex' :
+    'https://api.geckoterminal.com/api/v2/search/pools?query='+encodeURIComponent(sym||'');
+  return _freeJson(url,10000).then(function(j){
+    var arr=j&&j.data||[];
+    if(!arr.length) return null;
+    arr.sort(function(a,b){return (_freeNum(b.attributes&&b.attributes.reserve_in_usd)||0)-(_freeNum(a.attributes&&a.attributes.reserve_in_usd)||0);});
+    var p=arr[0].attributes||{}, tx=p.transactions&&p.transactions.h24||{}, vol=p.volume_usd&&p.volume_usd.h24, buys=_freeNum(tx.buys), sells=_freeNum(tx.sells);
+    return {liquidity:_freeNum(p.reserve_in_usd),volume24h:_freeNum(vol),buys:buys,sells:sells,buySellRatio:(buys!=null&&sells!=null)?buys/Math.max(1,sells):null,pool:p.name||arr[0].id};
+  }).catch(function(){return null;});
+}
+
+function _freeBtcActivity(){
+  return _freeJson('https://api.blockchain.info/charts/n-unique-addresses?timespan=30days&format=json',8000).then(function(j){
+    var v=j&&j.values||[]; if(v.length<8) return null;
+    var last=_freeNum(v[v.length-1].y), wk=_freeNum(v[Math.max(0,v.length-8)].y);
+    return {addresses:last,chg7d:wk>0?(last-wk)/wk*100:null};
+  }).catch(function(){return null;});
+}
+function _freeOnchainBias(x){
+  var bull=0,bear=0,reasons=[];
+  if(x.market&&x.market.buys!=null&&x.market.sells!=null){ if(x.market.buys>x.market.sells*1.15){bull++;reasons.push('DEX buys exceed sells');} else if(x.market.sells>x.market.buys*1.15){bear++;reasons.push('DEX sells exceed buys');} }
+  if(x.holders&&x.holders.top10Pct!=null){ if(x.holders.top10Pct<35){bull++;reasons.push('holder concentration is relatively distributed');} else if(x.holders.top10Pct>70){bear++;reasons.push('top-holder concentration is high');} }
+  if(x.transfers&&((x.transfers.exchangeIn||0)+(x.transfers.exchangeOut||0)>0)){ var net=(x.transfers.exchangeOut||0)-(x.transfers.exchangeIn||0); if(net>0){bull++;reasons.push('labeled exchange flow is net outflow');} else if(net<0){bear++;reasons.push('labeled exchange flow is net inflow');} }
+  if(bull>bear) return {bias:'BULLISH',biasReason:reasons.join('; ')};
+  if(bear>bull) return {bias:'BEARISH',biasReason:reasons.join('; ')};
+  return {bias:'NEUTRAL',biasReason:reasons.length?reasons.join('; '):'Free sources did not provide a strong directional imbalance.'};
+}
+
+
+// ── OPTIONAL FREE/LOW-COST PROVIDER LAYER ───────────────────────────────
+// Sources from the user's requested comparison are used as independent
+// enrichment/fallbacks. They are NOT treated as interchangeable with on-chain
+// evidence: CoinPaprika/CoinStats/Messari are market/research context,
+// GoldRush is on-chain holder data, and StealthEX is swap-route availability.
+var FREE_MULTI_PROVIDERS = {
+  coinstats: {key:'coinstats_api_key', label:'CoinStats API'},
+  messari:   {key:'messari_api_key',   label:'Messari API'},
+  goldrush:  {key:'goldrush_api_key',  label:'Covalent / GoldRush API'},
+  stealthex: {key:'stealthex_api_key', label:'StealthEX API'},
+  moralis:   {key:'moralis_api_key',   label:'Moralis API'}
+};
+function _escProviderHtml(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/\"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function _provKey(name){ try{return localStorage.getItem(FREE_MULTI_PROVIDERS[name].key)||'';}catch(e){return '';} }
+function _setProvKey(name,val){ try{ if(val) localStorage.setItem(FREE_MULTI_PROVIDERS[name].key,val.trim()); else localStorage.removeItem(FREE_MULTI_PROVIDERS[name].key); }catch(e){} }
+function _headerFetch(url,headers,ms){
+  return new Promise(function(ok,fail){
+    var ctrl=typeof AbortController!=='undefined'?new AbortController():null, done=false;
+    var t=setTimeout(function(){if(!done){done=true;if(ctrl)ctrl.abort();fail(new Error('timeout'));}},ms||9000);
+    fetch(url,{cache:'no-cache',signal:ctrl?ctrl.signal:undefined,headers:headers||{}}).then(function(r){
+      if(done)return; clearTimeout(t); done=true;
+      if(!r.ok){r.text().then(function(tx){fail(new Error('HTTP '+r.status+(tx?' — '+tx.slice(0,240):'')));}).catch(function(){fail(new Error('HTTP '+r.status));});return;}
+      r.json().then(ok).catch(fail);
+    }).catch(function(e){if(!done){clearTimeout(t);done=true;fail(e);}});
+  });
+}
+function _coinPaprikaEnrich(sym){
+  sym=_freeSym(sym);
+  return _freeJson('https://api.coinpaprika.com/v1/search?q='+encodeURIComponent(sym),8000).then(function(j){
+    var arr=(j&&j.currencies)||[]; arr.sort(function(a,b){return (String(b.symbol||'').toUpperCase()===sym)-(String(a.symbol||'').toUpperCase()===sym)||(a.rank||99999)-(b.rank||99999);});
+    var c=arr[0]; if(!c) throw Error('CoinPaprika could not identify '+sym);
+    return _freeJson('https://api.coinpaprika.com/v1/tickers/'+encodeURIComponent(c.id),8000).then(function(t){
+      return {id:c.id,name:c.name,rank:c.rank,price:t&&t.quotes&&t.quotes.USD&&t.quotes.USD.price,volume24h:t&&t.quotes&&t.quotes.USD&&t.quotes.USD.volume_24h,marketCap:t&&t.quotes&&t.quotes.USD&&t.quotes.USD.market_cap,chg24h:t&&t.quotes&&t.quotes.USD&&t.quotes.USD.percent_change_24h};
+    });
+  });
+}
+function _coinStatsEnrich(sym){
+  var key=_provKey('coinstats'); if(!key) return Promise.resolve(null);
+  return _headerFetch('https://openapiv1.coinstats.app/coins?symbol='+encodeURIComponent(_freeSym(sym))+'&limit=1&includeRiskScore=true',{'X-API-KEY':key},9000).then(function(j){
+    var c=j&&j.result&&j.result[0]; if(!c) return null;
+    return {id:c.id,price:_freeNum(c.price),volume24h:_freeNum(c.volume),marketCap:_freeNum(c.marketCap),rank:_freeNum(c.rank),riskScore:_freeNum(c.riskScore),liquidityScore:_freeNum(c.liquidityScore),volatilityScore:_freeNum(c.volatilityScore),contracts:c.contractAddresses||[]};
+  });
+}
+function _messariEnrich(sym){
+  var key=_provKey('messari'); if(!key) return Promise.resolve(null);
+  return _headerFetch('https://api.messari.io/metrics/v2/assets/details?assetIds='+encodeURIComponent(_freeSym(sym).toLowerCase()),{'X-Messari-API-Key':key},9000).then(function(j){
+    var a=j&&j.data&&j.data[0]; if(!a) return null;
+    var m=a.marketData||{}; return {id:a.id,slug:a.slug,name:a.name,rank:a.rank,marketData:m,hasResearch:!!a.hasResearch,hasNews:!!a.hasNews,hasMarketData:!!a.hasMarketData};
+  });
+}
+function _goldRushEnrich(sym,network,contract){
+  var key=_provKey('goldrush'); if(!key || !network || !contract) return Promise.resolve(null);
+  var chainMap={ethereum:'eth-mainnet',base:'base-mainnet',arbitrum_one:'arbitrum-mainnet',optimism:'optimism-mainnet',polygon_pos:'matic-mainnet',bsc:'bsc-mainnet',avalanche:'avalanche-mainnet',gnosis:'gnosis-mainnet',linea:'linea-mainnet',scroll:'scroll-mainnet',zksync:'zksync-mainnet',celo:'celo-mainnet'};
+  var chain=chainMap[network]; if(!chain) return Promise.resolve(null);
+  return _headerFetch('https://api.covalenthq.com/v1/'+chain+'/tokens/'+encodeURIComponent(contract)+'/token_holders_v2/?page-size=100',{'Authorization':'Bearer '+key},10000).then(function(j){
+    var items=j&&j.data&&j.data.items||[], total=_freeNum(j&&j.data&&j.data.pagination&&j.data.pagination.total_count);
+    var vals=items.map(function(x){return {balance:_freeNum(x.balance),address:x.address||''};}).filter(function(x){return x.balance!=null;});
+    var supply=_freeNum(items[0]&&items[0].total_supply), top10=vals.slice(0,10).reduce(function(a,x){return a+x.balance;},0);
+    return {chain:chain,holderCount:total,top10Pct:supply?top10/supply*100:null,updatedAt:j&&j.data&&j.data.updated_at,topHolders:vals.slice(0,8)};
+  });
+}
+function _stealthExEnrich(sym){
+  var key=_provKey('stealthex'); if(!key) return Promise.resolve(null);
+  return _headerFetch('https://api.stealthex.io/api/v2/pairs/'+encodeURIComponent(_freeSym(sym).toLowerCase())+'?api_key='+encodeURIComponent(key),{'X-SX-API-KEY':key},9000).then(function(j){
+    var arr=Array.isArray(j)?j:[]; return {pairsCount:arr.length,examples:arr.slice(0,12)};
+  });
+}
+
+function _moralisEnrich(sym,network,contract){
+  var key=_provKey('moralis'); if(!key || !network || !contract) return Promise.resolve(null);
+  var chainMap={ethereum:'eth',base:'base',arbitrum_one:'arbitrum',optimism:'optimism',polygon_pos:'polygon',bsc:'bsc',avalanche:'avalanche',gnosis:'gnosis',linea:'linea'};
+  var chain=chainMap[network]; if(!chain) return Promise.resolve(null);
+  return _headerFetch('https://deep-index.moralis.io/api/v2.2/erc20/'+encodeURIComponent(contract)+'/owners?chain='+encodeURIComponent(chain)+'&limit=100&order=DESC',{'X-API-Key':key},10000).then(function(j){
+    var rows=j&&j.result||[];
+    var top10=rows.slice(0,10).reduce(function(a,x){return a+(_freeNum(x.percentage_relative_to_total_supply)||0);},0);
+    var whales=rows.filter(function(x){return /whale|exchange|coinbase|binance|okx|bybit|kraken|smart/i.test(String(x.owner_address_label||'')+' '+String(x.entity||''));}).slice(0,10);
+    return {chain:chain,top10Pct:top10,totalSupply:j&&j.total_supply,holders:rows.length,topHolders:rows.slice(0,8).map(function(x){return {address:x.owner_address||'',label:x.owner_address_label||x.entity||'',pct:_freeNum(x.percentage_relative_to_total_supply)};}),knownEntities:whales.map(function(x){return x.owner_address_label||x.entity||x.owner_address;})};
+  });
+}
+
+function _freeProviderEnrichment(sym,baseOut){
+  var jobs=[
+    _coinPaprikaEnrich(sym).then(function(v){baseOut.coinPaprika=v;baseOut.sources.push('CoinPaprika free');}).catch(function(e){baseOut.providerErrors.push('CoinPaprika: '+e.message);}),
+    _coinStatsEnrich(sym).then(function(v){if(v){baseOut.coinStats=v;baseOut.sources.push('CoinStats free tier');}}).catch(function(e){baseOut.providerErrors.push('CoinStats: '+e.message);}),
+    _messariEnrich(sym).then(function(v){if(v){baseOut.messari=v;baseOut.sources.push('Messari');}}).catch(function(e){baseOut.providerErrors.push('Messari: '+e.message);}),
+    _stealthExEnrich(sym).then(function(v){if(v){baseOut.stealthEX=v;baseOut.sources.push('StealthEX');}}).catch(function(e){baseOut.providerErrors.push('StealthEX: '+e.message);}),
+    _moralisEnrich(sym,baseOut.network,baseOut.contract).then(function(v){if(v){baseOut.moralis=v;baseOut.sources.push('Moralis');}}).catch(function(e){baseOut.providerErrors.push('Moralis: '+e.message);})
+  ];
+  if(baseOut.network&&baseOut.contract) jobs.push(_goldRushEnrich(sym,baseOut.network,baseOut.contract).then(function(v){if(v){baseOut.goldRush=v;baseOut.sources.push('Covalent / GoldRush');}}).catch(function(e){baseOut.providerErrors.push('GoldRush: '+e.message);}));
+  return Promise.all(jobs).then(function(){return baseOut;});
+}
+
+function _agentOnchain(f){
+  f=f||{}; var sym=_freeSym(f.sym||f.symbol||'');
+  if(!sym) return Promise.resolve({symbol:'',status:'unknown',sources:[],errors:['No symbol supplied.'],warnings:[],bias:'UNKNOWN'});
+  var cacheKey='freeoc_'+sym, now=Date.now();
+  if(_freeOnchainCache[cacheKey] && now-_freeOnchainCache[cacheKey].ts<900000) return Promise.resolve(_freeOnchainCache[cacheKey].d);
+  if(sym==='BTC') return _freeBtcActivity().then(function(b){var o={symbol:'BTC',status:b?'ok':'partial',sources:['Blockchain.com free charts'],errors:[],providerErrors:[],warnings:[],bias:'UNKNOWN',btcActivity:b}; if(b&&b.chg7d>3){o.bias='BULLISH';o.biasReason='BTC unique active addresses increased over the last 7 days.';} else if(b&&b.chg7d<-3){o.bias='BEARISH';o.biasReason='BTC unique active addresses declined over the last 7 days.';} else o.bias='NEUTRAL'; return _freeProviderEnrichment('BTC',o).then(function(v){_freeOnchainCache[cacheKey]={ts:Date.now(),d:v};return v;});});
+  return _freeFindCoin(sym).then(function(meta){
+    var pick=_freePickPlatform(meta), out={symbol:sym,coinId:meta.id,status:'partial',sources:['CoinGecko keyless'],errors:[],providerErrors:[],warnings:[],bias:'UNKNOWN'};
+    if(!pick){
+      out.warnings.push('No free Blockscout EVM contract was found. GeckoTerminal will still search DEX pools for this coin.');
+      return _freeDex('',null,sym).then(function(m){ if(m){out.market=m;out.sources.push('GeckoTerminal keyless DEX API');} var b=_freeOnchainBias(out);out.bias=b.bias;out.biasReason=b.biasReason;return _freeProviderEnrichment(sym,out);});
+    }
+    var base=FREE_EVM_EXPLORERS[pick.network];
+    out.network=pick.network; out.contract=pick.address;
+    if(base) out.sources.push('Blockscout Community API');
+    return Promise.allSettled([
+      base ? _freeHolders(base,pick.address) : Promise.resolve(null),
+      base ? _freeTransfers(base,pick.address,_freeNum(f.price)) : Promise.resolve(null),
+      _freeDex(pick.network,pick.address,sym)
+    ]).then(function(r){
+      if(r[0].status==='fulfilled'&&r[0].value) out.holders=r[0].value; else if(base) out.errors.push('Blockscout holders unavailable for this network/token.');
+      if(r[1].status==='fulfilled'&&r[1].value) out.transfers=r[1].value; else if(base) out.errors.push('Blockscout transfers unavailable for this network/token.');
+      if(r[2].status==='fulfilled'&&r[2].value){out.market=r[2].value;out.sources.push('GeckoTerminal keyless DEX API');} else out.warnings.push('No GeckoTerminal DEX pool data returned.');
+      var b=_freeOnchainBias(out); out.bias=b.bias; out.biasReason=b.biasReason; return _freeProviderEnrichment(sym,out);
+    });
+  }).catch(function(e){return {symbol:sym,status:'error',sources:[],errors:['Free on-chain lookup failed: '+String(e.message||e)],warnings:['No paid provider is used; retry after a short delay if CoinGecko keyless rate limiting occurs.'],bias:'UNKNOWN'};}).then(function(out){_freeOnchainCache[cacheKey]={ts:Date.now(),d:out};return out;});
 }
 
 // ── AGENT TOOL 5: chart VISION for one coin (quota-aware, on request only) ──
@@ -8003,7 +8205,7 @@ function runResearchAgent(){
     + 'BOARD {json} - the LIVE board of all scanned coins right now. filters: signalsOnly, tier, minOpportunity, minRsRank, struct, trendlineBreak, sweep, sym, sortBy, limit. per coin returns price, chg24h, opportunity, score, rsRank, momQuintile, trendQ, accum, rsi, volR, struct, tier, buySignal, extAboveEMA20pct, dailyTrendUp, trendline, sweep, support, resistance. '
     + 'CONTEXT {} - market regime plus the tool grading ITSELF: btcState, breadth, ethVsBtc, altWeather, suppressionReasons, buyZone, the user track record, scoringAudit (which of its own scores predict wins), icLab (information coefficients). '
     + 'NEWS {json} - recent headlines. filters: contains, limit. '
-    + 'ONCHAIN {json} - live Moralis on-chain intelligence. args: sym or symbol, optional chain and token contract address. Use for holder concentration, top-owner evidence and on-chain confirmation. It returns only configured-provider data; missing keys mean unavailable, not zero activity. Query at most once unless necessary. '
+    + 'ONCHAIN {json} - free on-chain intelligence aggregator. args: sym or symbol. Combines CoinGecko keyless metadata, Blockscout Community holder/transfer data, GeckoTerminal keyless DEX activity, CoinPaprika free market data, optional Moralis ERC20 holder/entity data, optional CoinStats free-tier market/risk data, optional Messari market/research data, optional Covalent/GoldRush holder snapshots, and optional StealthEX swap-route availability. Use holder/transfer data as on-chain evidence; use market/research/swap sources only as enrichment. Query at most once unless necessary. Missing data is UNKNOWN, never zero activity. '
     + 'CHART {\"sym\":\"BTCUSDT\"} - renders that coin chart so you can SEE it. Costs quota: use at most once, only when a visual read genuinely matters. '
     + 'WORKFLOW: call a tool, read the result, call another if needed, maximum 5 calls, then give your FINAL ANSWER with no tool line. '
     + 'STATISTICAL HONESTY IS MANDATORY: for LOG slices, under 10 resolved means the slice cannot support a conclusion, under 30 is a weak hint that must cite the confidence interval, and comparing many slices inflates false positives. BOARD data is CURRENT CONDITIONS, not outcomes - describe setup quality, never predict. '
@@ -8162,12 +8364,12 @@ function buildResearchAgentPanel(){
     h += '<div style="font-size:11px;color:var(--t3)">Add your free Gemini key (any coin → Analyst tab) to enable the agent.</div></div>';
     return h;
   }
-  var _mk = (localStorage.getItem('moralis_api_key')||'').trim();
   h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:8px 10px;margin-bottom:8px">';
-  h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">⛓ On-chain intelligence</b><span style="font-size:9px;color:var(--t3)">optional · queried only when needed</span><span style="margin-left:auto;font-size:9px;color:' + (_mk?'var(--g)':'var(--t3)') + '">Moralis ' + (_mk?'✓':'—') + '</span></div>';
-  h += '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">';
-  h += '<button onclick="var v=prompt(\'Moralis API key. Leave blank to remove.\',localStorage.getItem(\'moralis_api_key\')||\'\');if(v!==null){v=v.trim();if(v)localStorage.setItem(\'moralis_api_key\',v);else localStorage.removeItem(\'moralis_api_key\');buildIntelAgentPanel();}" style="font-size:10px;padding:4px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);cursor:pointer">Moralis key</button>';
-  h += '</div><div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.4">Moralis-only: holder statistics and owner data when a supported EVM contract is known. The plan-gated token-search endpoint is not used. On-chain data is evidence only, never an automatic BUY/SELL signal.</div></div>';
+  h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">⛓ Multi-source On-chain Intelligence</b><span style="font-size:9px;color:var(--g)">on-demand</span></div>';
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.45">Free/public base: CoinGecko + CoinPaprika + Blockscout + GeckoTerminal. Optional free-tier keys: CoinStats, Messari, Covalent/GoldRush, StealthEX. The AI separates on-chain evidence from market/research enrichment.</div>';
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:5px;margin-top:7px">';
+  [['moralis','Moralis key'],['coinstats','CoinStats key'],['messari','Messari key'],['goldrush','Covalent / GoldRush key'],['stealthex','StealthEX key']].forEach(function(a){ var v=_provKey(a[0]); h += '<input type="password" value="'+_escProviderHtml(v)+'" placeholder="'+a[1]+' (optional)" onchange="_setProvKey(\''+a[0]+'\',this.value)" style="padding:6px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px">'; });
+  h += '</div><div style="font-size:8px;color:var(--am);margin-top:5px">API keys entered here are stored only in this browser. Direct browser API mode is enabled; provider CORS and plan limits still apply.</div></div>';
   h += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
   h += '<input id="agent-q" placeholder="e.g. best setups right now? / does my daily-trend gate help?" onkeydown="if(event.key===\'Enter\')runResearchAgent()" style="flex:1;min-width:200px;padding:8px 10px;border-radius:8px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:12px;font-family:inherit">';
   h += '<button onclick="runResearchAgent()" style="padding:8px 16px;border-radius:8px;border:none;background:#7c4dff;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">Investigate</button></div>';
@@ -16095,11 +16297,17 @@ var NEWS_SOURCES = [
     { n:'Farside ETF flows', u:'https://farside.co.uk/btc/', d:'daily BTC/ETH ETF flows' },
     { n:'SoSoValue', u:'https://sosovalue.com/', d:'ETF dashboard' }
   ]},
-  { layer:'On-chain', free:false, items:[
-    { n:'Glassnode', u:'https://glassnode.com/', d:'PAID — proprietary metrics' },
-    { n:'CryptoQuant', u:'https://cryptoquant.com/', d:'PAID — exchange flows' },
-    { n:'Moralis', u:'https://moralis.com/', d:'token holders and owner data when supported' },
-    { n:'blockchain.com charts', u:'https://www.blockchain.com/charts', d:'FREE — fetched below ✓' }
+  { layer:'On-chain & crypto data', free:true, items:[
+    { n:'Moralis', u:'https://moralis.io/', d:'OPTIONAL — ERC20 holders/entities, wallet and DeFi data; endpoint access depends on plan' },
+    { n:'CoinStats', u:'https://coinstats.app/', d:'FREE tier — market, wallet and DeFi enrichment' },
+    { n:'CoinPaprika', u:'https://coinpaprika.com/', d:'FREE — market data and history' },
+    { n:'Covalent / GoldRush', u:'https://goldrush.dev/', d:'FREE trial / optional key — multichain holders and blockchain data' },
+    { n:'Messari', u:'https://messari.io/', d:'FREE/plan-dependent — market and research data' },
+    { n:'StealthEX', u:'https://stealthex.io/', d:'API key required — swap-route availability/routing enrichment' },
+    { n:'Blockscout', u:'https://www.blockscout.com/', d:'FREE — holder lists, token transfers, labels on supported chains' },
+    { n:'GeckoTerminal', u:'https://www.geckoterminal.com/', d:'FREE — DEX liquidity, volume, buys/sells, pools' },
+    { n:'CoinGecko Public API', u:'https://www.coingecko.com/', d:'FREE keyless — coin/platform metadata and market data' },
+    { n:'blockchain.com charts', u:'https://www.blockchain.com/charts', d:'FREE — BTC active addresses' }
   ]},
   { layer:'Derivatives', free:true, items:[
     { n:'CoinGlass', u:'https://www.coinglass.com/', d:'aggregator — basics fetched free below ✓' },
