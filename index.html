@@ -4493,9 +4493,9 @@ function monitorOnchain(sym){
     var bias=x.bias||'UNKNOWN';
     h+='<div style="margin-top:7px;padding-top:6px;border-top:.5px solid var(--bd)"><b>On-chain bias:</b> <span style="font-weight:800;color:'+(bias==='BULLISH'?'var(--g)':bias==='BEARISH'?'var(--r)':'var(--t2)')+'">'+esc(bias)+'</span>'+(x.biasReason?'<div style="font-size:9px;color:var(--t3);margin-top:2px">'+esc(x.biasReason)+'</div>':'')+'</div>';
     h+='<div style="margin-top:5px;color:var(--t3);font-size:9px">Evidence only — not an automatic BUY/SELL signal. Free-source data can be incomplete.</div>';
-    h+='<div style="margin-top:7px;padding-top:7px;border-top:.5px solid var(--bd)"><div style="display:flex;align-items:center;gap:6px"><b>🤖 Dedicated On-chain AI</b><button onclick="runOnchainAI(\''+esc(sym)+'\')" style="padding:4px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);cursor:pointer;font-size:9px">Analyze on-chain</button></div><div id="mon-chain-ai-'+esc(sym)+'" style="margin-top:5px;font-size:9px;color:var(--t3)">'+(onchainKey?'Ready — separate Gemini key':'Enter a dedicated On-chain Gemini key above')+'</div></div></div>';
+    h+='<div style="margin-top:7px;padding-top:7px;border-top:.5px solid var(--bd)"><div style="display:flex;align-items:center;gap:6px"><b>🤖 Dedicated On-chain AI</b><button onclick="runOnchainAI(\''+esc(sym)+'\')" style="padding:4px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);cursor:pointer;font-size:9px">Analyze on-chain</button></div><div id="mon-chain-ai-'+esc(sym)+'" style="margin-top:5px;font-size:9px;color:var(--t3)">'+(_onchainAIKey()?'Ready — separate Gemini key':'Enter a dedicated On-chain Gemini key above')+'</div></div></div>';
     out.innerHTML=h;
-    if(onchainKey) runOnchainAI(sym,x);
+    if(_onchainAIKey()) runOnchainAI(sym,x);
   }).catch(function(e){out.innerHTML='<div style="font-size:10px;color:var(--r)">On-chain error: '+String(e.message||e).replace(/</g,'&lt;')+'</div>';});
 }
 
