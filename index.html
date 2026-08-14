@@ -5322,6 +5322,19 @@ function renderAgent(){
   h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:8px 10px;margin-bottom:8px">';
   h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">⛓ Free On-chain Intelligence</b><span style="font-size:9px;color:var(--g)">No paid API required</span></div>';
   h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.45">Combines CoinGecko keyless metadata + Blockscout community explorer data + GeckoTerminal keyless DEX data on demand. It measures holder concentration, recent transfers, labeled exchange flows and DEX buy/sell activity. Missing data is UNKNOWN, never zero activity.</div></div>';
+  // ── ON-CHAIN API / AI KEYS ── kept here so they are visible in the Agent Monitor itself.
+  var ocKey = _onchainAIKey();
+  h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:9px 10px;margin-bottom:8px">';
+  h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">🔑 On-chain provider keys</b><span style="font-size:9px;color:var(--t3)">used only by On-chain Intelligence</span></div>';
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:6px;margin-top:7px">';
+  [['moralis','Moralis API key'],['alchemy','Alchemy API key']].forEach(function(a){ var v=_provKey(a[0]); h += '<input type="password" value="'+_escProviderHtml(v)+'" placeholder="'+a[1]+'" onchange="_setProvKey(\''+a[0]+'\',this.value)" style="padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px">'; });
+  h += '</div>';
+  h += '<div style="display:grid;grid-template-columns:minmax(240px,1fr) 180px;gap:6px;margin-top:6px">';
+  h += '<input type="password" value="'+_escProviderHtml(ocKey)+'" placeholder="Dedicated On-chain Gemini API key" onchange="_setOnchainAIKey(this.value)" style="padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px">';
+  h += '<input type="text" value="'+_escProviderHtml(_onchainAIModel())+'" placeholder="Gemini model" onchange="_setOnchainAIModel(this.value)" style="padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px">';
+  h += '</div>';
+  h += '<div style="font-size:8px;color:var(--am);margin-top:6px;line-height:1.45">Direct browser mode. These keys are stored locally in this browser. Moralis/Alchemy collect raw on-chain evidence; the dedicated Gemini key only interprets that evidence and is separate from Catalyst Verification and Research AI.</div>';
+  h += '</div>';
   h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.7rem">Tell it which coins to watch and it keeps a running timeline: what changed, when, and what it means. It analyses on <b>events</b> — a candle closing, the chart state flipping, a level breaking, conditions gained or lost — not continuously, because re-running the AI when nothing has changed costs quota to repeat itself.</div>';
   var opts = (allData||[]).slice().sort(function(a,b){ return (b.vol24||0)-(a.vol24||0); }).slice(0,80);
   h += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">';
@@ -8475,7 +8488,6 @@ function buildIntelAgentPanel(){ try { var el=document.getElementById('ip-agent'
 
 function buildResearchAgentPanel(){
   var hasKey = !!(localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key'));
-  var onchainKey = _onchainAIKey();
   var st = signalLogStats();
   var h = '<div style="background:linear-gradient(135deg,rgba(124,77,255,.10),rgba(124,77,255,.02));border:.5px solid rgba(124,77,255,.35);border-radius:var(--rad-lg);padding:1rem;margin-bottom:1rem">';
   h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:.4rem"><span style="font-size:16px">🔬</span><span style="font-size:13px;font-weight:800">Research Agent — ask anything about your market</span><span style="margin-left:auto;font-size:9px;color:var(--t3)">read-only · queries data in steps</span></div>';
@@ -8486,12 +8498,7 @@ function buildResearchAgentPanel(){
   h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:8px 10px;margin-bottom:8px">';
   h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">⛓ Multi-source On-chain Intelligence</b><span style="font-size:9px;color:var(--g)">data + dedicated AI</span></div>';
   h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.45">Raw evidence comes from Moralis + Alchemy + Blockscout + GeckoTerminal + free/public sources. A SEPARATE Gemini API key is used only to interpret on-chain data. It is not used for Catalyst Verification and does not share the catalyst/search key.</div>';
-  h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:5px;margin-top:7px">';
-  [['moralis','Moralis key'],['alchemy','Alchemy key'],['coinstats','CoinStats key'],['messari','Messari key'],['goldrush','Covalent / GoldRush key'],['stealthex','StealthEX key']].forEach(function(a){ var v=_provKey(a[0]); h += '<input type="password" value="'+_escProviderHtml(v)+'" placeholder="'+a[1]+' (optional)" onchange="_setProvKey(\''+a[0]+'\',this.value)" style="padding:6px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px">'; });
-  h += '</div><div style="display:grid;grid-template-columns:minmax(240px,1fr) 180px;gap:5px;margin-top:7px">';
-  h += '<input type="password" value="'+_escProviderHtml(onchainKey)+'" placeholder="Dedicated On-chain Gemini API key" onchange="_setOnchainAIKey(this.value)" style="padding:6px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px">';
-  h += '<input type="text" value="'+_escProviderHtml(_onchainAIModel())+'" placeholder="Gemini model" onchange="_setOnchainAIModel(this.value)" style="padding:6px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px">';
-  h += '</div><div style="font-size:8px;color:var(--am);margin-top:5px">Direct browser mode. The dedicated On-chain Gemini key is stored only in this browser and is completely separate from Catalyst Verification.</div></div>';
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:6px;line-height:1.45">On-chain provider keys are managed in the On-chain Intelligence section above. Research AI remains completely separate.</div></div>';
   h += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
   h += '<input id="agent-q" placeholder="e.g. best setups right now? / does my daily-trend gate help?" onkeydown="if(event.key===\'Enter\')runResearchAgent()" style="flex:1;min-width:200px;padding:8px 10px;border-radius:8px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:12px;font-family:inherit">';
   h += '<button onclick="runResearchAgent()" style="padding:8px 16px;border-radius:8px;border:none;background:#7c4dff;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px">Investigate</button></div>';
