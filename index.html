@@ -5345,7 +5345,7 @@ function renderAgent(){
   h += '</div>';
   h += '<div id="onchain-test-out"></div>';
   if(lastTest&&lastTest.ts) h += '<div style="font-size:8px;color:var(--t3);margin-top:5px">Last provider test: '+new Date(lastTest.ts).toLocaleString()+' · '+_escProviderHtml(lastTest.coin||'')+'</div>';
-  h += '<div style="font-size:8px;color:var(--am);margin-top:6px;line-height:1.45">Direct browser mode. Keys are stored locally in this browser and reused automatically after refresh. Moralis/Alchemy/CryptoQuant collect on-chain evidence; the dedicated Gemini key only interprets that evidence and remains separate from Catalyst Verification and Research AI.</div>';
+  h += '<div style="font-size:8px;color:var(--am);margin-top:6px;line-height:1.45">Direct browser mode. Keys are stored locally in this browser and reused automatically after refresh. CryptoQuant uses its documented api_key query form here to avoid GitHub Pages CORS preflight. Moralis/Alchemy/CryptoQuant collect on-chain evidence; the dedicated Gemini key only interprets that evidence and remains separate from Catalyst Verification and Research AI.</div>';
   h += '</div>';
   h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.7rem">Tell it which coins to watch and it keeps a running timeline: what changed, when, and what it means. It analyses on <b>events</b> — a candle closing, the chart state flipping, a level breaking, conditions gained or lost — not continuously, because re-running the AI when nothing has changed costs quota to repeat itself.</div>';
   var opts = (allData||[]).slice().sort(function(a,b){ return (b.vol24||0)-(a.vol24||0); }).slice(0,80);
@@ -8178,9 +8178,17 @@ function testOnchainAll(){
     } else add('Alchemy',null,'not configured');
 
     if(st.cryptoquant){
-      var cqUrl='https://api.cryptoquant.com/v1/btc/exchange-flows/netflow?exchange=binance&window=day&limit=1';
-      jobs.push(fetch(cqUrl,{headers:{'Authorization':'Bearer '+_provKey('cryptoquant'),'Accept':'application/json'},cache:'no-store'})
-        .then(function(r){return r.json().then(function(j){if(!r.ok || (j&&j.status&&j.status.code && Number(j.status.code)!==200)) throw new Error((j&&j.status&&j.status.message)||('HTTP '+r.status)); return j;});})
+      // Use CryptoQuant's documented api_key query-parameter form here.
+      // This avoids the browser CORS preflight triggered by the custom
+      // Authorization header when the screener is hosted on GitHub Pages.
+      var cqUrl='https://api.cryptoquant.com/v1/btc/exchange-flows/netflow?exchange=binance&window=day&limit=1&format=json&api_key='+encodeURIComponent(_provKey('cryptoquant'));
+      jobs.push(fetch(cqUrl,{headers:{'Accept':'application/json'},cache:'no-store'})
+        .then(function(r){return r.text().then(function(txt){
+          var j=null; try{j=txt?JSON.parse(txt):null;}catch(e){}
+          if(!r.ok || (j&&j.status&&j.status.code && Number(j.status.code)!==200)) throw new Error((j&&j.status&&j.status.message)||('HTTP '+r.status));
+          if(!j) throw new Error('Empty/non-JSON response');
+          return j;
+        });})
         .then(function(j){
           var row=j&&j.result&&Array.isArray(j.result.data)?j.result.data[0]:null;
           var val=row&&row.netflow_total!=null?Number(row.netflow_total).toLocaleString():'response received';
@@ -8375,9 +8383,17 @@ function _cryptoQuantEnrich(sym){
   // market-level on-chain context. For other coins we deliberately use BTC
   // context rather than pretending CryptoQuant provides coin-specific data.
   if(!asset) asset='btc';
-  var url='https://api.cryptoquant.com/v1/'+asset+'/exchange-flows/netflow?exchange=binance&window=day&limit=1';
-  return fetch(url,{headers:{'Authorization':'Bearer '+key,'Accept':'application/json'},cache:'no-store'})
-    .then(function(r){return r.json().then(function(j){if(!r.ok || (j&&j.status&&j.status.code && Number(j.status.code)!==200)) throw new Error((j&&j.status&&j.status.message)||('HTTP '+r.status)); return j;});})
+  // CryptoQuant documents both Bearer-header and api_key query-parameter
+  // authentication. For a direct browser app, prefer api_key in the URL so
+  // the GET does not trigger a CORS preflight for Authorization.
+  var url='https://api.cryptoquant.com/v1/'+asset+'/exchange-flows/netflow?exchange=binance&window=day&limit=1&format=json&api_key='+encodeURIComponent(key);
+  return fetch(url,{headers:{'Accept':'application/json'},cache:'no-store'})
+    .then(function(r){return r.text().then(function(txt){
+      var j=null; try{j=txt?JSON.parse(txt):null;}catch(e){}
+      if(!r.ok || (j&&j.status&&j.status.code && Number(j.status.code)!==200)) throw new Error((j&&j.status&&j.status.message)||('HTTP '+r.status));
+      if(!j) throw new Error('Empty/non-JSON response');
+      return j;
+    });})
     .then(function(j){
       var row=j&&j.result&&Array.isArray(j.result.data)?j.result.data[0]:null;
       if(!row) return null;
