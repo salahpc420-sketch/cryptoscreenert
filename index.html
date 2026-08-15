@@ -5321,10 +5321,10 @@ function renderAgent(){
      + '<span style="display:block;margin-top:2px">Separate from your analysis key and used only for this — so a large analysis payload can never hit the search limit.</span></div>';
   h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:8px 10px;margin-bottom:8px">';
   h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">⛓ Free On-chain Intelligence</b><span style="font-size:9px;color:var(--g)">No paid API required</span></div>';
-  h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.45">Combines CoinGecko keyless metadata + Blockscout community explorer data + GeckoTerminal keyless DEX data + optional Moralis/Alchemy/CryptoQuant evidence on demand. It measures holder concentration, recent transfers, labeled exchange flows and DEX buy/sell activity. Missing data is UNKNOWN, never zero activity.</div></div>';
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.45">Combines CoinGecko keyless metadata + Blockscout community explorer data + GeckoTerminal keyless DEX data + optional Moralis/Alchemy/CryptoQuant/CoinStats evidence on demand. It measures holder concentration, recent transfers, labeled exchange flows and DEX buy/sell activity. Missing data is UNKNOWN, never zero activity.</div></div>';
   // ── ON-CHAIN API / AI KEYS ── kept here so they are visible in the Agent Monitor itself.
   var ocKey = _onchainAIKey();
-  var mKey = _provKey('moralis'), aKey = _provKey('alchemy'), cqKey = _provKey('cryptoquant');
+  var mKey = _provKey('moralis'), aKey = _provKey('alchemy'), cqKey = _provKey('cryptoquant'), csKey = _provKey('coinstats');
   var ocSaved = _onchainSavedStatus();
   var lastTest=null; try{lastTest=JSON.parse(localStorage.getItem('onchain_provider_test')||'null');}catch(e){}
   h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:9px 10px;margin-bottom:8px">';
@@ -5333,6 +5333,7 @@ function renderAgent(){
   h += '<label style="font-size:9px;color:var(--t2)">🟠 Moralis API key <span style="color:'+(ocSaved.moralis?'var(--g)':'var(--t3)')+'">'+(ocSaved.moralis?'● saved':'○ not saved')+'</span><input id="onchain-moralis-key" type="password" value="'+_escProviderHtml(mKey)+'" placeholder="Enter Moralis API key" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"></label>';
   h += '<label style="font-size:9px;color:var(--t2)">🔷 Alchemy API key <span style="color:'+(ocSaved.alchemy?'var(--g)':'var(--t3)')+'">'+(ocSaved.alchemy?'● saved':'○ not saved')+'</span><input id="onchain-alchemy-key" type="password" value="'+_escProviderHtml(aKey)+'" placeholder="Enter Alchemy API key" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"></label>';
   h += '<label style="font-size:9px;color:var(--t2)">📊 CryptoQuant API key <span style="color:'+(ocSaved.cryptoquant?'var(--g)':'var(--t3)')+'">'+(ocSaved.cryptoquant?'● saved':'○ not saved')+'</span><input id="onchain-cryptoquant-key" type="password" value="'+_escProviderHtml(cqKey)+'" placeholder="Enter CryptoQuant API key" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"></label>';
+  h += '<label style="font-size:9px;color:var(--t2)">🟣 CoinStats API key <span style="color:'+(ocSaved.coinstats?'var(--g)':'var(--t3)')+'">'+(ocSaved.coinstats?'● saved':'○ not saved')+'</span><input id="onchain-coinstats-key" type="password" value="'+_escProviderHtml(csKey)+'" placeholder="Enter CoinStats API key" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"></label>'; 
   h += '</div>';
   h += '<div style="display:grid;grid-template-columns:minmax(240px,1fr) 180px;gap:7px;margin-top:7px">';
   h += '<label style="font-size:9px;color:var(--t2)">🧠 Dedicated On-chain Gemini API key <span style="color:'+(ocSaved.gemini?'var(--g)':'var(--t3)')+'">'+(ocSaved.gemini?'● saved':'○ not saved')+'</span><input id="onchain-gemini-key" type="password" value="'+_escProviderHtml(ocKey)+'" placeholder="Enter dedicated Gemini API key" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"></label>';
@@ -5341,11 +5342,11 @@ function renderAgent(){
   h += '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:7px">';
   h += '<button onclick="saveOnchainProviderKeys()" style="padding:7px 12px;border-radius:7px;border:none;background:var(--acc);color:#fff;font-weight:700;cursor:pointer;font-size:10px">💾 Save all keys</button>';
   h += '<button onclick="testOnchainAll()" style="padding:7px 12px;border-radius:7px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-weight:700;cursor:pointer;font-size:10px">🧪 Test all providers</button>';
-  h += '<span id="onchain-save-status" style="font-size:9px;color:var(--t3)">'+(ocSaved.moralis||ocSaved.alchemy||ocSaved.cryptoquant||ocSaved.gemini?'Saved locally in this browser':'Not saved yet')+'</span>';
+  h += '<span id="onchain-save-status" style="font-size:9px;color:var(--t3)">'+(ocSaved.moralis||ocSaved.alchemy||ocSaved.cryptoquant||ocSaved.coinstats||ocSaved.gemini?'Saved locally in this browser':'Not saved yet')+'</span>';
   h += '</div>';
   h += '<div id="onchain-test-out"></div>';
   if(lastTest&&lastTest.ts) h += '<div style="font-size:8px;color:var(--t3);margin-top:5px">Last provider test: '+new Date(lastTest.ts).toLocaleString()+' · '+_escProviderHtml(lastTest.coin||'')+'</div>';
-  h += '<div style="font-size:8px;color:var(--am);margin-top:6px;line-height:1.45">Direct browser mode. Keys are stored locally in this browser and reused automatically after refresh. CryptoQuant uses its documented api_key query form here to avoid GitHub Pages CORS preflight. Moralis/Alchemy/CryptoQuant collect on-chain evidence; the dedicated Gemini key only interprets that evidence and remains separate from Catalyst Verification and Research AI.</div>';
+  h += '<div style="font-size:8px;color:var(--am);margin-top:6px;line-height:1.45">Direct browser mode. Keys are stored locally in this browser and reused automatically after refresh. CryptoQuant uses its documented api_key query form here to avoid GitHub Pages CORS preflight. Moralis/Alchemy/CryptoQuant/CoinStats collect on-chain/market-risk evidence; the dedicated Gemini key only interprets that evidence and remains separate from Catalyst Verification and Research AI.</div>';
   h += '</div>';
   h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.7rem">Tell it which coins to watch and it keeps a running timeline: what changed, when, and what it means. It analyses on <b>events</b> — a candle closing, the chart state flipping, a level breaking, conditions gained or lost — not continuously, because re-running the AI when nothing has changed costs quota to repeat itself.</div>';
   var opts = (allData||[]).slice().sort(function(a,b){ return (b.vol24||0)-(a.vol24||0); }).slice(0,80);
@@ -8124,11 +8125,13 @@ function saveOnchainProviderKeys(){
     var m=document.getElementById('onchain-moralis-key');
     var a=document.getElementById('onchain-alchemy-key');
     var cq=document.getElementById('onchain-cryptoquant-key');
+    var cs=document.getElementById('onchain-coinstats-key');
     var g=document.getElementById('onchain-gemini-key');
     var model=document.getElementById('onchain-gemini-model');
     _setProvKey('moralis',m?m.value:'');
     _setProvKey('alchemy',a?a.value:'');
     _setProvKey('cryptoquant',cq?cq.value:'');
+    _setProvKey('coinstats',cs?cs.value:'');
     _setOnchainAIKey(g?g.value:'');
     _setOnchainAIModel(model?model.value:'gemini-2.5-flash');
     renderAgent();
@@ -8141,8 +8144,8 @@ function saveOnchainProviderKeys(){
 }
 
 function _onchainSavedStatus(){
-  var m=!!_provKey('moralis'), a=!!_provKey('alchemy'), cq=!!_provKey('cryptoquant'), g=!!_onchainAIKey();
-  return {moralis:m,alchemy:a,cryptoquant:cq,gemini:g};
+  var m=!!_provKey('moralis'), a=!!_provKey('alchemy'), cq=!!_provKey('cryptoquant'), cs=!!_provKey('coinstats'), g=!!_onchainAIKey();
+  return {moralis:m,alchemy:a,cryptoquant:cq,coinstats:cs,gemini:g};
 }
 
 // Real connection test. It uses a small known EVM token when the current coin
@@ -8206,6 +8209,17 @@ function testOnchainAll(){
         add('CryptoQuant',true,(x.mode==='direct'?'direct':'CORS fallback')+' · authenticated · BTC/Binance netflow '+val);
       }).catch(function(e){add('CryptoQuant',false,e.message||'request failed');}));
     } else add('CryptoQuant',null,'not configured');
+
+    if(st.coinstats){
+      var csKey=_provKey('coinstats');
+      jobs.push(_headerFetch('https://openapiv1.coinstats.app/coins?symbol='+encodeURIComponent(_freeSym(coin))+'&limit=1',{'X-API-KEY':csKey},10000)
+        .then(function(j){
+          var c=j&&j.result&&j.result[0];
+          if(!c) throw new Error('CoinStats returned no matching coin');
+          add('CoinStats',true,'authenticated · '+(c.name||coin)+' · price '+(_freeNum(c.price)!=null?Number(c.price).toLocaleString(undefined,{maximumFractionDigits:8}):'—'));
+        })
+        .catch(function(e){add('CoinStats',false,e.message||'request failed');}));
+    } else add('CoinStats',null,'not configured');
 
     if(st.gemini){
       var model=_onchainAIModel();
@@ -16585,6 +16599,7 @@ var NEWS_SOURCES = [
   { layer:'On-chain & crypto data', free:true, items:[
     { n:'Moralis', u:'https://moralis.io/', d:'OPTIONAL — ERC20 holders/entities, wallet and DeFi data; endpoint access depends on plan' },
     { n:'CryptoQuant', u:'https://cryptoquant.com/', d:'OPTIONAL — exchange-flow and on-chain metrics; API access depends on plan/access token' },
+    { n:'CoinStats', u:'https://coinstats.app/', d:'OPTIONAL — wallet, DeFi, token-risk and market enrichment; free API tier available' },
     { n:'CoinStats', u:'https://coinstats.app/', d:'FREE tier — market, wallet and DeFi enrichment' },
     { n:'CoinPaprika', u:'https://coinpaprika.com/', d:'FREE — market data and history' },
     { n:'Covalent / GoldRush', u:'https://goldrush.dev/', d:'FREE trial / optional key — multichain holders and blockchain data' },
