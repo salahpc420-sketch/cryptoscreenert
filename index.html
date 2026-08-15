@@ -8181,19 +8181,30 @@ function testOnchainAll(){
       // Use CryptoQuant's documented api_key query-parameter form here.
       // This avoids the browser CORS preflight triggered by the custom
       // Authorization header when the screener is hosted on GitHub Pages.
-      var cqUrl='https://api.cryptoquant.com/v1/btc/exchange-flows/netflow?exchange=binance&window=day&limit=1&format=json&api_key='+encodeURIComponent(_provKey('cryptoquant'));
-      jobs.push(fetch(cqUrl,{headers:{'Accept':'application/json'},cache:'no-store'})
-        .then(function(r){return r.text().then(function(txt){
-          var j=null; try{j=txt?JSON.parse(txt):null;}catch(e){}
-          if(!r.ok || (j&&j.status&&j.status.code && Number(j.status.code)!==200)) throw new Error((j&&j.status&&j.status.message)||('HTTP '+r.status));
-          if(!j) throw new Error('Empty/non-JSON response');
-          return j;
-        });})
-        .then(function(j){
-          var row=j&&j.result&&Array.isArray(j.result.data)?j.result.data[0]:null;
-          var val=row&&row.netflow_total!=null?Number(row.netflow_total).toLocaleString():'response received';
-          add('CryptoQuant',true,'authenticated · BTC/Binance netflow '+val);
-        }).catch(function(e){add('CryptoQuant',false,e.message||'request failed');}));
+      var cqTarget='https://api.cryptoquant.com/v1/btc/exchange-flows/netflow?exchange=binance&window=day&limit=1&format=json&api_key='+encodeURIComponent(_provKey('cryptoquant'));
+      // GitHub Pages is a browser-only deployment. CryptoQuant documents the
+      // api_key query form, but its API may still omit CORS response headers.
+      // Try direct first; if the browser blocks the response, automatically
+      // retry through the same public CORS fallback already used elsewhere.
+      function cqRead(url,mode){
+        return fetch(url,{headers:{'Accept':'application/json'},cache:'no-store'}).then(function(r){
+          return r.text().then(function(txt){
+            var j=null; try{j=txt?JSON.parse(txt):null;}catch(e){}
+            if(!r.ok || (j&&j.status&&j.status.code && Number(j.status.code)!==200)) throw new Error((j&&j.status&&j.status.message)||('HTTP '+r.status));
+            if(!j) throw new Error('Empty/non-JSON response');
+            return {j:j,mode:mode};
+          });
+        });
+      }
+      jobs.push(cqRead(cqTarget,'direct').catch(function(e){
+        return cqRead(withProxy(cqTarget,_proxyIdx),'CORS fallback').catch(function(e2){
+          throw new Error((e2&&e2.message)||((e&&e.message)||'request failed'));
+        });
+      }).then(function(x){
+        var j=x.j, row=j&&j.result&&Array.isArray(j.result.data)?j.result.data[0]:null;
+        var val=row&&row.netflow_total!=null?Number(row.netflow_total).toLocaleString():'response received';
+        add('CryptoQuant',true,(x.mode==='direct'?'direct':'CORS fallback')+' · authenticated · BTC/Binance netflow '+val);
+      }).catch(function(e){add('CryptoQuant',false,e.message||'request failed');}));
     } else add('CryptoQuant',null,'not configured');
 
     if(st.gemini){
@@ -8387,13 +8398,15 @@ function _cryptoQuantEnrich(sym){
   // authentication. For a direct browser app, prefer api_key in the URL so
   // the GET does not trigger a CORS preflight for Authorization.
   var url='https://api.cryptoquant.com/v1/'+asset+'/exchange-flows/netflow?exchange=binance&window=day&limit=1&format=json&api_key='+encodeURIComponent(key);
-  return fetch(url,{headers:{'Accept':'application/json'},cache:'no-store'})
-    .then(function(r){return r.text().then(function(txt){
+  function cqFetch(u){
+    return fetch(u,{headers:{'Accept':'application/json'},cache:'no-store'}).then(function(r){return r.text().then(function(txt){
       var j=null; try{j=txt?JSON.parse(txt):null;}catch(e){}
       if(!r.ok || (j&&j.status&&j.status.code && Number(j.status.code)!==200)) throw new Error((j&&j.status&&j.status.message)||('HTTP '+r.status));
       if(!j) throw new Error('Empty/non-JSON response');
       return j;
-    });})
+    });});
+  }
+  return cqFetch(url).catch(function(){ return cqFetch(withProxy(url,_proxyIdx)); })
     .then(function(j){
       var row=j&&j.result&&Array.isArray(j.result.data)?j.result.data[0]:null;
       if(!row) return null;
