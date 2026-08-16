@@ -3197,6 +3197,17 @@ function calcTrendQuality(c, e20, e50, e200) {
   }
   var slope = ssXX > 0 ? ssXY / ssXX : 0;
   var r2 = (ssXX > 0 && ssYY > 0) ? (ssXY * ssXY) / (ssXX * ssYY) : 0;
+
+  // Trend Quality is an UPTREND-ONLY metric. A clean downtrend can have a
+  // high R²/consistency, but that must never appear as high Trend Quality
+  // for a spot BUY setup. Require positive price slope + bullish short-term
+  // EMA alignment before awarding any Trend Quality points. Pullbacks below
+  // EMA20 are still allowed as long as EMA20 > EMA50 and the broader slope is up.
+  var uptrendEligible = slope > 0 && e20 > e50;
+  if (!uptrendEligible) {
+    return {score: 0, label: 'not-uptrend', dir: slope < 0 ? 'down' : 'flat', r2: r2, adx: 0, maxDD: 0, uptrendEligible: false};
+  }
+
   var linScore = r2 * 30; // 0..30
 
   // ── 2. Directional strength, ADX-style (25 pts) ────────────────────────────
@@ -3225,14 +3236,14 @@ function calcTrendQuality(c, e20, e50, e200) {
       if (dd2 > maxDD) maxDD = dd2;
     }
   }
-  // Shallow pullback (< 5%) = high score; deep (> 15%) = low
+  // Shallow pullback (< 5%) = high score; deep (> 15%) = low.
+  // This block is reached only for an eligible uptrend.
   var pbScore = maxDD < 0.05 ? 20 : maxDD < 0.08 ? 15 : maxDD < 0.12 ? 10 : maxDD < 0.18 ? 5 : 0;
 
-  // ── 4. EMA alignment (15 pts) — proper stacking ────────────────────────────
+  // ── 4. EMA alignment (15 pts) — bullish alignment only ────────────────────
   var emaScore = 0;
   if (e20 > e50 && e50 > e200) emaScore = 15;       // perfect bull stack
-  else if (e20 < e50 && e50 < e200) emaScore = 15;  // perfect bear stack (clean downtrend)
-  else if (e20 > e50 || e20 < e50) emaScore = 7;    // partial
+  else if (e20 > e50) emaScore = 7;                // bullish short-term stack
   // price respecting EMA20
   if ((slope >= 0 && price > e20) || (slope < 0 && price < e20)) emaScore = Math.min(15, emaScore + 3);
 
