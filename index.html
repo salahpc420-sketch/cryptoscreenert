@@ -4503,7 +4503,28 @@ function monitorOnchain(sym){
       h+='<div><b>💧 DEX liquidity / activity</b>';
       if(x.market.liquidity!=null) h+='<div style="font-size:9px;color:var(--t3)">Liquidity: $'+Number(x.market.liquidity).toLocaleString(undefined,{maximumFractionDigits:0})+'</div>';
       if(x.market.volume24h!=null) h+='<div style="font-size:9px;color:var(--t3)">DEX volume 24h: $'+Number(x.market.volume24h).toLocaleString(undefined,{maximumFractionDigits:0})+'</div>';
-      if(x.market.buys!=null||x.market.sells!=null) h+='<div style="font-size:9px;color:var(--t3)">Buys '+(x.market.buys||0)+' · sells '+(x.market.sells||0)+' · buy/sell ratio '+(x.market.buySellRatio!=null?Number(x.market.buySellRatio).toFixed(2):'—')+'</div>';
+      if(x.market.buys!=null||x.market.sells!=null) h+='<div style="font-size:9px;color:var(--t3)">24H pool stats: buys '+(x.market.buys!=null?x.market.buys:'—')+' · sells '+(x.market.sells!=null?x.market.sells:'—')+' · tx ratio '+(x.market.buySellRatio!=null?Number(x.market.buySellRatio).toFixed(2):'—')+'</div>';
+      if(x.market.flowWindows){
+        h+='<div style="margin-top:7px"><b>⏱ Time-windowed DEX flow</b>';
+        h+='<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-top:4px">';
+        ['1h','4h','1d'].forEach(function(k){
+          var o=x.market.flowWindows[k]||{}, rr=o.ratio, vr=o.volumeRatio;
+          var dir=rr==null?'UNKNOWN':(rr>=1.15?'BUYING':(rr<=0.87?'SELLING':'BALANCED'));
+          var dc=dir==='BUYING'?'var(--g)':dir==='SELLING'?'var(--r)':'var(--t3)';
+          function fr(v){return v==null?'—':(v===Infinity?'∞':Number(v).toFixed(2));}
+          function money(v){if(v==null)return '—'; var n=Number(v); if(n>=1000000)return '$'+(n/1000000).toFixed(2)+'M'; if(n>=1000)return '$'+(n/1000).toFixed(1)+'K'; return '$'+n.toFixed(0);}
+          h+='<div style="border:1px solid var(--line);border-radius:5px;padding:5px 6px;background:var(--card2)">';
+          h+='<div style="font-weight:700">'+k.toUpperCase()+' <span style="color:'+dc+';font-size:8px">'+dir+'</span></div>';
+          h+='<div style="font-size:8px;color:var(--t3)">Tx: '+(o.buys!=null?o.buys:'—')+' buy / '+(o.sells!=null?o.sells:'—')+' sell</div>';
+          h+='<div style="font-size:8px;color:var(--t3)">Vol: '+money(o.buyVolume)+' / '+money(o.sellVolume)+'</div>';
+          h+='<div style="font-size:8px;color:var(--t3)">Tx ratio '+fr(rr)+' · $ ratio '+fr(vr)+'</div>';
+          h+='</div>';
+        });
+        h+='</div>';
+        if(x.market.flowNote) h+='<div style="font-size:8px;color:var(--am);margin-top:4px">⚠ '+esc(x.market.flowNote)+'</div>';
+        h+='<div style="font-size:8px;color:var(--t3);margin-top:3px">1H/4H/1D are calculated from timestamped DEX trades. Missing data is UNKNOWN, not zero.</div>';
+        h+='</div>';
+      }
       h+='</div>';
     }
     if(x.holders){
@@ -8105,6 +8126,52 @@ function _freeTransfers(base,contract,price){
   });
 }
 
+function _freeDexTradesWindows(network,poolId){
+  if(!network||!poolId) return Promise.resolve(null);
+  var gt=FREE_GT_NETWORK[network]; if(!gt) return Promise.resolve(null);
+  // GeckoTerminal exposes the latest DEX trades for a pool. We fetch a few
+  // pages at most, then bucket the returned trades by age. This gives true
+  // 1H/4H/24H flow instead of reusing the pool's single 24H transaction count.
+  var first='https://api.geckoterminal.com/api/v2/networks/'+gt+'/pools/'+encodeURIComponent(poolId)+'/trades';
+  var all=[], seen={};
+  function page(url,depth){
+    if(depth>2 || !url) return Promise.resolve();
+    return _freeJson(url,10000).then(function(j){
+      var rows=j&&j.data||[];
+      rows.forEach(function(r){
+        var id=String(r&&r.id||'');
+        if(!id || !seen[id]){if(id)seen[id]=1; all.push(r);}
+      });
+      var next=j&&j.links&&j.links.next;
+      if(next && depth<2) return page(next,depth+1);
+    }).catch(function(){ return; });
+  }
+  return page(first,0).then(function(){
+    var now=Date.now(), wins=[{key:'1h',ms:3600000},{key:'4h',ms:14400000},{key:'1d',ms:86400000}], out={};
+    wins.forEach(function(w){out[w.key]={buys:0,sells:0,buyVolume:0,sellVolume:0,totalVolume:0,tradeCount:0,ratio:null,volumeRatio:null,oldestTs:null,newestTs:null};});
+    all.forEach(function(r){
+      var a=r&&r.attributes||{}, ts=Date.parse(a.block_timestamp||a.timestamp||'');
+      if(!ts || now-ts<0 || now-ts>86400000) return;
+      var kind=String(a.kind||'').toLowerCase(), usd=_freeNum(a.volume_in_usd);
+      if(usd==null) usd=0;
+      wins.forEach(function(w){
+        if(now-ts<=w.ms){
+          var o=out[w.key]; o.tradeCount++; o.totalVolume+=usd;
+          if(!o.oldestTs||ts<o.oldestTs)o.oldestTs=ts; if(!o.newestTs||ts>o.newestTs)o.newestTs=ts;
+          if(kind==='buy'){o.buys++;o.buyVolume+=usd;} else if(kind==='sell'){o.sells++;o.sellVolume+=usd;}
+        }
+      });
+    });
+    Object.keys(out).forEach(function(k){
+      var o=out[k];
+      o.ratio=(o.buys!=null&&o.sells!=null&&o.sells>0)?o.buys/o.sells:(o.buys>0?Infinity:null);
+      o.volumeRatio=(o.buyVolume!=null&&o.sellVolume>0)?o.buyVolume/o.sellVolume:(o.buyVolume>0?Infinity:null);
+      o.coverageHours=o.oldestTs?Math.max(0,(now-o.oldestTs)/3600000):0;
+    });
+    return {windows:out,tradesReturned:all.length,source:'GeckoTerminal recent pool trades',coverageHours:all.length?Math.max(0,(now-(Math.min.apply(null,all.map(function(r){var a=r&&r.attributes||{};return Date.parse(a.block_timestamp||a.timestamp||'')||now;}))))/3600000):0,limitNote:all.length>=300?'Recent-trade endpoint is capped/paginated; 24H may be incomplete for very active pools.':'24H trade sample fully covered by returned records.'};
+  });
+}
+
 function _freeDex(network,contract,sym){
   var gt=FREE_GT_NETWORK[network];
   var url=gt && contract ? 'https://api.geckoterminal.com/api/v2/networks/'+gt+'/tokens/'+encodeURIComponent(contract)+'/pools?include=base_token,quote_token,dex' :
@@ -8114,7 +8181,10 @@ function _freeDex(network,contract,sym){
     if(!arr.length) return null;
     arr.sort(function(a,b){return (_freeNum(b.attributes&&b.attributes.reserve_in_usd)||0)-(_freeNum(a.attributes&&a.attributes.reserve_in_usd)||0);});
     var p=arr[0].attributes||{}, tx=p.transactions&&p.transactions.h24||{}, vol=p.volume_usd&&p.volume_usd.h24, buys=_freeNum(tx.buys), sells=_freeNum(tx.sells);
-    return {liquidity:_freeNum(p.reserve_in_usd),volume24h:_freeNum(vol),buys:buys,sells:sells,buySellRatio:(buys!=null&&sells!=null)?buys/Math.max(1,sells):null,pool:p.name||arr[0].id};
+    var poolAddress=p.address||((arr[0].id||'').indexOf('_')>=0?(arr[0].id||'').split('_').slice(1).join('_'):(arr[0].id||''));
+    return _freeDexTradesWindows(network,poolAddress).then(function(flow){
+      return {liquidity:_freeNum(p.reserve_in_usd),volume24h:_freeNum(vol),buys:buys,sells:sells,buySellRatio:(buys!=null&&sells!=null)?buys/Math.max(1,sells):null,pool:p.name||arr[0].id,poolAddress:poolAddress,flowWindows:flow&&flow.windows||null,flowTradeCount:flow&&flow.tradesReturned||0,flowCoverageHours:flow&&flow.coverageHours||0,flowNote:flow&&flow.limitNote||''};
+    });
   }).catch(function(){return null;});
 }
 
@@ -8127,7 +8197,13 @@ function _freeBtcActivity(){
 }
 function _freeOnchainBias(x){
   var bull=0,bear=0,reasons=[];
-  if(x.market&&x.market.buys!=null&&x.market.sells!=null){ if(x.market.buys>x.market.sells*1.15){bull++;reasons.push('DEX buys exceed sells');} else if(x.market.sells>x.market.buys*1.15){bear++;reasons.push('DEX sells exceed buys');} }
+  if(x.market&&x.market.flowWindows){
+    var fw=x.market.flowWindows, f4=fw['4h'], f1=fw['1h'], fd=fw['1d'];
+    var flowVotes=0;
+    [f1,f4,fd].forEach(function(o){if(o&&o.volumeRatio!=null){if(o.volumeRatio>=1.15){bull++;flowVotes++;}else if(o.volumeRatio<=0.87){bear++;flowVotes++;}}else if(o&&o.ratio!=null){if(o.ratio>=1.15){bull++;flowVotes++;}else if(o.ratio<=0.87){bear++;flowVotes++;}}});
+    if(flowVotes===0 && x.market.buys!=null&&x.market.sells!=null){ if(x.market.buys>x.market.sells*1.15){bull++;reasons.push('DEX 24H buys exceed sells');} else if(x.market.sells>x.market.buys*1.15){bear++;reasons.push('DEX 24H sells exceed buys');} }
+    if(f4&&f4.volumeRatio!=null){if(f4.volumeRatio>=1.15) reasons.push('4H DEX flow is buying-dominant'); else if(f4.volumeRatio<=0.87) reasons.push('4H DEX flow is selling-dominant');}
+  } else if(x.market&&x.market.buys!=null&&x.market.sells!=null){ if(x.market.buys>x.market.sells*1.15){bull++;reasons.push('DEX buys exceed sells');} else if(x.market.sells>x.market.buys*1.15){bear++;reasons.push('DEX sells exceed buys');} }
   if(x.holders&&x.holders.top10Pct!=null){ if(x.holders.top10Pct<35){bull++;reasons.push('holder concentration is relatively distributed');} else if(x.holders.top10Pct>70){bear++;reasons.push('top-holder concentration is high');} }
   if(x.transfers&&((x.transfers.exchangeIn||0)+(x.transfers.exchangeOut||0)>0)){ var net=(x.transfers.exchangeOut||0)-(x.transfers.exchangeIn||0); if(net>0){bull++;reasons.push('labeled exchange flow is net outflow');} else if(net<0){bear++;reasons.push('labeled exchange flow is net inflow');} }
   if(bull>bear) return {bias:'BULLISH',biasReason:reasons.join('; ')};
