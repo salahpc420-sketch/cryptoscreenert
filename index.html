@@ -3667,6 +3667,7 @@ function loadAll() {
     try { checkChartStates(allData); } catch(e){}    // chart-state reads + BTC flip alert
     try { checkWatchers(allData); } catch(e){}       // user-defined coin watchers
     try { checkAIMemoAlerts(allData); } catch(e){}   // AI entry-zone watches
+    try { checkOnchainCatalystAlerts(allData); } catch(e){} // automatic on-chain + catalyst convergence
     try { resolveLatenessBlocks(allData); } catch(e){}   // grade the lateness guard
     checkPriceAlerts(allData);
     autoLogSignals(); // record any new signals on the ACTIVE timeframe
@@ -5410,6 +5411,15 @@ function renderAgent(){
   h += '<div id="onchain-test-out"></div>';
   if(lastTest&&lastTest.ts) h += '<div style="font-size:8px;color:var(--t3);margin-top:5px">Last provider test: '+new Date(lastTest.ts).toLocaleString()+' · '+_escProviderHtml(lastTest.coin||'')+'</div>';
   h += '<div style="font-size:8px;color:var(--am);margin-top:6px;line-height:1.45">Direct browser mode. Keys are stored locally in this browser and reused automatically after refresh. CryptoQuant uses its documented api_key query form here to avoid GitHub Pages CORS preflight. Moralis/Alchemy/CryptoQuant/CoinStats collect on-chain/market-risk evidence; the dedicated Gemini key only interprets that evidence and remains separate from Catalyst Verification and Research AI.</div>';
+  h += '</div>';
+  var _ocaOn = _onchainCatalystAlertsEnabled();
+  h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:9px 10px;margin-bottom:8px">';
+  h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">🔔 On-chain + Catalyst convergence alert</b><span style="font-size:9px;color:var(--g)">automatic</span></div>';
+  h += '<label style="display:flex;gap:7px;align-items:center;margin-top:7px;font-size:10px;color:var(--t2);cursor:pointer">';
+  h += '<input type="checkbox" '+(_ocaOn?'checked':'')+' onchange="toggleOnchainCatalystAlerts(this.checked)" style="cursor:pointer">';
+  h += '<span><b>Notify me only when BOTH are bullish</b> — on-chain bias + Catalyst checklist</span></label>';
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.45">Checks watched coins automatically about every 5 minutes. Catalyst is scored from the existing unlock, BTC-strength and volume checklist; no extra AI call is required. Browser notification permission must be enabled.</div>';
+  h += '<div id="onchain-cat-alert-status" style="font-size:9px;color:var(--t3);margin-top:5px">'+(_ocaOn?'🟢 Armed — waiting for on-chain + catalyst convergence':'⚪ Off')+'</div>';
   h += '</div>';
   h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.7rem">Tell it which coins to watch and it keeps a running timeline: what changed, when, and what it means. It analyses on <b>events</b> — a candle closing, the chart state flipping, a level breaking, conditions gained or lost — not continuously, because re-running the AI when nothing has changed costs quota to repeat itself.</div>';
   var opts = (allData||[]).slice().sort(function(a,b){ return (b.vol24||0)-(a.vol24||0); }).slice(0,80);
@@ -10845,6 +10855,95 @@ function _evalMemoConditions(memo, d, which){
   }).filter(Boolean);
   var metN = items.filter(function(x){ return x.met; }).length;
   return { items: items, met: metN, total: items.length, allMet: metN === items.length };
+}
+
+
+// ── ON-CHAIN + CATALYST CONVERGENCE ALERT ────────────────────────────────────
+// This is deliberately separate from Catalyst Verification and from AI entry
+// memos. It is a deterministic alert: it fires only when fresh on-chain data
+// says BULLISH and the existing 3-item Catalyst checklist is bullish. No
+// probability is invented and no trade is logged automatically.
+function _onchainCatalystAlertsEnabled(){
+  try{return localStorage.getItem('onchain_catalyst_alerts')==='1';}catch(e){return false;}
+}
+function toggleOnchainCatalystAlerts(on){
+  try{
+    if(on){
+      localStorage.setItem('onchain_catalyst_alerts','1');
+      if('Notification' in window && Notification.permission==='default') Notification.requestPermission();
+    } else localStorage.removeItem('onchain_catalyst_alerts');
+  }catch(e){}
+  try{ renderAgent(); }catch(e){}
+}
+function _onchainCatalystState(d){
+  if(!d) return {bullish:false,score:0,total:3,reasons:['No coin data']};
+  var score=0, reasons=[], hardBad=false;
+  // 1) Unlock: no upcoming unlock is bullish; >=5% of mcap is a hard veto.
+  if(!d.unlock){ score++; reasons.push('no unlock in the tracked window'); }
+  else {
+    var sz=_freeNum(d.unlock.pctMcap!=null?d.unlock.pctMcap:d.unlock.pctSupply);
+    if(sz!=null && sz>=5){ hardBad=true; reasons.push('large unlock '+sz.toFixed(1)+'%'); }
+    else if(sz!=null && sz<3){ score++; reasons.push('small/controlled unlock'); }
+    else reasons.push('meaningful unlock');
+  }
+  // 2) Relative strength: the checklist's own definition of good is capture <50%.
+  if(d.resil){
+    var cap=_freeNum(d.resil.capture);
+    if(cap!=null && cap<50){ score++; reasons.push('strong BTC-relative resilience'); }
+    else if(cap!=null && cap>100){ reasons.push('weak BTC-relative resilience'); }
+    else reasons.push('BTC-relative resilience neutral');
+  }
+  // 3) Abnormal volume >=2σ is treated as caution, not bullish confirmation.
+  if(d.volZ==null || d.volZ<2){ score++; reasons.push(d.volZ==null?'volume normality unavailable':'volume not abnormally high'); }
+  else reasons.push('abnormally high volume');
+  return {bullish:!hardBad && score>=2, score:score,total:3,hardBad:hardBad,reasons:reasons};
+}
+function _convergenceState(){
+  try{return JSON.parse(localStorage.getItem('onchain_catalyst_alert_state')||'{}')||{};}catch(e){return {};}
+}
+function _saveConvergenceState(x){try{localStorage.setItem('onchain_catalyst_alert_state',JSON.stringify(x));}catch(e){}}
+var _onchainCatLastRun=0, _onchainCatRunning=false;
+function checkOnchainCatalystAlerts(data){
+  if(!_onchainCatalystAlertsEnabled() || _onchainCatRunning) return;
+  var now=Date.now();
+  // _agentOnchain itself caches each coin for 5 minutes. Match that cadence so
+  // this background feature does not hammer the providers on every market tick.
+  if(now-_onchainCatLastRun<300000) return;
+  _onchainCatLastRun=now;
+  var mons=loadMonitors();
+  if(!mons.length) return;
+  _onchainCatRunning=true;
+  var state=_convergenceState(), changed=false;
+  var jobs=mons.slice(0,6).map(function(mon){
+    var d=(data||[]).find(function(x){return x.sym===mon.sym;});
+    if(!d) return Promise.resolve();
+    var cat=_onchainCatalystState(d);
+    return _agentOnchain({sym:d.pair||d.sym,price:d.price}).then(function(oc){
+      var key=mon.sym, st=state[key]||{};
+      var both=oc && oc.bias==='BULLISH' && cat.bullish;
+      if(both){
+        // One alert per coin per 12 hours. If the state breaks, it can arm again.
+        var fresh=!st.lastAlert || now-st.lastAlert>=12*3600000;
+        if(fresh){
+          st.lastAlert=now; st.active=true; changed=true;
+          var msg='🚨 '+d.pair+' — ON-CHAIN + CATALYST BULLISH\n'
+            +'On-chain: BULLISH. Catalyst: '+cat.score+'/'+cat.total+' bullish.\n'
+            +cat.reasons.join(' · ');
+          try{showToast(d,'strong',msg);}catch(e){}
+          try{addAlHistory(d,'onchain_catalyst_convergence',msg);}catch(e){}
+          try{sendBrowserNotif(d,msg);}catch(e){}
+          if(typeof sndOn!=='undefined'&&sndOn){try{playSound('strong');}catch(e){}}
+        }
+      } else if(st.active){
+        st.active=false; changed=true;
+      }
+      st.lastBias=oc&&oc.bias||'UNKNOWN'; st.catScore=cat.score; st.catBullish=cat.bullish; st.checkedAt=now; state[key]=st;
+      changed=true;
+    }).catch(function(e){
+      var st=state[mon.sym]||{}; st.checkedAt=now; st.lastError=String(e.message||e); state[mon.sym]=st; changed=true;
+    });
+  });
+  Promise.all(jobs).then(function(){if(changed)_saveConvergenceState(state);}).finally(function(){_onchainCatRunning=false;});
 }
 
 function checkAIMemoAlerts(data){
