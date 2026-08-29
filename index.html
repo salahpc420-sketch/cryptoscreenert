@@ -1124,6 +1124,11 @@ var CONFIG = {
   MIN_DIST_RESISTANCE: 3.0, // require ≥this % room to nearest resistance
   REQUIRE_ROOM: true,       // ON by default — backtest: 61%→65% WR by skipping signals jammed under resistance
   STRONG_BTC_GATE: 62,      // for "high-conviction" tagging when BTC ≥ this
+  CHART_RISK_PCT: 1.0,      // professional default: maximum portfolio risk per spot idea
+  MAX_SPOT_ALLOC_PCT: 10,   // hard concentration cap used by every chart plan
+  CHART_VOL_CONFIRM: 1.2,   // minimum relative volume for a confirmed chart trigger
+  CHART_MIN_NET_RR: 1.5,    // minimum TP1 R:R after estimated round-trip costs
+  CHART_COST_PCT: 0.20,     // conservative fees + slippage allowance
   // Data / network
   RATE_MAX: 10,              // max API requests per second per host
   CONCURRENCY: 14,           // parallel kline fetches on load
@@ -1777,7 +1782,7 @@ function _screenToData(x, y){
 function toggleDrawMode(){
   chartState.drawMode = !chartState.drawMode;
   chartState.drawPending = null;
-  var b = document.getElementById('draw-btn');
+  var b = document.getElementById(chartState.fullscreen ? 'draw-btn-fs' : 'draw-btn');
   if(b){ b.style.background = chartState.drawMode ? 'var(--acc)' : 'transparent';
          b.style.color = chartState.drawMode ? '#fff' : 'var(--t2)'; }
   var cv = document.getElementById(chartState.fullscreen ? 'chart-canvas-fs' : 'chart-canvas');
@@ -2653,6 +2658,9 @@ function processSymbol(ticker, btcClosesOverride) {
     var relStr = calcRelStrength(c, btcClosesForCalc);
     var accum  = calcAccumulation(h, l, c, v, relStr, e20, e50);
     var trendQ = calcTrendQuality(c, e20, e50, e200);
+    var wyckoff = calcWyckoff(h, l, c, v, atr, trend);
+    var wyckoffBullConfirm = !!wyckoff.bullConfirm;
+    var wyckoffBearBlock = !!wyckoff.bearBlock;
 
     // TREND × ACCUMULATION CONFLUENCE
     // Trend Quality gets the stronger implicit weight because the research audit
@@ -2742,7 +2750,7 @@ function processSymbol(ticker, btcClosesOverride) {
     // Treat both metrics as one confirmation family. A setup cannot become a
     // full BUY while trend and accumulation disagree.
     var buyOK = (breakoutBuy || pullbackBuy) && trendAccumAligned;
-    var buySignal = (buyOK || (sweepBuy && trendAccumAligned)) && !exhausted;
+    var buySignal = (buyOK || (sweepBuy && trendAccumAligned)) && !exhausted && !wyckoffBearBlock;
 
     // FIX B — REWARD:RISK GATE. Use the last CLOSED candle as the signal
     // reference so live ticker movement cannot change a signal intrabar.
@@ -2765,7 +2773,8 @@ function processSymbol(ticker, btcClosesOverride) {
                  && (liq === 'buy_sweep' || volR > 3)
                  && (st === 'breakout' || st === 'HH/HL')
                  && hasMomentum && notOverExtended
-                 && rsiRising && volBullish && strongClose; // all accuracy filters for strong
+                 && rsiRising && volBullish && strongClose
+                 && !wyckoffBearBlock; // confirmed Phase D/E weakness blocks spot buys
 
     var sellSignal = liq === 'sell_sweep' && volR > 1.2;
 
@@ -2780,6 +2789,7 @@ function processSymbol(ticker, btcClosesOverride) {
     var btcMacroOK = isBTC || !BTC_FILTER_ENABLED || (btcStateOK && (btcTrendScore === 0 || btcTrendScore >= BTC_FILTER_THRESHOLD));
     var buyConfirmed = hasBuyCondition && rsi >= 38 && rsi <= 76 && trend !== 'down' && btcMacroOK
                        && trendAccumAligned // NEW: trend + accumulation must agree
+                       && !wyckoffBearBlock // SOW/LPSY Phase D/E = no new spot long
                        && rrOK            // FIX B: reward must be ≥1.5× risk
                        && !exhausted;     // FIX C: not parabolic/exhausted
 
@@ -2805,21 +2815,23 @@ function processSymbol(ticker, btcClosesOverride) {
         notExh:   !exhausted,                             // not parabolic
         room:     distToRes >= CONFIG.MIN_DIST_RESISTANCE,// room to resistance
         macro:    btcMacroOK,                             // BTC backdrop ok
-        conf:     confCount >= 3                          // 3+ confirmation filters
+        conf:     confCount >= 3,                         // 3+ confirmation filters
+        wyckoff:  !wyckoffBearBlock                       // confirmed distribution blocks
       };
-      var passed = (gates.rr?1:0)+(gates.notExh?1:0)+(gates.room?1:0)+(gates.macro?1:0)+(gates.conf?1:0);
+      var passed = (gates.rr?1:0)+(gates.notExh?1:0)+(gates.room?1:0)+(gates.macro?1:0)+(gates.conf?1:0)+(gates.wyckoff?1:0);
       if(!gates.rr) failedGates.push('R:R below 1.5');
       if(!gates.notExh) failedGates.push('looks extended');
       if(!gates.room) failedGates.push('tight to resistance');
       if(!gates.macro) failedGates.push('weak BTC backdrop');
       if(!gates.conf) failedGates.push('only '+confCount+'/4 confirmations');
+      if(!gates.wyckoff) failedGates.push('Wyckoff '+wyckoff.event+' confirms distribution');
 
       // A: everything passes AND it's a premium setup (pullback or strong, good R:R)
-      if (passed === 5 && (pullbackBuy || strongBuy) && rrRatio >= 2) buyTier = 'A';
-      // B: all 5 gates pass (solid, tradeable now)
-      else if (passed === 5) buyTier = 'B';
+      if (passed === 6 && (pullbackBuy || strongBuy || wyckoffBullConfirm) && rrRatio >= 2) buyTier = 'A';
+      // B: all 6 gates pass (solid, tradeable now)
+      else if (passed === 6) buyTier = 'B';
       // C: fails exactly ONE gate — a "watch" setup, shown but flagged
-      else if (passed === 4) buyTier = 'C';
+      else if (passed === 5) buyTier = 'C';
       // fails 2+ gates → not shown as a signal (too compromised)
     }
     var buyTierFails = failedGates;
@@ -2950,6 +2962,7 @@ function processSymbol(ticker, btcClosesOverride) {
       confCount:confCount, rsiRising:rsiRising, aboveEMA200:aboveEMA200, aboveEMA50:aboveEMA50, regimeTrendOK:regimeTrendOK, btcBull:btcBull, volBullish:volBullish, strongClose:strongClose,
       pullbackBuy:pullbackBuy, breakoutBuy:breakoutBuy, exhausted:exhausted, rrRatio:rrRatio, rrRisk:rrRisk, rrReward:rrReward, rrOK:rrOK, gain5:gain5,
       buyTier:buyTier, buyTierFails:buyTierFails,
+      wyckoff:wyckoff, wyckoffBullConfirm:wyckoffBullConfirm, wyckoffBearBlock:wyckoffBearBlock,
       smc:smc,
       breakout:breakout, emaRetest:emaRetest, pumpDump:pumpDump,
       relStr:relStr, resil:resil, dbeta:dbeta, accum:accum, rsRank:null, opportunity:0,
@@ -3176,6 +3189,164 @@ function calcAccumulation(h, l, c, v, rs, e20, e50) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// WYCKOFF SPOT ENGINE — closed candles, event order, ATR-normalized levels
+// This is deliberately conservative. A quiet range is NOT automatically
+// accumulation, a Spring is watch-only, and only Phase D/E SOS→LPS can confirm
+// a trend-following spot entry. Confirmed SOW/LPSY blocks new spot buys.
+// ═══════════════════════════════════════════════════════════════════════════
+function calcWyckoff(h, l, c, v, atr, trend) {
+  var none = {type:'none', phase:'—', event:'NONE', eventLabel:'No reliable structure',
+    confidence:0, bias:'neutral', rangeLow:null, rangeHigh:null, rangeStart:null,
+    rangeEnd:null, events:[], bullConfirm:false, bearBlock:false, watchOnly:false,
+    reason:'No established trading range with an ordered Wyckoff event sequence.'};
+  var n = c.length;
+  if(n < 55 || !(atr > 0)) return none;
+
+  function avg(a){ return a.length ? a.reduce(function(x,y){return x+y;},0)/a.length : 0; }
+  function pct(a, q){
+    if(!a.length) return null;
+    var s=a.slice().sort(function(x,y){return x-y;});
+    return s[Math.max(0,Math.min(s.length-1,Math.round((s.length-1)*q)))];
+  }
+  function volRatio(i){
+    var a=v.slice(Math.max(0,i-25),i).filter(function(x){return x>0;});
+    var m=avg(a); return m>0?v[i]/m:1;
+  }
+  function spreadATR(i){ return atr>0?(h[i]-l[i])/atr:0; }
+  function closeLoc(i){ var r=h[i]-l[i]; return r>0?(c[i]-l[i])/r:0.5; }
+
+  // Keep the most recent 12 bars outside the range-building sample. They are
+  // where a Spring/UTAD, SOS/SOW, or LPS/LPSY must prove itself.
+  var eventBars = 12, baseEnd = n-eventBars-1;
+  if(baseEnd < 35) return none;
+  var best=null;
+  [24,30,36,42,50,60].forEach(function(w){
+    var s=baseEnd-w+1; if(s<5) return;
+    var hs=h.slice(s,baseEnd+1), ls=l.slice(s,baseEnd+1);
+    var hi=pct(hs,.90), lo=pct(ls,.10); if(!(hi>lo)) return;
+    var heightATR=(hi-lo)/atr, heightPct=(hi-lo)/Math.max(1e-9,(hi+lo)/2)*100;
+    if(heightATR<2 || heightATR>14 || heightPct>32) return;
+    var tol=Math.max(atr*.45,(hi-lo)*.055), topT=0, botT=0;
+    for(var i=s;i<=baseEnd;i++){
+      if(Math.abs(h[i]-hi)<=tol) topT++;
+      if(Math.abs(l[i]-lo)<=tol) botT++;
+    }
+    if(topT<2 || botT<2) return;
+    var mid=Math.floor(w/2);
+    var m1=avg(c.slice(s,s+mid)), m2=avg(c.slice(s+mid,baseEnd+1));
+    var drift=Math.abs(m2-m1)/Math.max(1e-9,(hi-lo));
+    var score=(topT+botT)*3 + Math.min(18,w*.3) - drift*12 - Math.abs(heightATR-7);
+    if(!best || score>best.score) best={start:s,end:baseEnd,hi:hi,lo:lo,
+      topTouches:topT,bottomTouches:botT,heightATR:heightATR,score:score,tol:tol};
+  });
+  if(!best) return none;
+
+  var hi=best.hi, lo=best.lo, tol=best.tol;
+  var preStart=Math.max(0,best.start-20), preBase=c[preStart]||c[best.start];
+  var preRet=preBase>0?(c[best.start]-preBase)/preBase*100:0;
+  var events=[];
+  function add(code,index,price,side,label){
+    if(index==null || index<0) return;
+    if(events.some(function(e){return e.code===code&&e.index===index;})) return;
+    events.push({code:code,index:index,price:price,side:side,label:label});
+  }
+
+  // Phase A clue: the strongest wide/high-volume rejection inside the range.
+  var sc=null,bc=null;
+  for(var i=best.start;i<=best.end;i++){
+    var vr=volRatio(i), sp=spreadATR(i), loc=closeLoc(i);
+    var nearLow=l[i]<=lo+tol, nearHigh=h[i]>=hi-tol;
+    var effort=vr*sp;
+    if(nearLow && vr>=1.5 && sp>=1.2 && loc>.35 && (!sc||effort>sc.effort)) sc={i:i,effort:effort};
+    if(nearHigh&& vr>=1.5 && sp>=1.2 && loc<.65 && (!bc||effort>bc.effort)) bc={i:i,effort:effort};
+  }
+  if(sc) add('SC',sc.i,l[sc.i],'bull','Selling Climax');
+  if(bc) add('BC',bc.i,h[bc.i],'bear','Buying Climax');
+
+  var spring=null,utad=null,sos=null,sow=null,test=null,lps=null,lpsy=null;
+  var scanStart=Math.max(best.start,best.end-8);
+  for(var j=scanStart;j<n;j++){
+    var vrj=volRatio(j), spj=spreadATR(j), locj=closeLoc(j);
+    if(l[j] < lo-atr*.05 && l[j] > lo-atr*1.25 && c[j] > lo && locj>.45)
+      spring={i:j,vr:vrj};
+    if(h[j] > hi+atr*.05 && h[j] < hi+atr*1.25 && c[j] < hi && locj<.55)
+      utad={i:j,vr:vrj};
+    if(c[j] > hi+atr*.15 && spj>=.8 && vrj>=1.2 && locj>.60)
+      sos={i:j,vr:vrj};
+    if(c[j] < lo-atr*.15 && spj>=.8 && vrj>=1.2 && locj<.40)
+      sow={i:j,vr:vrj};
+  }
+  if(spring){
+    for(var k=spring.i+1;k<Math.min(n,spring.i+9);k++){
+      if(l[k]>l[spring.i] && l[k]<=lo+tol && c[k]>=lo && spreadATR(k)<1.15 && volRatio(k)<Math.max(1,spring.vr*.8)) test={i:k};
+    }
+  }
+  if(sos){
+    for(var k2=sos.i+1;k2<n;k2++){
+      if(l[k2]<=hi+tol && l[k2]>=hi-atr*.75 && c[k2]>hi && spreadATR(k2)<1.3 && volRatio(k2)<1.25) lps={i:k2};
+    }
+  }
+  if(sow){
+    for(var k3=sow.i+1;k3<n;k3++){
+      if(h[k3]>=lo-tol && h[k3]<=lo+atr*.75 && c[k3]<lo && spreadATR(k3)<1.3 && volRatio(k3)<1.25) lpsy={i:k3};
+    }
+  }
+  if(spring) add('SPRING',spring.i,l[spring.i],'bull','Spring — watch only');
+  if(test)   add('TEST',test.i,l[test.i],'bull','Spring Test');
+  if(utad)   add('UTAD',utad.i,h[utad.i],'bear','Upthrust After Distribution');
+  if(sos)    add('SOS',sos.i,c[sos.i],'bull','Sign of Strength');
+  if(sow)    add('SOW',sow.i,c[sow.i],'bear','Sign of Weakness');
+  if(lps)    add('LPS',lps.i,l[lps.i],'bull','Last Point of Support');
+  if(lpsy)   add('LPSY',lpsy.i,h[lpsy.i],'bear','Last Point of Supply');
+  events.sort(function(a,b){return a.index-b.index;});
+
+  var last=events.length?events[events.length-1]:null;
+  var bullSeq=!!(lps || sos || test || spring), bearSeq=!!(lpsy || sow || utad);
+  var type='none', bias='neutral';
+  if(bearSeq && (!bullSeq || (last&&last.side==='bear'))){
+    type=(trend==='down'||preRet<0)?'redistribution':'distribution'; bias='bearish';
+  } else if(bullSeq){
+    type=(trend==='up'||preRet>0)?'reaccumulation':'accumulation'; bias='bullish';
+  } else if(preRet>5 || trend==='up') type='reaccumulation';
+  else if(preRet<-5 || trend==='down') type='accumulation';
+
+  var phase='B';
+  if(last && (last.code==='SPRING'||last.code==='TEST'||last.code==='UTAD')) phase='C';
+  if(last && ['SOS','SOW','LPS','LPSY'].indexOf(last.code)>=0) phase='D';
+  var aboveCount=0,belowCount=0;
+  for(var z=Math.max(0,n-3);z<n;z++){if(c[z]>hi)aboveCount++;if(c[z]<lo)belowCount++;}
+  if((bias==='bullish'&&aboveCount>=2)||(bias==='bearish'&&belowCount>=2)) phase='E';
+  if(!last && (sc||bc)) phase='B';
+
+  var conf=20;
+  conf+=Math.min(20,(best.topTouches+best.bottomTouches)*2);
+  conf+=events.length>=2?12:events.length?6:0;
+  if((sos&&lps)||(sow&&lpsy)||(spring&&test)) conf+=22;
+  else if(sos||sow) conf+=15;
+  else if(spring||utad) conf+=8;
+  if((type==='reaccumulation'&&trend==='up')||(type==='redistribution'&&trend==='down')) conf+=12;
+  if((bias==='bullish'&&last&&last.side==='bull')||(bias==='bearish'&&last&&last.side==='bear')) conf+=8;
+  conf=Math.max(0,Math.min(100,Math.round(conf)));
+  var event=last?last.code:'RANGE';
+  var eventLabel=last?last.label:'Trading range — direction unconfirmed';
+  var bullConfirm=(type==='accumulation'||type==='reaccumulation') && (phase==='D'||phase==='E') &&
+    (event==='SOS'||event==='LPS') && conf>=65;
+  var bearBlock=(type==='distribution'||type==='redistribution') && (phase==='D'||phase==='E') &&
+    (event==='SOW'||event==='LPSY') && conf>=65;
+  var watchOnly=(event==='SPRING'||event==='TEST'||event==='UTAD'||event==='RANGE');
+  var reason=bullConfirm ? 'Phase '+phase+' '+event+' confirms strength; favor the held retest, not the first breakout.'
+    : bearBlock ? 'Phase '+phase+' '+event+' confirms weakness; block new spot buys.'
+    : event==='SPRING' ? 'Spring detected, but it is watch-only until a lower-volume Test and SOS.'
+    : event==='TEST' ? 'Spring Test passed, but it remains watch-only until a closed-candle SOS.'
+    : event==='UTAD' ? 'UTAD warning; require a later SOW before treating distribution as confirmed.'
+    : 'Range/event sequence is incomplete; do not force a Wyckoff label.';
+  return {type:type,phase:phase,event:event,eventLabel:eventLabel,confidence:conf,bias:bias,
+    rangeLow:lo,rangeHigh:hi,rangeStart:best.start,rangeEnd:best.end,events:events,
+    bullConfirm:bullConfirm,bearBlock:bearBlock,watchOnly:watchOnly,reason:reason,
+    topTouches:best.topTouches,bottomTouches:best.bottomTouches,heightATR:best.heightATR};
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // TREND QUALITY SCORE (0-100) — how CLEAN is the trend, not just direction
 // Combines: linearity (R²), directional strength (ADX-style), pullback shallowness,
 // EMA alignment, and consistency. A smooth steady climb scores high; choppy whipsaw low.
@@ -3305,6 +3476,9 @@ function calcOpportunity(d) {
   // Small confirmation bonus: confluence should support, not dominate, the score.
   if (d.trendAccumStrong) s += 4;
   else if (d.trendAccumAligned) s += 2;
+  // Wyckoff is a confirmation/blocking layer, never a standalone prediction.
+  if (d.wyckoffBullConfirm) s += 5;       // Phase D/E SOS or LPS
+  if (d.wyckoffBearBlock) s -= 15;        // confirmed SOW/LPSY distribution
   return Math.max(0, Math.min(100, Math.round(s)));
 }
 
@@ -4608,7 +4782,8 @@ function monitorAnalyse(sym, why){
     + 'VERDICT: BUY ZONE / WAIT / NO SETUP.\n\n'
     + 'If BUY ZONE:\nENTRY: a price range anchored to a named level.\nSTOP: below entry, outside the noise band, at genuine invalidation.\nTARGETS: T1 and T2 at named levels, each with its R multiple.\nCASE AGAINST: the strongest reason this fails.\n\n'
     + 'If WAIT or NO SETUP:\nWHAT WOULD CHANGE IT: be precise and CHECKABLE. Name the price and the condition — for example "a 4h close above 0.7160 with volume above 1.5x" — never a vague state change. Do NOT list a condition that is already true; check the supplied market data first, and if a condition you were about to name is already satisfied, say so and move to the next one that is not.\n\n'
-    + 'End with LEVELS_JSON on its own line containing only the numbers you named, or {} if there is no setup: {"entry":[lo,hi],"sl":x,"tp1":y,"tp2":z}';
+    + 'End with LEVELS_JSON on its own line containing only the numbers you named, or {} if there is no setup: {"entry":[lo,hi],"sl":x,"tp1":y,"tp2":z}'
+    + WYCKOFF_SPOT_AI_RULES;
 
   var _lvl = function(v){ return (v!=null && isFinite(v)) ? fE(v) : 'n/a'; };
   var usr = 'COIN: ' + d.pair + ' on ' + (mon.tf||TF) + '\n'
@@ -4630,6 +4805,7 @@ function monitorAnalyse(sym, why){
     + (d.earlyState ? '  Early Watch: ' + d.earlyState + (d.earlyBars ? ' (based ' + d.earlyBars + ' bars)' : '') + '\n' : '')
     + (d.resil ? '  on BTC down-bars this coin absorbed ' + Math.round(d.resil.capture*100) + '% of the fall\n' : '')
     + (d.earlyDna ? '  DNA: ' + d.earlyDna + (d.earlyGiveback!=null ? ' (' + d.earlyGiveback + '% average giveback after spikes)' : '') + '\n' : '')
+    + (d.wyckoff ? '  Wyckoff: ' + d.wyckoff.type + ' · phase ' + d.wyckoff.phase + ' · event ' + d.wyckoff.eventLabel + ' · confidence ' + d.wyckoff.confidence + '% · ' + d.wyckoff.reason + '\n' : '')
     + '\nMARKET RIGHT NOW (this is current — do not describe these as things that still need to happen)\n'
     + '  regime: ' + (_regime?_regime.mode.toUpperCase():'n/a')
     + (_regime && _regime.mode==='altseason' ? '  ← risk-on, alt entries are permitted' :
@@ -4658,7 +4834,7 @@ function monitorAnalyse(sym, why){
       var lm = String(txt||'').match(/LEVELS_JSON[\s:*#]*(\{[\s\S]*?\})/i);
       if(lm){
         var lv = JSON.parse(lm[1]);
-        if(lv && (lv.entry || lv.sl)){
+        if(lv && (lv.entry || lv.sl) && !d.wyckoffBearBlock && !(d.wyckoff && d.wyckoff.watchOnly)){
           saveAIMemo(sym, { planA: lv.entry, sl: lv.sl, tp1: lv.tp1, tp2: lv.tp2 },
                      String(txt||''));
         }
@@ -5014,6 +5190,10 @@ function _taTrigger(d){
 
 function _catalystVeto(d){
   var vetoes = [], notes = [];
+  if(d.wyckoffBearBlock)
+    vetoes.push('Wyckoff ' + ((d.wyckoff&&d.wyckoff.eventLabel)||'SOW/LPSY') + ' in Phase ' + ((d.wyckoff&&d.wyckoff.phase)||'D') + ' — distribution structure blocks new spot buys');
+  else if(d.wyckoff && d.wyckoff.watchOnly)
+    vetoes.push('Wyckoff ' + d.wyckoff.eventLabel + ' is watch-only — wait for closed-candle SOS/LPS confirmation');
   if(d.unlock){
     var sz = (d.unlock.pctMcap!=null?d.unlock.pctMcap:d.unlock.pctSupply)||0;
     if(sz >= 3 && d.unlock.days <= 21)
@@ -5064,6 +5244,7 @@ function _pipelineAsk(d, trig){
     + '3. The stop must sit below entry and outside the noise band.\n'
     + '4. Reward must at least match risk, or there is no setup.\n'
     + '5. State the strongest argument against before any plan.\n\n'
+    + WYCKOFF_SPOT_AI_RULES + '\n\n'
     + 'Under 130 words:\nVERDICT: BUY / NO\nWHY: one or two lines.\n'
     + 'If BUY — ENTRY: range · STOP: level · TARGET: level with its R multiple.\nAGAINST: strongest reason this fails.';
   var usr = d.pair + ' at ' + fE(d.price) + ' on ' + TF + '\nTRIGGER: ' + trig.txt + '\n'
@@ -5071,6 +5252,7 @@ function _pipelineAsk(d, trig){
     + 'Chart: ' + st + ' · RSI ' + (d.rsi||0).toFixed(1) + ' · volume ' + (d.volR||0).toFixed(2) + 'x\n'
     + 'EMA20 ' + fE(d.ema20) + ' · EMA50 ' + fE(d.ema50) + ' · EMA200 ' + fE(d.ema200) + '\n'
     + 'Support ' + fE(d.sup) + ' · resistance ' + fE(d.res) + '\n'
+    + (d.wyckoff ? 'Wyckoff ' + d.wyckoff.type + ' · Phase ' + d.wyckoff.phase + ' · ' + d.wyckoff.eventLabel + ' · confidence ' + d.wyckoff.confidence + '% · ' + d.wyckoff.reason + '\n' : '')
     + 'Context: daily trend ' + (dt===true?'UP':dt===false?'DOWN':'unknown') + ', regime ' + (_regime?_regime.mode:'n/a') + '\n'
     + (cat.notes.length ? 'Catalyst notes: ' + cat.notes.join('; ') + '\n' : '')
     + 'Is this trigger worth acting on?';
@@ -7963,6 +8145,8 @@ function _agentBoard(f){
                  : d.tlBounceUp ? 'bounce off uptrend line'
                  : d.tlBreakDown ? 'uptrend line BROKEN — structure failed' : 'none',
         sweep: d.liq==='buy_sweep' ? 'liquidity sweep + reclaim' : 'no',
+        wyckoff: d.wyckoff ? {type:d.wyckoff.type,phase:d.wyckoff.phase,event:d.wyckoff.event,
+          confidence:d.wyckoff.confidence,bullConfirm:d.wyckoff.bullConfirm,bearBlock:d.wyckoff.bearBlock} : null,
         support:d.sup||null, resistance:d.res||null };
     })
   };
@@ -10203,6 +10387,18 @@ function saveClaudeKey(){
   if(d) buildClaudeTab(d);
 }
 
+// Shared across every trade-analysis AI path so the model cannot reinterpret a
+// Spring, UTAD, or quiet range as permission to buy. The deterministic engine's
+// result is evidence/context; the AI must still explain the closed-candle facts.
+var WYCKOFF_SPOT_AI_RULES = '\n\nWYCKOFF SPOT RULES — NON-NEGOTIABLE: '
+  + 'Use Wyckoff only when an established range and ordered events exist; if the payload says NONE/RANGE or confidence is below 65, say no reliable Wyckoff confirmation rather than forcing a schematic. '
+  + 'A Spring is WATCH-ONLY, never a buy by itself. It needs a lower-volume Test, then a closed-candle SOS; for this uptrend-only spot system the preferred entry is the later LPS/Backup that holds former resistance on quieter volume. '
+  + 'Only Phase D/E SOS or LPS with confidence at least 65 is bullish confirmation. Never chase the SOS candle; define the Backup/LPS zone. '
+  + 'A UTAD is a warning, not proof, until SOW. Confirmed Phase D/E SOW or LPSY with confidence at least 65 BLOCKS every new spot buy and shifts the advice to protect/exit/wait. '
+  + 'Read effort versus result: volume is effort, price spread/close is result; high volume with poor progress is absorption or supply, not automatically bullish. '
+  + 'All events use CLOSED candles; wicks alone do not confirm. Never claim institutions or smart money are buying from candles. '
+  + 'Prefer reaccumulation aligned with the higher-timeframe uptrend; early accumulation against a downtrend remains a watchlist until trend reversal and Phase D/E proof. ';
+
 function askClaude(sym){
   var d = allData.find(function(x){return x.sym===sym;});
   var out = document.getElementById('claude-answer');
@@ -10220,6 +10416,10 @@ function askClaude(sym){
     btcState: btcState, buySignal: !!d.buySignal, buyTier: d.buyTier||null,
     currentCandleClosesInMin: (function(){ var r = candleCloseMs(TF); return r != null ? Math.round(r/60000) : null; })(),
     exhausted: !!d.exhausted, valueScore: d.invScore||null,
+    wyckoff: d.wyckoff ? {type:d.wyckoff.type,phase:d.wyckoff.phase,event:d.wyckoff.event,
+      confidence:d.wyckoff.confidence,bias:d.wyckoff.bias,rangeLow:d.wyckoff.rangeLow,
+      rangeHigh:d.wyckoff.rangeHigh,bullConfirm:d.wyckoff.bullConfirm,
+      bearBlock:d.wyckoff.bearBlock,reason:d.wyckoff.reason} : null,
     // The trendline state the chart draws — previously missing from the payload,
     // so the AI could not comment on a line the user could plainly see.
     // Liquidity pools BOTH sides — where stops cluster and price tends to hunt
@@ -10247,7 +10447,7 @@ function askClaude(sym){
         caveat: 'The ruleset was materially rebuilt after most of these trades (weak setups removed, lateness guard, portfolio cap, daily-trend gates added). Treat the all-time number as the OLD system, not the current one, and say so if you cite it. Neither sample is large enough for confidence — use it only to argue for small size, never as a prediction.' };
     })()
   };
-  var commonRules = 'Rules you must never break: (1) NEVER give probabilities, price predictions, or "this will pump/dump" claims — direction and timing are unknowable; (2) tie every judgment to specific data points given, using conviction language (strong/moderate/weak); (3) always state what would invalidate the position; (4) be blunt when it is bad — the user values truth over comfort; (5) factor in their real track record (provided) — if below breakeven, remind them to keep size small; (6) SPOT only, no leverage; (7) write a DEEP analysis of 400-600 words in plain text (no markdown symbols like ** or #); organize it with these UPPERCASE section labels, each on its own line: VERDICT (either NO SETUP - SKIP with the reason, or SETUP WORTH PLANNING), THE CASE AGAINST THIS TRADE (the strongest honest bear argument from this same data), READ (what the chart shows — structure, EMA stack, momentum, volume, citing specific recent candles and levels), ACT OR WAIT (the honest case for and against entering RIGHT NOW — extension above EMA20, overbought, position vs the 200 EMA, where in the range price sits), PLAN A - PULLBACK ENTRY (preferred when price is extended: exact entry ZONE at real levels with the confluence reason, SL below structure with %, TP1/TP2/TP3 with % gain, R:R, and scale-out portions), PLAN B - BREAKOUT CONTINUATION (only on confirmation: the exact candle-CLOSE level required plus a held retest condition, its SL and targets), DEEPER ADD ZONE (if a better R:R level exists below — the level, why, and the no-trade line under it), INVALIDATION (the exact closes that kill each plan — closes, not wicks), SIZING AND CAVEATS (their track record, volume quality of the move, liquidity), BOTTOM LINE (one blunt memorable line, e.g. right structure wrong moment — let it come to X or prove itself with a close above Y); (8) if historicalDNA is provided, tailor the advice to how THIS coin historically behaves — e.g. a Pumper that gives back most gains → take profits faster and never chase; low trendiness → expect chop, favor range levels; huge historical single-day moves → wider stops or smaller size. History is tendency, not destiny — say so if you lean on it; (9) if recentCandles are provided (last ~60 CLOSED bars on the active timeframe, oldest first, UTC), read the price action like a chart: wick rejections at levels, whether closes are strengthening or fading, the character of the latest pullback/bounce, and where the highs/lows cluster — cite specific candles when you do; (10) after the first full analysis, the user may ask follow-up questions in chat — answer those directly and concisely (no section format), grounded in the same data and the same honesty rules; (11) FINAL LINE of the first full analysis only: output one line starting with LEVELS_JSON then compact JSON of numeric levels {"planA":[zoneLow,zoneHigh],"sl":n,"tp1":n,"tp2":n,"tp3":n} — in investing mode planA is the accumulation zone and sl the structural invalidation. Omit unknown keys. Nothing after it; (12) if a chart image is attached, it is the tool\'s rendered chart of this coin and timeframe — read it visually and reconcile it with the numbers; (13) tactical guidance may be deviated from ONLY with an explicit line starting RULE DEVIATION: naming the guideline, the exact evidence justifying the exception, and what would prove it wrong — honesty rules (no predictions, cite data, blunt truth) are never deviable; (14) apply classical TA context: volume must confirm moves, tested levels grow in significance, broken resistance becomes support (a held retest is the best accumulation entry), divergences are warnings, and the higher timeframe trend dominates; (15) EVIDENCE BASE from a crypto research audit — for long-term accumulation the proven levers are: trend/higher-timeframe alignment (buy quality in confirmed uptrends, never catch falling knives), volatility persistence (a coin\'s volatility profile is predictable, its future returns are NOT — never extrapolate past pumps into predictions), and above all POSITION SIZING and drawdown survival over signal selection; CHoCH/SMC and RSI divergence have no proven edge so give them no extra weight; funding/OI are sentiment context only.';
+  var commonRules = 'Rules you must never break: (1) NEVER give probabilities, price predictions, or "this will pump/dump" claims — direction and timing are unknowable; (2) tie every judgment to specific data points given, using conviction language (strong/moderate/weak); (3) always state what would invalidate the position; (4) be blunt when it is bad — the user values truth over comfort; (5) factor in their real track record (provided) — if below breakeven, remind them to keep size small; (6) SPOT only, no leverage; (7) write a DEEP analysis of 400-600 words in plain text (no markdown symbols like ** or #); organize it with these UPPERCASE section labels, each on its own line: VERDICT (either NO SETUP - SKIP with the reason, or SETUP WORTH PLANNING), THE CASE AGAINST THIS TRADE (the strongest honest bear argument from this same data), READ (what the chart shows — structure, EMA stack, momentum, volume, citing specific recent candles and levels), ACT OR WAIT (the honest case for and against entering RIGHT NOW — extension above EMA20, overbought, position vs the 200 EMA, where in the range price sits), PLAN A - PULLBACK ENTRY (preferred when price is extended: exact entry ZONE at real levels with the confluence reason, SL below structure with %, TP1/TP2/TP3 with % gain, R:R, and scale-out portions), PLAN B - BREAKOUT CONTINUATION (only on confirmation: the exact candle-CLOSE level required plus a held retest condition, its SL and targets), DEEPER ADD ZONE (if a better R:R level exists below — the level, why, and the no-trade line under it), INVALIDATION (the exact closes that kill each plan — closes, not wicks), SIZING AND CAVEATS (their track record, volume quality of the move, liquidity), BOTTOM LINE (one blunt memorable line, e.g. right structure wrong moment — let it come to X or prove itself with a close above Y); (8) if historicalDNA is provided, tailor the advice to how THIS coin historically behaves — e.g. a Pumper that gives back most gains → take profits faster and never chase; low trendiness → expect chop, favor range levels; huge historical single-day moves → wider stops or smaller size. History is tendency, not destiny — say so if you lean on it; (9) if recentCandles are provided (last ~60 CLOSED bars on the active timeframe, oldest first, UTC), read the price action like a chart: wick rejections at levels, whether closes are strengthening or fading, the character of the latest pullback/bounce, and where the highs/lows cluster — cite specific candles when you do; (10) after the first full analysis, the user may ask follow-up questions in chat — answer those directly and concisely (no section format), grounded in the same data and the same honesty rules; (11) FINAL LINE of the first full analysis only: output one line starting with LEVELS_JSON then compact JSON of numeric levels {"planA":[zoneLow,zoneHigh],"sl":n,"tp1":n,"tp2":n,"tp3":n} — in investing mode planA is the accumulation zone and sl the structural invalidation. Omit unknown keys. Nothing after it; (12) if a chart image is attached, it is the tool\'s rendered chart of this coin and timeframe — read it visually and reconcile it with the numbers; (13) tactical guidance may be deviated from ONLY with an explicit line starting RULE DEVIATION: naming the guideline, the exact evidence justifying the exception, and what would prove it wrong — honesty rules (no predictions, cite data, blunt truth) are never deviable; (14) apply classical TA context: volume must confirm moves, tested levels grow in significance, broken resistance becomes support (a held retest is the best accumulation entry), divergences are warnings, and the higher timeframe trend dominates; (15) EVIDENCE BASE from a crypto research audit — for long-term accumulation the proven levers are: trend/higher-timeframe alignment (buy quality in confirmed uptrends, never catch falling knives), volatility persistence (a coin\'s volatility profile is predictable, its future returns are NOT — never extrapolate past pumps into predictions), and above all POSITION SIZING and drawdown survival over signal selection; CHoCH/SMC and RSI divergence have no proven edge so give them no extra weight; funding/OI are sentiment context only.' + WYCKOFF_SPOT_AI_RULES;
   var sys;
   if (_investMode) {
     sys = 'You are a brutally honest long-term crypto INVESTING advisor inside the user\'s screener. Context: spot accumulation — buying quality coins at a discount to hold for months. ' + commonRules + ' Give PROPER INVESTING GUIDELINES for this specific coin: (a) is this a quality asset worth accumulating at all (market-cap rank, trend health) or likely dead money; (b) is NOW a reasonable accumulation zone (discount from high, vs 200EMA, RSI) or still overpriced/falling-knife; (c) entry approach — lump vs DCA ladder and why; (d) realistic exit thinking by horizon; (e) the structural invalidation where the thesis is wrong. Follow the section format from the rules exactly, adapting LEVELS AND PLAN to DCA levels and horizon exits.';
@@ -11064,6 +11264,10 @@ function saveAITrades(t){ try{ localStorage.setItem('ai_trades', JSON.stringify(
 
 function openAITrade(memo, d, opts){
   if(!memo || !memo.sl || !memo.tp1 || !d) return;
+  // Deterministic safety outranks model prose. AI cannot open a shadow trade
+  // during confirmed distribution, or from a watch-only Spring/Test/UTAD.
+  if(d.wyckoffBearBlock) return;
+  if(d.wyckoff && d.wyckoff.watchOnly && ['SPRING','TEST','UTAD'].indexOf(d.wyckoff.event)>=0) return;
   opts = opts || {};
   var trades = loadAITrades();
   // one open trade per coin PER FILL TYPE — a shadow entry must not block the
@@ -11340,11 +11544,14 @@ function runConsistencyCheck(sym){
 
   var sys = 'You are a brutally honest SPOT trading analyst. Answer ONLY with one compact JSON object and nothing else: '
     + '{"verdict":"SKIP" or "PLAN", "direction_bias":"bullish" or "neutral" or "bearish", "entryLow":n, "entryHigh":n, "sl":n, "tp1":n, "confidence":"low" or "medium" or "high", "reason":"one short sentence"}. '
-    + 'Rules: never predict prices; if the data does not support a clean setup the correct verdict is SKIP (that is a success, not a failure); every level must be anchored to a level present in the data; the user is a spot trader with a losing track record so weak setups must be called weak.';
+    + 'Rules: never predict prices; if the data does not support a clean setup the correct verdict is SKIP (that is a success, not a failure); every level must be anchored to a level present in the data; the user is a spot trader with a losing track record so weak setups must be called weak.' + WYCKOFF_SPOT_AI_RULES;
   var payload = { pair:d.pair, tf:TF, price:d.price, ema20:d.ema20, ema50:d.ema50, ema200:d.ema200,
     rsi:Math.round(d.rsi||0), volR:Math.round((d.volR||0)*100)/100, struct:d.struct,
     support:d.sup, resistance:d.res, atrPct:Math.round((d.atrPct||0)*10)/10,
     btcState:btcState, breadth:_breadth,
+    wyckoff:d.wyckoff?{type:d.wyckoff.type,phase:d.wyckoff.phase,event:d.wyckoff.event,
+      confidence:d.wyckoff.confidence,bullConfirm:d.wyckoff.bullConfirm,bearBlock:d.wyckoff.bearBlock,
+      rangeLow:d.wyckoff.rangeLow,rangeHigh:d.wyckoff.rangeHigh}:null,
     dailyTrendUp: !!(window._dailyTrend && window._dailyTrend[sym]),
     extAboveEMA20pct: d.ema20 ? Math.round((d.price-d.ema20)/d.ema20*1000)/10 : null };
 
@@ -11896,6 +12103,7 @@ function updatePrecheck(){
 
 function runProAnalysis(d) {
   var p = d.price;
+  var wx = d.wyckoff || null;
 
   // ══════════════════════════════════════════════════════════
   // PHASE 1: MARKET CONTEXT
@@ -11916,6 +12124,7 @@ function runProAnalysis(d) {
   } else {
     trendPhase = 'TRANSITION'; trendScore = 0;
   }
+  if(wx && wx.bearBlock){ trendPhase='WYCKOFF '+wx.type.toUpperCase()+' — '+wx.event; trendScore=-3; }
 
   // EMA spread = trend strength (tighter = weaker, wider = stronger)
   var e2050spread = d.ema50 > 0 ? ((d.ema20 - d.ema50) / d.ema50 * 100) : 0;
@@ -12139,8 +12348,8 @@ function runProAnalysis(d) {
   // Never risk more than 1.5% on any single spot trade
   // ══════════════════════════════════════════════════════════
 
-  var riskPct = 1.5; // risk 1.5% of portfolio
-  var posSizePct = slPct > 0 ? Math.min((riskPct / slPct * 100), 15) : 5; // max 15%
+  var riskPct = CONFIG.CHART_RISK_PCT; // one shared risk budget across the chart
+  var posSizePct = slPct > 0 ? Math.min((riskPct / slPct * 100), CONFIG.MAX_SPOT_ALLOC_PCT) : 5;
 
   // ══════════════════════════════════════════════════════════
   // PHASE 6: FINAL VERDICT
@@ -12164,6 +12373,13 @@ function runProAnalysis(d) {
   } else {
     verdict = 'NOT READY'; verdictColor = 'var(--r)'; verdictIcon = '⛔';
     action = 'Score too low (' + setupScore + '/100). Key conditions missing. Monitor but do not enter.';
+  }
+  if(wx && wx.bearBlock){
+    verdict='AVOID — WYCKOFF '+wx.event; verdictColor='var(--r)'; verdictIcon='🚫';
+    action='Phase '+wx.phase+' '+wx.event+' confirms weakness at '+wx.confidence+'/100. New spot buys are blocked; wait for a new base and Phase D strength.';
+  } else if(wx && wx.watchOnly && wx.confidence>=50 && (wx.event==='SPRING'||wx.event==='TEST')){
+    verdict='WAIT — WYCKOFF '+wx.event; verdictColor='var(--am)'; verdictIcon='⏳';
+    action=wx.event==='SPRING'?'Spring is watch-only. Require a lower-volume Test, closed-candle SOS, then LPS/Backup.':'Test is constructive but not an entry alone. Require SOS and a held LPS/Backup.';
   }
 
   // ══════════════════════════════════════════════════════════
@@ -12218,6 +12434,7 @@ function runProAnalysis(d) {
   h += ctxRow('Est. volatility', atrEstimate.toFixed(2) + '% ATR', 'var(--t2)');
   h += ctxRow('Breakout prob', d.bp + '%', d.bp >= 65 ? 'var(--g)' : d.bp >= 45 ? 'var(--am)' : 'var(--t3)');
   h += ctxRow('Pullback risk', d.pp + '%', d.pp >= 65 ? 'var(--r)' : d.pp >= 45 ? 'var(--am)' : 'var(--t3)');
+  if(wx) h += ctxRow('Wyckoff', wx.type+' · '+wx.phase+' '+wx.event+' · '+wx.confidence+'/100', wx.bearBlock?'var(--r)':wx.bullConfirm?'var(--g)':'var(--am)');
   h += '</div></div>';
 
   // ── Entry strategies ──────────────────────────────────────────────────
@@ -12282,15 +12499,15 @@ function runProAnalysis(d) {
 
   // ── Position sizing ───────────────────────────────────────────────────
   h += '<div style="background:var(--card2);border-radius:var(--rad);padding:.75rem;margin-bottom:.625rem;border-left:3px solid var(--am)">';
-  h += '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--am);margin-bottom:.5rem">⚖️ Position Sizing (Fixed 1.5% Risk Model)</div>';
+  h += '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--am);margin-bottom:.5rem">⚖️ Position Sizing (Fixed '+riskPct.toFixed(1)+'% Risk Model)</div>';
   h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px;font-size:12px;margin-bottom:.5rem">';
   h += '<div style="background:var(--card3);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--t3);margin-bottom:2px">Portfolio allocation</div><div style="font-size:16px;font-weight:800;color:var(--am)">~' + posSizePct.toFixed(0) + '%</div><div style="font-size:10px;color:var(--t3)">of total capital</div></div>';
-  h += '<div style="background:var(--card3);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--t3);margin-bottom:2px">Risk per trade</div><div style="font-size:16px;font-weight:800">1.5%</div><div style="font-size:10px;color:var(--t3)">of portfolio max</div></div>';
+  h += '<div style="background:var(--card3);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--t3);margin-bottom:2px">Risk per trade</div><div style="font-size:16px;font-weight:800">'+riskPct.toFixed(1)+'%</div><div style="font-size:10px;color:var(--t3)">of portfolio max</div></div>';
   h += '<div style="background:var(--card3);border-radius:6px;padding:8px"><div style="font-size:10px;color:var(--t3);margin-bottom:2px">SL distance</div><div style="font-size:16px;font-weight:800;color:var(--r)">' + slPct.toFixed(2) + '%</div><div style="font-size:10px;color:var(--t3)">ATR-adjusted</div></div>';
   h += '</div>';
   h += '<div style="font-size:11px;color:var(--t2);line-height:1.7">';
   h += '<strong>Scale-in rule:</strong> 50% of position at entry → 30% on first pullback → 20% on confirmation hold<br>';
-  h += '<strong>Never exceed 15% portfolio in one coin</strong> (concentration risk)<br>';
+  h += '<strong>Never exceed '+CONFIG.MAX_SPOT_ALLOC_PCT+'% portfolio in one coin</strong> (concentration risk)<br>';
   h += '<strong>Correlation rule:</strong> if already long BTC, reduce alt position by 30% (correlated assets)';
   h += '</div></div>';
 
@@ -13531,7 +13748,8 @@ var chartState = {
   loading: false,
   livePrice: null,      // current live price
   livePriceTimer: null, // interval for live updates
-  liveChange: 0         // 24h % change
+  liveChange: 0,        // 24h % change
+  lastPriceAt: 0        // freshness timestamp for professional stale-data warning
 };
 
 // ── Stop live price updates when chart is closed ────────────────────────────
@@ -13542,6 +13760,24 @@ function stopChartLive() {
   }
 }
 
+// Keep the live quote visible independently from the OHLC legend. Hovering a
+// historical candle changes the OHLC readout, but must never hide the market's
+// current price in either the normal or fullscreen header.
+function updateChartLiveHeader() {
+  var d = chartState.d;
+  if (!d) return;
+  var price = chartState.livePrice;
+  var col = chartState.liveChange >= 0 ? '#26a69a' : '#ef5350';
+  var sign = chartState.liveChange >= 0 ? '+' : '';
+  var quote = price ? ' <span style="color:'+col+';font-weight:800">'+fmtPrice(price)+'</span>' +
+    ' <span style="font-size:10px;color:'+col+'">'+sign+chartState.liveChange.toFixed(2)+'%</span>' : '';
+  var badge = price ? ' <span style="font-size:9px;background:'+col+';color:#fff;padding:1px 5px;border-radius:8px;margin-left:4px;animation:pulse 1.4s infinite">● LIVE</span>' : '';
+  var normal = document.getElementById('chart-pair-tv');
+  if (normal) normal.innerHTML = '<span style="font-weight:700">'+d.pair+'</span>'+quote+badge;
+  var full = document.getElementById('chart-fs-pair');
+  if (full) full.innerHTML = '<span style="font-weight:700">'+d.pair+' · '+(chartState.tf||'')+'</span>'+quote+badge;
+}
+
 // ── Fetch live price and update last candle ─────────────────────────────────
 function fetchLivePrice() {
   if (!chartState.sym || !chartState.klines) return;
@@ -13549,27 +13785,27 @@ function fetchLivePrice() {
     .catch(function(){ return fetchJ(BYBIT + '/v5/market/tickers?category=spot&symbol=' + chartState.sym, 5000); })
     .catch(function() { return fetchJ(BYBIT2 + '/v5/market/tickers?category=spot&symbol=' + chartState.sym, 5000); })
     .then(function(data) {
-      if (!data || !data.result || !data.result.list || !data.result.list.length) return;
       // Parse BingX or Bybit ticker response
-    var t = null;
-    if (data && data.code === 0 && data.data) {
-      // BingX format: {code:0, data:{symbol,lastPrice,openPrice,...}}
-      t = Array.isArray(data.data) ? data.data[0] : data.data;
-      if (t) {
-        t.lastPrice = t.lastPrice || t.last;
-        t.prevPrice24h = t.openPrice || t.open || t.lastPrice;
+      var t = null;
+      if (data && data.code === 0 && data.data) {
+        // BingX format: {code:0, data:{symbol,lastPrice,openPrice,...}}
+        t = Array.isArray(data.data) ? data.data[0] : data.data;
+        if (t) {
+          t.lastPrice = t.lastPrice || t.last;
+          t.prevPrice24h = t.openPrice || t.open || t.lastPrice;
+        }
+      } else if (data && data.result && data.result.list && data.result.list.length) {
+        // Bybit format
+        t = data.result.list[0];
       }
-    } else if (data && data.result && data.result.list) {
-      // Bybit format
-      t = data.result.list[0];
-    }
-    if (!t) return;
+      if (!t) return;
       var price = parseFloat(t.lastPrice);
       var prev  = parseFloat(t.prevPrice24h) || price;
       if (!price || isNaN(price)) return;
 
       chartState.livePrice = price;
       chartState.liveChange = prev ? ((price - prev) / prev * 100) : 0;
+      chartState.lastPriceAt = Date.now();
 
       // Update the LAST kline's close (index 4) with live price
       // so the current candle reflects real-time movement
@@ -13584,19 +13820,12 @@ function fetchLivePrice() {
       }
 
       // Update price display in toolbar
-      var pairEl = document.getElementById('chart-pair');
-      if (pairEl) {
-        var chgCol = chartState.liveChange >= 0 ? '#26a69a' : '#ef5350';
-        var chgSign = chartState.liveChange >= 0 ? '+' : '';
-        pairEl.innerHTML = chartState.sym.replace('USDT','/USDT').replace('JPY','/JPY') +
-          ' · ' + chartState.tf +
-          ' &nbsp;<span style="color:'+chgCol+';font-weight:700">' + fmtPrice(price) + '</span>' +
-          ' <span style="font-size:11px;color:'+chgCol+'">' + chgSign + chartState.liveChange.toFixed(2) + '%</span>' +
-          ' <span style="font-size:9px;background:#26a69a;color:#fff;padding:1px 5px;border-radius:8px;font-weight:700;vertical-align:middle;animation:pulse 1.4s infinite">● LIVE</span>';
-      }
+      updateChartLiveHeader();
 
       // Redraw chart with updated last candle
       if (!chartState.dragging) drawChart();
+      // Keep the fullscreen execution panel synchronized with the live price.
+      if (chartState.fullscreen && chartState.d) populateFSTable(chartState.d);
     })
     .catch(function() {}); // silent fail — keep showing last known price
 }
@@ -13627,7 +13856,7 @@ function buildChartTab(d) {
     '<div style="width:1px;height:20px;background:#2a2e39;margin:0 8px;flex:0 0 auto"></div>' +
     // Indicator toggle chips
     '<div style="display:flex;gap:4px;flex:1;min-width:0;overflow:hidden">' +
-      ['ema:EMA','vol:Vol','rsi:RSI','sr:S/R','analyst:Levels'].map(function(s){
+      ['ema:EMA','vol:Vol','rsi:RSI','sr:S/R','analyst:Levels','wyckoff:Wyckoff'].map(function(s){
         var p=s.split(':');
         return '<button class="ctv-ind active" id="ind-'+p[0]+'" onclick="toggleInd(\''+p[0]+'\')" style="font-size:10px;padding:2px 8px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit;white-space:nowrap;transition:all .15s">'+p[1]+'</button>';
       }).join('') +
@@ -13645,8 +13874,10 @@ function buildChartTab(d) {
   '</div>' +
 
   // ── CANVAS AREA ──────────────────────────────────────────────────────────
-  '<div style="position:relative;flex:1">' +
+  '<div id="chart-canvas-wrap" style="position:relative;flex:1">' +
     '<canvas id="chart-canvas" style="display:block;width:100%;cursor:crosshair"></canvas>' +
+    '<div id="chart-cursor-price" style="display:none;position:absolute;right:0;width:78px;height:20px;transform:translateY(-50%);z-index:5;pointer-events:none;background:#2962ff;color:#fff;border-radius:2px 0 0 2px;font:bold 11px/20px -apple-system,sans-serif;padding-left:6px;box-sizing:border-box"></div>' +
+    '<div id="chart-cursor-time" style="display:none;position:absolute;bottom:1px;height:17px;z-index:5;pointer-events:none;background:#2962ff;color:#fff;border-radius:2px;font:bold 10px/17px -apple-system,sans-serif;padding:0 6px;white-space:nowrap;box-sizing:border-box"></div>' +
     // OHLCV legend — top-left, below EMA legend
     '<div id="chart-legend" style="position:absolute;top:6px;left:8px;font-size:11px;color:#787b86;pointer-events:none;line-height:1.7;font-family:-apple-system,sans-serif"></div>' +
     // Loading overlay
@@ -13692,7 +13923,7 @@ function buildChartTab(d) {
         '</div>' +
         '<div style="width:1px;height:20px;background:#2a2e39;margin:0 8px"></div>' +
         '<div style="display:flex;gap:4px">' +
-          ['ema:EMA','vol:Vol','rsi:RSI','sr:S/R','analyst:Levels'].map(function(s){
+          ['ema:EMA','vol:Vol','rsi:RSI','sr:S/R','analyst:Levels','wyckoff:Wyckoff'].map(function(s){
             var p=s.split(':');
             return '<button class="ctv-ind active" id="ind-fs-'+p[0]+'" onclick="toggleInd(\''+p[0]+'\')" style="font-size:10px;padding:2px 8px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">'+p[1]+'</button>';
           }).join('') +
@@ -13700,7 +13931,7 @@ function buildChartTab(d) {
         '<div style="margin-left:auto;display:flex;gap:6px;align-items:center">' +
           '<button onclick="chartZoom(1)"  style="font-size:13px;width:26px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">+</button>' +
           '<button onclick="chartZoom(-1)" style="font-size:13px;width:26px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">−</button>' +
-          '<button id="draw-btn" onclick="toggleDrawMode()" title="Draw your own trendlines — click two points" style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:var(--t2);cursor:pointer;font-family:inherit">✏️ Draw</button>' +
+          '<button id="draw-btn-fs" onclick="toggleDrawMode()" title="Draw your own trendlines — click two points" style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:var(--t2);cursor:pointer;font-family:inherit">✏️ Draw</button>' +
           '<button onclick="undoDrawing()" title="Undo last drawing" style="font-size:10px;padding:0 8px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">↶</button>' +
           '<button onclick="clearDrawings()" title="Clear all drawings on this chart" style="font-size:10px;padding:0 8px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">🗑</button>' +
           '<button onclick="chartReset()"  style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">Reset</button>' +
@@ -13713,11 +13944,13 @@ function buildChartTab(d) {
         // Canvas
         '<div id="chart-fs-canvas" style="flex:1;position:relative;overflow:hidden">' +
           '<canvas id="chart-canvas-fs" style="display:block;cursor:crosshair"></canvas>' +
+          '<div id="chart-cursor-price-fs" style="display:none;position:absolute;right:0;width:78px;height:20px;transform:translateY(-50%);z-index:5;pointer-events:none;background:#2962ff;color:#fff;border-radius:2px 0 0 2px;font:bold 11px/20px -apple-system,sans-serif;padding-left:6px;box-sizing:border-box"></div>' +
+          '<div id="chart-cursor-time-fs" style="display:none;position:absolute;bottom:1px;height:17px;z-index:5;pointer-events:none;background:#2962ff;color:#fff;border-radius:2px;font:bold 10px/17px -apple-system,sans-serif;padding:0 6px;white-space:nowrap;box-sizing:border-box"></div>' +
           '<div id="chart-legend-fs" style="position:absolute;top:6px;left:8px;font-size:11px;color:#787b86;pointer-events:none;line-height:1.7;font-family:-apple-system,sans-serif"></div>' +
           '<div id="chart-rotate-hint" style="display:none;position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:rgba(124,77,255,.92);color:#fff;font-size:11px;font-weight:700;padding:7px 14px;border-radius:20px;pointer-events:none;white-space:nowrap;box-shadow:0 2px 12px rgba(0,0,0,.4)">🔄 Rotate your phone sideways for a bigger chart</div>' +
         '</div>' +
         // Compact trade table — right sidebar
-        '<div id="chart-fs-table" style="width:200px;flex:0 0 200px;background:#1e222d;border-left:1px solid #2a2e39;display:flex;flex-direction:column;font-family:-apple-system,sans-serif;overflow-y:auto">' +
+        '<div id="chart-fs-table" style="width:244px;flex:0 0 244px;background:#1e222d;border-left:1px solid #2a2e39;display:flex;flex-direction:column;font-family:-apple-system,sans-serif;overflow-y:auto">' +
           '<div style="padding:10px 12px;border-bottom:1px solid #2a2e39">' +
             '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#787b86;margin-bottom:6px">Trade Plan</div>' +
             '<div id="fs-signal-badge" style="font-size:11px;font-weight:700;padding:4px 8px;border-radius:4px;text-align:center"></div>' +
@@ -13738,9 +13971,12 @@ function buildChartTab(d) {
     });
   }
 
-  chartState.indicators = {ema:true, vol:true, rsi:true, sr:true, analyst:true};
+  chartState.indicators = {ema:true, vol:true, rsi:true, sr:true, analyst:true, wyckoff:true};
   chartState.sym = d.sym;
   chartState.d   = d;
+  chartState.livePrice = null;
+  chartState.liveChange = 0;
+  chartState.lastPriceAt = 0;
   chartState.zoom   = 80;
   chartState.offset = 0;
   chartState.fullscreen = false;
@@ -13804,6 +14040,7 @@ function expandChartFull() {
         // no price tag in fullscreen while the normal chart worked fine).
         chartState.crosshair = { x: e.clientX - rect.left, y: e.clientY - rect.top,
                                  cssW: rect.width, cssH: rect.height };
+        updateChartCursorReadout(canvas, chartState.crosshair.x, chartState.crosshair.y);
         if (chartState.dragging) {
           var dx  = e.clientX - chartState.dragStartX;
           var cW  = (canvas.getBoundingClientRect().width - 78) / chartState.zoom;
@@ -13827,6 +14064,7 @@ function expandChartFull() {
       canvas.addEventListener('mouseup',    function() { chartState.dragging = false; });
       canvas.addEventListener('mouseleave', function() {
         chartState.dragging = false; chartState.crosshair = null;
+        hideChartCursorReadout(canvas);
         if (chartState.klines) drawChart();
       });
       canvas.addEventListener('wheel', function(e) {
@@ -13859,70 +14097,227 @@ function expandChartFull() {
   }, 30);
 }
 
-function populateFSTable(d) {
-  var pos    = loadPos ? loadPos(d.sym) : null;
-  var entry  = pos ? pos.entry : d.ema20 * 1.001;
-  var sl     = pos ? pos.sl    : d.sup * 0.984;
-  var _rt2 = (d.res && d.res * 0.998 > entry * 1.002) ? d.res * 0.998 : null;
-  var tp1    = pos ? pos.tp1   : (_rt2 ? Math.min(_rt2, entry * 1.03) : entry * 1.03);
-  var tp2    = pos ? pos.tp2   : entry * 1.06;
-  var tp3    = pos ? pos.tp3   : entry * 1.10;
-  var slPct  = entry > 0 ? ((entry - sl)  / entry * 100) : 0;
-  var tp1Pct = entry > 0 ? ((tp1 - entry) / entry * 100) : 0;
-  var tp2Pct = entry > 0 ? ((tp2 - entry) / entry * 100) : 0;
-  var tp3Pct = entry > 0 ? ((tp3 - entry) / entry * 100) : 0;
-  var rr1    = slPct > 0 ? (tp1Pct / slPct).toFixed(1) : '—';
-  var rr2    = slPct > 0 ? (tp2Pct / slPct).toFixed(1) : '—';
-  var rr3    = slPct > 0 ? (tp3Pct / slPct).toFixed(1) : '—';
-  var liveP  = chartState.livePrice || d.price;
+function _chartTFDuration(tf) {
+  return {'15m':900000,'1h':3600000,'4h':14400000,'1d':86400000,'1w':604800000}[tf] || 14400000;
+}
 
-  // Signal badge
+function _chartCountdown(ts) {
+  var ms = Math.max(0, (ts || 0) - Date.now());
+  if (!ms) return 'closing now';
+  var h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+  return h > 0 ? h+'h '+m+'m' : Math.max(1,m)+'m';
+}
+
+// ONE source of truth for every level drawn or displayed in the chart.
+// Priority: a saved real position → independently verified AI levels → structure.
+function buildCanonicalChartPlan(d) {
+  var pos = loadPos ? loadPos(d.sym) : null;
+  var wx = (chartState.sym===d.sym && chartState.wyckoff) ? chartState.wyckoff : (d.wyckoff || null);
+  var wxBull = !!(wx && wx.bullConfirm), wxBear = !!(wx && wx.bearBlock);
+  var ai = (window._aiLevels || {})[d.sym];
+  var aiCheck = (window._aiVerify || {})[d.sym];
+  var aiOK = !!(ai && aiCheck && aiCheck.total > 0 && aiCheck.unverified === 0 &&
+    ai.planA && ai.planA.length === 2 && ai.sl && ai.tp1);
+  var live = chartState.livePrice || d.price || d.signalPrice || 0;
+  var source = 'STRUCTURE';
+  var entry, sl, tp1, tp2, tp3, zoneLow, zoneHigh;
+
+  if (pos && pos.entry && pos.sl) {
+    source = 'OPEN POSITION';
+    entry = +pos.entry; sl = +pos.sl;
+    tp1 = +pos.tp1 || 0; tp2 = +pos.tp2 || 0; tp3 = +pos.tp3 || 0;
+  } else if (aiOK) {
+    source = 'VERIFIED AI';
+    zoneLow = Math.min(+ai.planA[0], +ai.planA[1]);
+    zoneHigh = Math.max(+ai.planA[0], +ai.planA[1]);
+    entry = (zoneLow + zoneHigh) / 2;
+    sl = +ai.sl; tp1 = +ai.tp1; tp2 = +ai.tp2 || 0; tp3 = +ai.tp3 || 0;
+  } else {
+    entry = d.ema20 > 0 ? d.ema20 * 1.001 : (d.signalPrice || live);
+    var baseSupport = d.sup > 0 && d.sup < entry ? d.sup : entry * 0.975;
+    sl = baseSupport * 0.984;
+  }
+
+  // A confirmed Phase D/E SOS/LPS changes the preferred entry LOCATION to the
+  // Backup/LPS at the former range high. It does not authorize chasing the SOS.
+  if(!pos && !aiOK && wxBull && wx.rangeHigh) {
+    var wxAtrAbs=(d.atrPct||2)/100*Math.max(live,entry);
+    zoneLow=wx.rangeHigh-wxAtrAbs*.45;
+    zoneHigh=wx.rangeHigh+wxAtrAbs*.25;
+    entry=(zoneLow+zoneHigh)/2;
+    if(wx.rangeLow && wx.rangeLow<entry) sl=Math.min(zoneLow-wxAtrAbs*.8,wx.rangeLow-wxAtrAbs*.15);
+    source='WYCKOFF '+wx.event;
+  }
+
+  if (!(entry > 0)) entry = live;
+  var thesis = d.sup > 0 && d.sup < entry ? d.sup : entry * 0.985;
+  if (!(sl > 0 && sl < entry)) sl = thesis * 0.984;
+  var risk = Math.max(entry - sl, entry * 0.005);
+  var resistance = d.res > entry * 1.002 ? d.res * 0.998 : 0;
+  var planCost = CONFIG.CHART_COST_PCT || 0.20;
+
+  // Structural targets. TP1 must attempt to pay at least 1.5R; if resistance
+  // blocks that, the R:R gate remains false and the setup cannot become TRIGGERED.
+  if (!(tp1 > entry)) {
+    var riskPctForTarget = risk / entry * 100;
+    var requiredTPPct = (riskPctForTarget + planCost) * CONFIG.CHART_MIN_NET_RR + planCost;
+    var minTP1 = Math.max(entry * 1.03, entry * (1 + requiredTPPct / 100));
+    tp1 = resistance ? Math.min(resistance, minTP1) : minTP1;
+  }
+  if (!(tp2 > tp1)) tp2 = resistance > tp1 ? resistance : Math.max(entry * 1.06, tp1 + risk);
+  if (!(tp3 > tp2)) tp3 = Math.max(entry * 1.10, tp2 + risk);
+  if (!zoneLow) zoneLow = Math.min(thesis, entry * 0.995);
+  if (!zoneHigh) zoneHigh = entry * 1.012;
+
+  var slPct = (entry - sl) / entry * 100;
+  var tp1Pct = (tp1 - entry) / entry * 100;
+  var tp2Pct = (tp2 - entry) / entry * 100;
+  var tp3Pct = (tp3 - entry) / entry * 100;
+  var cost = planCost;
+  var rr1 = slPct > 0 ? tp1Pct / slPct : 0;
+  var rr2 = slPct > 0 ? tp2Pct / slPct : 0;
+  var rr3 = slPct > 0 ? tp3Pct / slPct : 0;
+  var netRR1 = slPct + cost > 0 ? Math.max(0, tp1Pct - cost) / (slPct + cost) : 0;
+  var liveVsEntry = entry > 0 ? (live - entry) / entry * 100 : 0;
+  var lastClosed = null, lastClosedAt = 0, candleClosesAt = 0;
+  var kl = chartState.klines || [];
+  var dur = _chartTFDuration(chartState.tf || TF);
+  if (kl.length >= 2) {
+    lastClosed = parseFloat(kl[kl.length-2][4]);
+    lastClosedAt = parseInt(kl[kl.length-2][0]) + dur;
+    candleClosesAt = parseInt(kl[kl.length-1][0]) + dur;
+  }
+
+  var trendOK = d.trend === 'up' && d.ema20 > d.ema50;
+  var structureOK = ['HH/HL','breakout','accumulation','consolidation'].indexOf(d.struct) >= 0;
+  var volumeOK = d.volR >= CONFIG.CHART_VOL_CONFIRM;
+  var taOK = d.trendAccumAligned !== false;
+  var btcOK = /^BTC/.test(d.sym) || d.btcTrendScore == null || d.btcTrendScore >= CONFIG.BTC_FILTER_THRESHOLD;
+  var rrOK = netRR1 >= CONFIG.CHART_MIN_NET_RR;
+  var closedTrigger = !!(d.buySignal || d.tlBreakUp || d.breakoutUp);
+  var invalidated = live <= sl || (lastClosed && lastClosed < thesis);
+  var lateLimit = Math.max(3, Math.min(5, (d.atrPct || 2) * 1.5));
+  var late = !pos && liveVsEntry > lateLimit;
+  var inZone = live >= zoneLow && live <= zoneHigh;
+  var status, color, action;
+
+  if (pos) {
+    status = 'ACTIVE'; color = '#26a69a'; action = 'Position is open — manage the hard stop and scale-out targets.';
+  } else if (wxBear) {
+    status = 'BLOCKED'; color = '#f23645'; action = 'Wyckoff Phase '+wx.phase+' '+wx.event+' confirms weakness. New spot buys are blocked.';
+  } else if (invalidated) {
+    status = 'INVALIDATED'; color = '#f23645'; action = 'The setup lost support. Do not enter until a new closed-candle structure forms.';
+  } else if (late) {
+    status = 'LATE'; color = '#f59e0b'; action = 'Price is '+liveVsEntry.toFixed(1)+'% above the plan. Do not chase; wait for a retest.';
+  } else if (d.buySignal && closedTrigger && volumeOK && rrOK && trendOK && taOK && btcOK && !wxBear) {
+    status = 'TRIGGERED'; color = '#26a69a'; action = wxBull
+      ? 'Wyckoff '+wx.event+' and closed-candle trigger agree. Execute only inside the Backup/LPS zone.'
+      : 'Closed-candle trigger confirmed. Execute only within the planned entry zone.';
+  } else if (inZone && trendOK && structureOK && taOK && btcOK && rrOK && !wxBear) {
+    status = 'READY'; color = '#7c4dff'; action = wxBull
+      ? 'Price is testing the Wyckoff Backup/LPS zone. Require a bullish close; do not anticipate.'
+      : 'Price is in the zone. Wait for a bullish closed candle and volume confirmation.';
+  } else {
+    status = 'WATCHING'; color = '#787b86';
+    action = !volumeOK ? 'Volume is only '+d.volR.toFixed(2)+'×; wait for ≥'+CONFIG.CHART_VOL_CONFIRM.toFixed(1)+'× and a closed trigger.'
+      : !rrOK ? 'Net TP1 R:R is '+netRR1.toFixed(1)+':1; wait for a better entry or more room.'
+      : wx && wx.event==='SPRING' ? 'Spring is watch-only. Wait for a lower-volume Test, then SOS and LPS.'
+      : wx && wx.event==='UTAD' ? 'UTAD warning. Protect gains and wait; no spot entry before the range proves strength.'
+      : !closedTrigger ? 'Trend is constructive, but the breakout/retest has not closed as confirmed.'
+      : 'One or more market-regime gates are still missing.';
+  }
+
+  var rawAlloc = slPct > 0 ? (CONFIG.CHART_RISK_PCT / slPct * 100) : 0;
+  var allocation = Math.min(CONFIG.MAX_SPOT_ALLOC_PCT, rawAlloc);
+  var actualRisk = allocation * slPct / 100;
+  var score100 = Math.max(0, Math.min(100, Math.round((d.score || 0) / 97 * 100)));
+  var freshSec = chartState.lastPriceAt ? Math.round((Date.now()-chartState.lastPriceAt)/1000) : null;
+
+  return {source:source, entry:entry, zoneLow:zoneLow, zoneHigh:zoneHigh,
+    thesis:thesis, sl:sl, tp1:tp1, tp2:tp2, tp3:tp3, live:live,
+    slPct:slPct, tp1Pct:tp1Pct, tp2Pct:tp2Pct, tp3Pct:tp3Pct,
+    rr1:rr1, rr2:rr2, rr3:rr3, netRR1:netRR1, liveVsEntry:liveVsEntry,
+    status:status, color:color, action:action, allocation:allocation,
+    rawAllocation:rawAlloc, actualRisk:actualRisk, score100:score100,
+    lastClosedAt:lastClosedAt, candleClosesAt:candleClosesAt, freshSec:freshSec, wyckoff:wx,
+    confirmations:[
+      {label:(chartState.tf || TF)+' trend', ok:trendOK, value:trendOK?'Bullish':'Not bullish'},
+      {label:'Structure', ok:structureOK, value:d.struct || '—'},
+      {label:'Trend + accum.', ok:taOK, value:taOK?'Aligned':'Disagree'},
+      {label:'Wyckoff', ok:!wxBear, value:wx?(wx.phase+' '+wx.event+' '+wx.confidence):'No range'},
+      {label:'Closed trigger', ok:closedTrigger, value:closedTrigger?'Confirmed':'Waiting'},
+      {label:'Volume', ok:volumeOK, value:d.volR.toFixed(2)+'×'},
+      {label:'BTC gate', ok:btcOK, value:btcOK?'Passed':'Blocked'},
+      {label:'Net R:R', ok:rrOK, value:netRR1.toFixed(1)+':1'}
+    ]};
+}
+
+function populateFSTable(d) {
+  var p = buildCanonicalChartPlan(d);
   var sigBadge = document.getElementById('fs-signal-badge');
   if (sigBadge) {
-    var sigTxt = d.strongBuy ? '⚡ STRONG BUY' : d.liq==='buy_sweep' ? '🟢 SWEEP BUY' : d.buySignal ? '✅ BUY SIGNAL' : d.liq==='sell_sweep' ? '🔴 SELL SWEEP' : '⏳ NEUTRAL';
-    var sigBg  = (d.strongBuy||d.buySignal||d.liq==='buy_sweep') ? 'rgba(38,166,154,.2)' : d.liq==='sell_sweep' ? 'rgba(242,54,69,.2)' : 'rgba(120,123,134,.15)';
-    var sigCol = (d.strongBuy||d.buySignal||d.liq==='buy_sweep') ? '#26a69a' : d.liq==='sell_sweep' ? '#f23645' : '#787b86';
-    sigBadge.textContent = sigTxt;
-    sigBadge.style.background  = sigBg;
-    sigBadge.style.color       = sigCol;
-    sigBadge.style.border      = '1px solid ' + sigCol + '60';
+    sigBadge.textContent = p.status;
+    sigBadge.style.background = p.color + '22';
+    sigBadge.style.color = p.color;
+    sigBadge.style.border = '1px solid ' + p.color + '70';
   }
 
-  // Levels rows
   var lvlEl = document.getElementById('fs-levels');
   if (lvlEl) {
-    function fsRow(icon, label, price, pct, rrStr, col) {
-      var fromLive = liveP > 0 ? ((price - liveP) / liveP * 100) : 0;
-      return '<div style="padding:7px 12px;border-bottom:1px solid #2a2e392a">' +
-        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">' +
-          '<span style="font-size:10px;font-weight:700;color:'+col+'">' + icon + ' ' + label + '</span>' +
-          (rrStr ? '<span style="font-size:9px;background:'+col+'22;color:'+col+';padding:1px 5px;border-radius:3px">R:R '+rrStr+'</span>' : '') +
-        '</div>' +
-        '<div style="font-size:14px;font-weight:800;color:'+col+';margin-bottom:1px">' + fE(price) + '</div>' +
-        '<div style="display:flex;gap:8px;font-size:10px">' +
-          '<span style="color:' + (pct >= 0 ? '#26a69a' : '#f23645') + '">' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '% from entry</span>' +
-        '</div>' +
-      '</div>';
+    function fsRow(icon, label, price, pct, rr, col, note) {
+      var fromLive = p.live > 0 ? (price-p.live)/p.live*100 : 0;
+      return '<div style="padding:7px 12px;border-bottom:1px solid #2a2e39">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px">' +
+          '<span style="font-size:10px;font-weight:800;color:'+col+'">'+icon+' '+label+'</span>' +
+          (rr ? '<span style="font-size:9px;background:'+col+'22;color:'+col+';padding:1px 5px;border-radius:3px">R:R '+rr+'</span>' : '') +
+        '</div><div style="font-size:14px;font-weight:800;color:'+col+';margin-top:2px">'+fE(price)+'</div>' +
+        '<div style="font-size:9px;color:#787b86;margin-top:2px">'+(pct==null?'':((pct>=0?'+':'')+pct.toFixed(2)+'% from entry · '))+
+          (fromLive>=0?'+':'')+fromLive.toFixed(2)+'% from live'+(note?' · '+note:'')+'</div></div>';
     }
+    var checks = p.confirmations.map(function(c){
+      return '<div style="display:flex;justify-content:space-between;gap:6px;font-size:9px;padding:2px 0;color:#787b86"><span>'+(c.ok?'✅':'○')+' '+c.label+'</span><strong style="color:'+(c.ok?'#26a69a':'#f59e0b')+'">'+c.value+'</strong></div>';
+    }).join('');
+    var liveCol = p.liveVsEntry <= 0 ? '#26a69a' : p.liveVsEntry > 3 ? '#f59e0b' : '#d1d4dc';
+    var wx=p.wyckoff;
+    var wxCol=wx&&wx.bearBlock?'#f23645':wx&&wx.bullConfirm?'#26a69a':'#f59e0b';
+    var wxCard=wx ? '<div style="padding:8px 12px;background:'+wxCol+'10;border-bottom:1px solid '+wxCol+'44">' +
+      '<div style="display:flex;justify-content:space-between;gap:6px;align-items:center"><span style="font-size:9px;color:#787b86;font-weight:800">WYCKOFF SPOT READ</span><strong style="font-size:9px;color:'+wxCol+'">'+wx.confidence+'/100</strong></div>' +
+      '<div style="font-size:11px;font-weight:800;color:'+wxCol+';margin-top:3px">'+wx.type.toUpperCase()+' · PHASE '+wx.phase+' · '+wx.event+'</div>' +
+      '<div style="font-size:9px;color:#d1d4dc;line-height:1.45;margin-top:3px">'+wx.reason+'</div>' +
+      (wx.rangeLow&&wx.rangeHigh?'<div style="font-size:9px;color:#787b86;margin-top:3px">Range '+fE(wx.rangeLow)+'–'+fE(wx.rangeHigh)+'</div>':'') + '</div>' : '';
     lvlEl.innerHTML =
-      fsRow('🎯', 'ENTRY', entry,   0,      null, '#f59e0b') +
-      fsRow('🛡', 'SL',    sl,     -slPct,  null, '#f23645') +
-      fsRow('💰', 'TP 1',  tp1,    tp1Pct,  rr1,  '#26a69a') +
-      fsRow('💰', 'TP 2',  tp2,    tp2Pct,  rr2,  '#089981') +
-      fsRow('🎯', 'TP 3',  tp3,    tp3Pct,  rr3,  '#047857');
+      '<div style="padding:8px 12px;background:'+p.color+'12;border-bottom:1px solid '+p.color+'55">' +
+        '<div style="font-size:9px;color:#787b86;text-transform:uppercase;font-weight:700">'+p.source+' PLAN</div>' +
+        '<div style="font-size:10px;color:#d1d4dc;line-height:1.45;margin-top:3px">'+p.action+'</div></div>' +
+      wxCard +
+      '<div style="padding:7px 12px;border-bottom:1px solid #2a2e39">' +
+        '<div style="display:flex;justify-content:space-between;font-size:9px;color:#787b86"><span>LIVE PRICE</span><span>VS PLANNED ENTRY</span></div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:2px"><strong style="font-size:15px;color:#d1d4dc">'+fE(p.live)+'</strong><strong style="font-size:11px;color:'+liveCol+'">'+(p.liveVsEntry>=0?'+':'')+p.liveVsEntry.toFixed(2)+'%</strong></div></div>' +
+      fsRow('🎯','PLANNED ENTRY',p.entry,null,null,'#f59e0b','zone '+fE(p.zoneLow)+'–'+fE(p.zoneHigh)) +
+      fsRow('⚠','THESIS CLOSE',p.thesis,(p.thesis-p.entry)/p.entry*100,null,'#f59e0b',(chartState.tf||TF)+' close below = setup failed') +
+      fsRow('🛡','HARD STOP',p.sl,-p.slPct,null,'#f23645','protective order') +
+      fsRow('💰','TP 1',p.tp1,p.tp1Pct,p.rr1.toFixed(1),'#26a69a',p.netRR1<CONFIG.CHART_MIN_NET_RR?'below net minimum':'sell 40%') +
+      fsRow('💰','TP 2',p.tp2,p.tp2Pct,p.rr2.toFixed(1),'#089981','sell 35%') +
+      fsRow('🎯','TP 3',p.tp3,p.tp3Pct,p.rr3.toFixed(1),'#047857','trail 25%') +
+      '<div style="padding:8px 12px;border-bottom:1px solid #2a2e39"><div style="font-size:9px;color:#787b86;text-transform:uppercase;font-weight:700;margin-bottom:3px">CONFIRMATION</div>'+checks+'</div>' +
+      '<div style="padding:8px 12px;background:rgba(38,166,154,.05)"><div style="font-size:9px;color:#787b86;text-transform:uppercase;font-weight:700">RISK CONTROL</div>' +
+        '<div style="font-size:10px;color:#d1d4dc;line-height:1.5;margin-top:3px">Allocation <strong style="color:#26a69a">'+p.allocation.toFixed(1)+'% max</strong> · portfolio risk <strong>'+p.actualRisk.toFixed(2)+'%</strong><br>Hard cap '+CONFIG.MAX_SPOT_ALLOC_PCT+'% · stop distance '+p.slPct.toFixed(2)+'%</div></div>';
   }
 
-  // Market stats
   var mktEl = document.getElementById('fs-market');
   if (mktEl) {
-    var scC = d.score >= 70 ? '#26a69a' : d.score >= 50 ? '#f59e0b' : '#f23645';
+    var scC = p.score100 >= 70 ? '#26a69a' : p.score100 >= 50 ? '#f59e0b' : '#f23645';
+    var freshTxt = p.freshSec == null ? 'waiting' : p.freshSec <= 15 ? p.freshSec+'s ago' : 'STALE '+p.freshSec+'s';
+    var freshCol = p.freshSec == null || p.freshSec > 30 ? '#f59e0b' : '#26a69a';
     mktEl.innerHTML =
-      '<div>Score <strong style="color:'+scC+'">'+d.score+'/97</strong></div>' +
+      '<div>Score <strong style="color:'+scC+'">'+p.score100+'/100</strong></div>' +
       '<div>RSI <strong style="color:#d1d4dc">'+d.rsi.toFixed(1)+'</strong></div>' +
-      '<div>Vol <strong style="color:#d1d4dc">'+d.volR.toFixed(2)+'×</strong></div>' +
+      '<div>Vol <strong style="color:'+(d.volR>=CONFIG.CHART_VOL_CONFIRM?'#26a69a':'#f59e0b')+'">'+d.volR.toFixed(2)+'×</strong></div>' +
       '<div>Struct <strong style="color:#d1d4dc">'+d.struct+'</strong></div>' +
       '<div>Trend <strong style="color:'+(d.trend==='up'?'#26a69a':d.trend==='down'?'#f23645':'#f59e0b')+'">'+d.trend+'</strong></div>' +
-      '<div style="margin-top:6px;font-size:10px;color:#50535e;line-height:1.6">SL dist: '+slPct.toFixed(2)+'%<br>Pos size: ~'+(slPct>0?(1.5/slPct*100).toFixed(0):'5')+'% portfolio</div>';
+      '<div style="margin-top:6px;padding-top:6px;border-top:1px solid #2a2e39;font-size:9px;color:#787b86;line-height:1.6">' +
+        '<span style="color:#f59e0b">● LIVE CANDLE — UNCONFIRMED</span><br>Closes in '+_chartCountdown(p.candleClosesAt)+'<br>' +
+        'Price data: <strong style="color:'+freshCol+'">'+freshTxt+'</strong></div>';
   }
 }
 
@@ -13959,6 +14354,8 @@ function collapseChartFull() {
   chartState.legendId   = 'chart-legend';
   chartState.crosshair  = null;
   chartState.dragging   = false;
+  var fsCanvas = document.getElementById('chart-canvas-fs');
+  if (fsCanvas) hideChartCursorReadout(fsCanvas);
   if (chartState.klines) drawChart();
 }
 
@@ -13966,6 +14363,8 @@ function toggleInd(name) {
   chartState.indicators[name] = !chartState.indicators[name];
   var btn = document.getElementById('ind-' + name);
   if (btn) btn.classList.toggle('active', chartState.indicators[name]);
+  var btnFS = document.getElementById('ind-fs-' + name);
+  if (btnFS) btnFS.classList.toggle('active', chartState.indicators[name]);
   if (chartState.klines) drawChart();
 }
 
@@ -14036,6 +14435,61 @@ function zoomAtCursor(canvas, clientX, newZoom) {
   drawChart();
 }
 
+// DOM cursor tags are intentionally separate from the canvas. The canvas is
+// repainted on every live tick; keeping these tags above it guarantees that the
+// hovered price and candle time remain readable while the live price continues
+// updating underneath.
+function _cursorReadoutEls(canvas) {
+  var fs = canvas && canvas.id === 'chart-canvas-fs';
+  return {
+    price: document.getElementById(fs ? 'chart-cursor-price-fs' : 'chart-cursor-price'),
+    time: document.getElementById(fs ? 'chart-cursor-time-fs' : 'chart-cursor-time')
+  };
+}
+
+function hideChartCursorReadout(canvas) {
+  var els = _cursorReadoutEls(canvas);
+  if (els.price) els.price.style.display = 'none';
+  if (els.time) els.time.style.display = 'none';
+}
+
+function updateChartCursorReadout(canvas, x, y) {
+  var m = chartState._map, els = _cursorReadoutEls(canvas);
+  if (!canvas || !m || !chartState.klines || !els.price || !els.time) return;
+  var rect = canvas.getBoundingClientRect();
+  var chartW = Math.max(1, rect.width - 78);
+
+  // Price under the horizontal crosshair. Blue means cursor value; the live
+  // market-price label keeps its bullish/bearish colour and remains separate.
+  if (y >= m.TOP_PAD && y <= m.TOP_PAD + m.CANDLE_H) {
+    var price = m.pMin + m.pRange * (1 - (y - m.TOP_PAD) / m.CANDLE_H);
+    els.price.textContent = fmtPrice(price);
+    els.price.style.top = Math.round(y) + 'px';
+    els.price.style.display = 'block';
+  } else {
+    els.price.style.display = 'none';
+  }
+
+  // Candle time under the vertical crosshair. Do not invent a future candle in
+  // the right-edge whitespace reserved after the live bar.
+  var localIndex = Math.floor(x / Math.max(1, m.candleW));
+  var dataIndex = m.offset + localIndex;
+  if (x >= 0 && x <= chartW && localIndex >= 0 && localIndex < (m.visibleCount||0) && dataIndex < chartState.klines.length) {
+    var bar = chartState.klines[dataIndex];
+    var dt = new Date(parseInt(bar[0]));
+    var label = (chartState.tf === '1d' || chartState.tf === '1w')
+      ? dt.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'2-digit'})
+      : dt.toLocaleDateString(undefined,{month:'short',day:'numeric'}) + ' ' +
+        dt.getHours().toString().padStart(2,'0') + ':' + dt.getMinutes().toString().padStart(2,'0');
+    els.time.textContent = label;
+    els.time.style.display = 'block';
+    var tagW = els.time.offsetWidth || 86;
+    els.time.style.left = Math.round(Math.max(0, Math.min(x - tagW/2, chartW - tagW))) + 'px';
+  } else {
+    els.time.style.display = 'none';
+  }
+}
+
 function initChartEvents() {
   var canvasId = chartState.canvasId || 'chart-canvas';
   var canvas = document.getElementById(canvasId);
@@ -14049,6 +14503,7 @@ function initChartEvents() {
     var x = e.clientX - rect.left;
     var y = e.clientY - rect.top;
     chartState.crosshair = {x: x, y: y, cssW: rect.width, cssH: rect.height};
+    updateChartCursorReadout(canvas, x, y);
     if (chartState.dragging) {
       var dx = e.clientX - chartState.dragStartX;
       var cR = canvas.getBoundingClientRect();
@@ -14078,6 +14533,7 @@ function initChartEvents() {
   canvas.addEventListener('mouseleave', function() {
     chartState.dragging = false;
     chartState.crosshair = null;
+    hideChartCursorReadout(canvas);
     canvas.style.cursor = 'crosshair';
     if (chartState.klines) drawChart();
   });
@@ -14095,7 +14551,9 @@ function initChartEvents() {
   var lpTimer = null, chMode = false, tStartY = 0;
   function setCross(t){
     var rect = canvas.getBoundingClientRect();
-    chartState.crosshair = { x: t.clientX - rect.left, y: t.clientY - rect.top, cssW: rect.width, cssH: rect.height };
+    var x=t.clientX-rect.left, y=t.clientY-rect.top;
+    chartState.crosshair = { x:x, y:y, cssW:rect.width, cssH:rect.height };
+    updateChartCursorReadout(canvas,x,y);
   }
   canvas.addEventListener('touchstart', function(e) {
     if (e.touches.length === 1) {
@@ -14148,6 +14606,7 @@ function initChartEvents() {
     if (chMode) {
       chMode = false;
       chartState.crosshair = null;            // lift finger → crosshair clears
+      hideChartCursorReadout(canvas);
       if (chartState.klines) drawChart();
     }
   });
@@ -14292,7 +14751,8 @@ function _drawChartNow() {
   function cX(i)     { return LEFT_PAD + (i + 0.5) * candleW; }
   // Publish the mapping so the manual-drawing tool can invert screen→data coords
   chartState._map = { TOP_PAD:TOP_PAD, CANDLE_H:CANDLE_H, LEFT_PAD:LEFT_PAD,
-                      candleW:candleW, pMin:pMin, pRange:pRange, offset:offset };
+                      candleW:candleW, pMin:pMin, pRange:pRange, offset:offset,
+                      visibleCount:visible.length };
 
   // ── EMAs ─────────────────────────────────────────────────────────────────
   var closes  = klines.map(function(k) { return parseFloat(k[4]); });
@@ -14300,6 +14760,20 @@ function _drawChartNow() {
   var ema50s  = calcEMAArr(closes, 50);
   var ema100s = calcEMAArr(closes, 100);
   var ema200s = calcEMAArr(closes, 200);
+  // Wyckoff uses CLOSED candles only. The live/forming bar is visual context,
+  // never allowed to create or erase a phase/event label intrabar.
+  var wxK = klines.length>1 ? klines.slice(0,-1) : klines.slice();
+  var wxH = wxK.map(function(k){return parseFloat(k[2]);});
+  var wxL = wxK.map(function(k){return parseFloat(k[3]);});
+  var wxC = wxK.map(function(k){return parseFloat(k[4]);});
+  var wxV = wxK.map(function(k){
+    var q=parseFloat(k[7]); return isFinite(q)&&q>0?q:parseFloat(k[5])*parseFloat(k[4]);
+  });
+  var wxAtr = calcATR(wxH,wxL,wxC,14);
+  var wxE20=calcEMA(wxC,20), wxE50=calcEMA(wxC,50);
+  var wxTrend=wxC.length?(wxC[wxC.length-1]>wxE20&&wxE20>wxE50?'up':wxC[wxC.length-1]<wxE20&&wxE20<wxE50?'down':'mixed'):'mixed';
+  var wx = calcWyckoff(wxH,wxL,wxC,wxV,wxAtr,wxTrend);
+  chartState.wyckoff = wx;
 
   // ════════════════════════════════════════════════════════════════════════
   // DRAW — exact TradingView order
@@ -14330,9 +14804,41 @@ function _drawChartNow() {
   }
   ctx.restore();
 
+  var _srLbls = [];
+
+  // 3b. WYCKOFF RANGE + PHASE/EVENT OVERLAY
+  if(ind.wyckoff && wx && wx.rangeHigh && wx.rangeLow) {
+    var wxStartX=cX(wx.rangeStart-offset)-candleW/2;
+    var wxEndIdx=Math.max(wx.rangeEnd,wxC.length-1);
+    var wxEndX=cX(wxEndIdx-offset)+candleW/2;
+    var wxLeft=Math.max(0,wxStartX), wxRight=Math.min(chartW,wxEndX);
+    var wxTop=pY(wx.rangeHigh), wxBot=pY(wx.rangeLow);
+    var wxCol=wx.bearBlock||wx.bias==='bearish'?'#ef5350':wx.bullConfirm||wx.bias==='bullish'?'#26a69a':'#7c4dff';
+    if(wxRight>wxLeft && wxBot>wxTop) {
+      ctx.save();
+      ctx.fillStyle=wxCol+'12'; ctx.fillRect(wxLeft,wxTop,wxRight-wxLeft,wxBot-wxTop);
+      ctx.strokeStyle=wxCol; ctx.globalAlpha=.75; ctx.lineWidth=1; ctx.setLineDash([5,4]);
+      ctx.strokeRect(wxLeft,wxTop,wxRight-wxLeft,wxBot-wxTop); ctx.setLineDash([]); ctx.globalAlpha=1;
+      ctx.fillStyle=wxCol; ctx.font='bold 10px -apple-system,sans-serif'; ctx.textAlign='left';
+      ctx.fillText('WYCKOFF '+wx.type.toUpperCase()+' · PHASE '+wx.phase+' · '+wx.confidence+'/100',wxLeft+6,wxTop+13);
+      ctx.restore();
+    }
+    (wx.events||[]).forEach(function(ev){
+      var vx=cX(ev.index-offset); if(vx<4||vx>chartW-4) return;
+      var vy=pY(ev.price), col=ev.side==='bear'?'#ef5350':'#26a69a';
+      var above=ev.side==='bear', ty=above?vy-22:vy+9;
+      ctx.save(); ctx.font='bold 9px -apple-system,sans-serif';
+      var tw=Math.max(28,ctx.measureText(ev.code).width+10);
+      ctx.fillStyle=col; ctx.globalAlpha=.92;
+      if(ctx.roundRect) ctx.roundRect(vx-tw/2,ty,tw,15,3); else ctx.rect(vx-tw/2,ty,tw,15);
+      ctx.fill(); ctx.globalAlpha=1; ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.fillText(ev.code,vx,ty+11);
+      ctx.strokeStyle=col;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(vx,above?ty+15:ty);ctx.lineTo(vx,vy);ctx.stroke();
+      ctx.restore();
+    });
+  }
+
   // 4. S/R horizontal levels
   if (ind.sr && d) {
-    var _srLbls = [];
     function drawSRLine(price, col, lbl) {
       if (!price || price < pMin || price > pMax) return;
       var y2 = snapY(pY(price));   // crisp 1px stroke
@@ -14348,28 +14854,8 @@ function _drawChartNow() {
     drawSRLine(d.sup, C.sup, 'SUP ' + fmtPrice(d.sup));
     drawSRLine(d.res, C.res, 'RES ' + fmtPrice(d.res));
 
-    // ── AI ANALYST LEVELS — drawn after an analysis has been run on this coin ──
-    var aiL = (window._aiLevels || {})[curSym];
-    if (aiL) {
-      if (aiL.planA && aiL.planA.length === 2) {
-        var zLo = Math.max(pMin, Math.min(aiL.planA[0], aiL.planA[1]));
-        var zHi = Math.min(pMax, Math.max(aiL.planA[0], aiL.planA[1]));
-        if (zHi > zLo) {
-          ctx.save();
-          ctx.fillStyle = 'rgba(124,77,255,.13)';
-          var yTop = pY(zHi), yBot = pY(zLo);
-          ctx.fillRect(0, yTop, chartW, yBot - yTop);
-          ctx.fillStyle = '#7c4dff'; ctx.font = 'bold 9px -apple-system,sans-serif'; ctx.textAlign = 'left';
-          ctx.fillText('AI ENTRY ZONE', 6, yTop + 11);
-          ctx.restore();
-        }
-      }
-      if (aiL.sl)  drawSRLine(aiL.sl,  '#ef5350', 'AI SL '  + fmtPrice(aiL.sl));
-      if (aiL.tp1) drawSRLine(aiL.tp1, '#26a69a', 'AI TP1 ' + fmtPrice(aiL.tp1));
-      if (aiL.tp2) drawSRLine(aiL.tp2, '#26a69a', 'AI TP2 ' + fmtPrice(aiL.tp2));
-      if (aiL.tp3) drawSRLine(aiL.tp3, '#26a69a', 'AI TP3 ' + fmtPrice(aiL.tp3));
-      if (aiL.breakout) drawSRLine(aiL.breakout, '#7c4dff', 'AI BO ' + fmtPrice(aiL.breakout));
-    }
+    // AI levels are never drawn as a second competing plan. Verified AI levels
+    // can become the canonical plan; otherwise the structural plan remains active.
 
     // PDH / PDL — previous day high/low
     var barsPerDay = {h1:24,h4:6,m15:96,d1:1}[chartState.tf.replace('1h','h1').replace('4h','h4').replace('15m','m15').replace('1d','d1')] || 0;
@@ -14729,18 +15215,17 @@ function _drawChartNow() {
   // Drawing order: zones → candles → lines → arrows → labels → panel
   // ══════════════════════════════════════════════════════════════════════════
   if (ind.analyst && d) {
-    var pos = loadPos ? loadPos(d.sym) : null;
-
-    // ── Level calculations ────────────────────────────────────────────────────
-    var aEntry = pos ? pos.entry : d.ema20 * 1.001;
-    var aSL    = pos ? pos.sl   : d.sup * 0.984;
-    var aTP1   = pos ? pos.tp1  : Math.min(d.res * 0.998, aEntry * 1.03);
-    var aTP2   = pos ? pos.tp2  : aEntry * 1.06;
-    var aTP3   = pos ? pos.tp3  : aEntry * 1.10;
-    var aSlPct = aEntry > 0 ? ((aEntry - aSL) / aEntry * 100) : 2;
-    var aTp1R  = aSlPct > 0 ? ((aTP1 - aEntry) / aEntry * 100 / aSlPct).toFixed(1) : '-';
-    var aTp2R  = aSlPct > 0 ? ((aTP2 - aEntry) / aEntry * 100 / aSlPct).toFixed(1) : '-';
-    var aTp3R  = aSlPct > 0 ? ((aTP3 - aEntry) / aEntry * 100 / aSlPct).toFixed(1) : '-';
+    var aPlan  = buildCanonicalChartPlan(d);
+    var aEntry = aPlan.entry;
+    var aThesis= aPlan.thesis;
+    var aSL    = aPlan.sl;
+    var aTP1   = aPlan.tp1;
+    var aTP2   = aPlan.tp2;
+    var aTP3   = aPlan.tp3;
+    var aSlPct = aPlan.slPct;
+    var aTp1R  = aPlan.rr1.toFixed(1);
+    var aTp2R  = aPlan.rr2.toFixed(1);
+    var aTp3R  = aPlan.rr3.toFixed(1);
 
     var lows3   = klines.map(function(k){return parseFloat(k[3]);});
     var highs3  = klines.map(function(k){return parseFloat(k[2]);});
@@ -15023,9 +15508,10 @@ function _drawChartNow() {
     var tvLevels = [
       {price: aTP3,   col:'#089981', name:'TP3 +'  + ((aTP3-aEntry)/aEntry*100).toFixed(1)+'%', dash:[3,3], lw:1},
       {price: aTP2,   col:'#26a69a', name:'TP2 +'  + ((aTP2-aEntry)/aEntry*100).toFixed(1)+'%', dash:null,  lw:1.5},
-      {price: aTP1,   col:'#2ecc71', name:'TP1 +'  + ((aTP1-aEntry)/aEntry*100).toFixed(1)+'%', dash:null,  lw:2},
-      {price: aEntry, col:'#f59e0b', name:'BUY  '  + fmtPrice(aEntry), dash:null, lw:2.5},
-      {price: aSL,    col:'#f23645', name:'SL  -'  + aSlPct.toFixed(1)+'%', dash:[5,4], lw:1.5},
+      {price: aTP1,   col:'#2ecc71', name:'TP1 '+aTp1R+'R', dash:null, lw:2},
+      {price: aEntry, col:'#f59e0b', name:'PLAN '+fmtPrice(aEntry), dash:null, lw:2.5},
+      {price: aThesis,col:'#f59e0b', name:'THESIS CLOSE', dash:[2,4], lw:1},
+      {price: aSL,    col:'#f23645', name:'HARD SL -'+aSlPct.toFixed(1)+'%', dash:[5,4], lw:1.5},
     ].filter(function(lv){ return lv.price && lv.price >= pMin && lv.price <= pMax; })
      .sort(function(a,b){ return b.price - a.price; });
 
@@ -15308,17 +15794,7 @@ function _drawChartNow() {
   }
 
   // Update pair label
-  var pairEl = document.getElementById('chart-pair-tv');
-  if (pairEl && d) {
-    var lp = chartState.livePrice;
-    var lpC = chartState.liveChange >= 0 ? '#26a69a' : '#ef5350';
-    var lpS = chartState.liveChange >= 0 ? '+' : '';
-    pairEl.innerHTML = '<span style="font-weight:700">' + d.pair + '</span>' +
-      (lp ? ' <span style="color:'+lpC+'">'+fmtPrice(lp)+'</span> <span style="font-size:10px;color:'+lpC+'">'+lpS+chartState.liveChange.toFixed(2)+'%</span>' : '') +
-      ' <span style="font-size:9px;background:#26a69a;color:#fff;padding:1px 5px;border-radius:8px;margin-left:4px;animation:pulse 1.4s infinite">● LIVE</span>';
-    var fsP = document.getElementById('chart-fs-pair');
-    if (fsP) fsP.textContent = d.pair + ' · ' + (chartState.tf || '');
-  }
+  if (d) updateChartLiveHeader();
 
   // Analyst bar below chart
   updateChartAnalystBar(d);
@@ -15328,39 +15804,22 @@ function updateChartAnalystBar(d) {
   if (!d) return;
   var bar = document.getElementById('chart-analyst-bar');
   if (!bar) return;
-
-  var pos = loadPos ? loadPos(d.sym) : null;
-  var entry = pos ? pos.entry : d.ema20 * 1.001;
-  var sl    = pos ? pos.sl   : d.sup * 0.984;
-  // FIX: when entry (EMA20-anchored) sits ABOVE the nearest resistance, capping
-  // TP1 at that resistance puts the target BELOW the entry — a negative-R:R plan
-  // displayed as a buy. If resistance is not above entry, it is not a target.
-  var _resTgt = (d.res && d.res * 0.998 > entry * 1.002) ? d.res * 0.998 : null;
-  var tp1   = pos ? pos.tp1  : (_resTgt ? Math.min(_resTgt, entry * 1.03) : entry * 1.03);
-  var tp2   = pos ? pos.tp2  : entry * 1.06;
-  var tp3   = pos ? pos.tp3  : entry * 1.10;
-  var slPct   = entry > 0 ? ((entry - sl)  / entry * 100) : 0;
-  var tp1Pct  = entry > 0 ? ((tp1  - entry) / entry * 100) : 0;
-  var tp2Pct  = entry > 0 ? ((tp2  - entry) / entry * 100) : 0;
-  var tp3Pct  = entry > 0 ? ((tp3  - entry) / entry * 100) : 0;
-  var rr1 = slPct > 0 ? (tp1Pct / slPct).toFixed(1) : '—';
-  var rr1num = slPct > 0 ? tp1Pct / slPct : 0;
-  var rrWarn = rr1num > 0 && rr1num < 1.5 ? '<div style="background:rgba(239,83,80,.1);border:1px solid rgba(239,83,80,.3);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--r);margin-bottom:8px">⚠️ <strong>R:R ' + rr1 + ':1 is below 1.5 minimum</strong> — skip this trade or wait for better entry near EMA20 to improve ratio.</div>' : '';
-  var rr2 = slPct > 0 ? (tp2Pct / slPct).toFixed(1) : '—';
-  var rr3 = slPct > 0 ? (tp3Pct / slPct).toFixed(1) : '—';
-  var liveP = chartState.livePrice || d.price;
-  var fromLive = function(p){ return ((p - liveP) / liveP * 100); };
-
-  var sigCol = d.strongBuy ? '#F59E0B' : (d.buySignal || d.liq==='buy_sweep') ? '#26a69a' : d.liq==='sell_sweep' ? '#ef5350' : '#888';
-  var sigTxt = d.strongBuy ? '⚡ STRONG BUY' : d.liq==='buy_sweep' ? '🟢 SWEEP BUY' : d.buySignal ? '✅ BUY SIGNAL' : d.liq==='sell_sweep' ? '🔴 SELL SWEEP' : '⏳ NEUTRAL';
-  var scC = d.score >= 70 ? '#26a69a' : d.score >= 50 ? '#F59E0B' : '#ef5350';
-  var entryNote = liveP <= entry * 1.015 ? '🟡 At EMA20 — ideal entry' : liveP <= entry * 1.05 ? '✅ Near EMA20 — acceptable' : liveP > entry * 1.05 ? '⚠ Extended — wait for dip to EMA20' : '—';
+  var p = buildCanonicalChartPlan(d);
+  var entry=p.entry, sl=p.sl, tp1=p.tp1, tp2=p.tp2, tp3=p.tp3;
+  var slPct=p.slPct, tp1Pct=p.tp1Pct, tp2Pct=p.tp2Pct, tp3Pct=p.tp3Pct;
+  var rr1=p.rr1.toFixed(1), rr2=p.rr2.toFixed(1), rr3=p.rr3.toFixed(1);
+  var liveP=p.live;
+  var fromLive=function(x){return liveP>0?(x-liveP)/liveP*100:0;};
+  var sigCol=p.color, sigTxt=p.status;
+  var scC=p.score100>=70?'#26a69a':p.score100>=50?'#F59E0B':'#ef5350';
+  var entryNote=p.action;
 
   bar.innerHTML =
   // Signal header row
   '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">' +
     '<span style="font-size:14px;font-weight:800;color:'+sigCol+'">'+sigTxt+'</span>' +
-    '<span style="font-size:12px;color:var(--t2)">Score: <strong style="color:'+scC+'">'+d.score+'/97</strong></span>' +
+    '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--card3);color:var(--t2)">'+p.source+' PLAN</span>' +
+    '<span style="font-size:12px;color:var(--t2)">Score: <strong style="color:'+scC+'">'+p.score100+'/100</strong></span>' +
     '<span style="font-size:12px;color:var(--t2)">RSI: <strong>'+d.rsi.toFixed(1)+'</strong></span>' +
     '<span style="font-size:12px;color:var(--t2)">Vol: <strong>'+d.volR.toFixed(2)+'×</strong></span>' +
     '<span style="font-size:12px;color:var(--t2)">Structure: <strong>'+d.struct+'</strong></span>' +
@@ -15381,8 +15840,9 @@ function updateChartAnalystBar(d) {
     '</tr>' +
   '</thead>' +
   '<tbody>' +
-    tableRow('🎯 Entry (EMA20)', fE(entry),    '—',                              pctStr(fromLive(entry)),     '—',   'Limit order or market if near EMA20',  '#F59E0B', true) +
-    tableRow('🛡 Stop Loss',     fE(sl),       pctStr(-slPct,true),              pctStr(fromLive(sl)),        '1×',  'Close 100% — thesis invalidated',       '#ef5350', false) +
+    tableRow('🎯 Planned entry', fE(entry),    '—',                              pctStr(fromLive(entry)),     '—',   'Only execute when status is READY/TRIGGERED', '#F59E0B', true) +
+    tableRow('⚠ Thesis close',   fE(p.thesis), pctStr((p.thesis-entry)/entry*100,true), pctStr(fromLive(p.thesis)), '—', (chartState.tf||TF)+' close below = setup invalidated', '#F59E0B', false) +
+    tableRow('🛡 Hard stop',      fE(sl),       pctStr(-slPct,true),              pctStr(fromLive(sl)),        '1×',  'Protective order — close 100%',          '#ef5350', false) +
     tableRow('💰 TP1  (40%)',    fE(tp1),      pctStr(tp1Pct),                   pctStr(fromLive(tp1)),       rr1,   'Take 40%. Move SL to breakeven',        '#26a69a', false) +
     tableRow('💰 TP2  (35%)',    fE(tp2),      pctStr(tp2Pct),                   pctStr(fromLive(tp2)),       rr2,   'Take 35%. Trail SL to TP1',             '#1a9488', false) +
     tableRow('🎯 TP3  (25%)',    fE(tp3),      pctStr(tp3Pct),                   pctStr(fromLive(tp3)),       rr3,   'Let remainder run. Final exit',         '#0f7066', false) +
@@ -15390,10 +15850,15 @@ function updateChartAnalystBar(d) {
   '</table>' +
   '</div>' +
 
+  '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">' +
+    p.confirmations.map(function(c){return '<span style="font-size:10px;padding:3px 7px;border-radius:4px;background:'+(c.ok?'rgba(38,166,154,.10)':'rgba(245,158,11,.10)')+';color:'+(c.ok?'#26a69a':'#F59E0B')+'">'+(c.ok?'✅ ':'○ ')+c.label+' '+c.value+'</span>';}).join('') +
+    '<span style="font-size:10px;padding:3px 7px;border-radius:4px;background:rgba(245,158,11,.10);color:#F59E0B">● LIVE CANDLE — closes in '+_chartCountdown(p.candleClosesAt)+'</span>' +
+  '</div>' +
+
   // Bottom row: position size + goto analysis
   '<div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap">' +
     '<div style="font-size:11px;color:var(--t2);background:var(--card3);border-radius:var(--rad);padding:5px 10px">' +
-      '⚖ <strong>Risk model:</strong> 1.5% portfolio risk · SL distance ' + slPct.toFixed(2) + '% → allocate <strong>~' + (slPct > 0 ? (1.5/slPct*100).toFixed(0) : '5') + '%</strong> of portfolio' +
+      '⚖ <strong>Risk model:</strong> allocation <strong>'+p.allocation.toFixed(1)+'%</strong> (hard cap '+CONFIG.MAX_SPOT_ALLOC_PCT+'%) · SL distance '+slPct.toFixed(2)+'% · actual portfolio risk <strong>'+p.actualRisk.toFixed(2)+'%</strong>' +
     '</div>' +
     '<button onclick="switchMTab(\'ai\')" style="margin-left:auto;padding:5px 14px;border-radius:var(--rad);border:none;background:var(--g);color:#fff;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer;white-space:nowrap">Full Analyst →</button>' +
   '</div>';
@@ -15709,12 +16174,15 @@ function showToast(d,type,label){
   var wrap=document.getElementById('toast-wrap');if(!wrap)return;
   while(wrap.children.length>=4)wrap.removeChild(wrap.firstChild);
   var el=document.createElement('div');el.className='toast';
-  var barCol=type==='strong'?'var(--am)':type==='sweep'?'#8B5CF6':type==='sweepSell'?'var(--r)':'var(--g)';
-  var typeBg=type==='strong'?'rgba(245,166,35,.15)':type==='sweep'?'rgba(139,92,246,.12)':type==='sweepSell'?'var(--rb)':'var(--gb)';
-  var typeCol=type==='strong'?'#7a3f00':type==='sweep'?'#5B21B6':type==='sweepSell'?'var(--rt)':'var(--gt)';
-  var ico=type==='strong'?'⚡':type==='sweep'?'🟢':type==='sweepSell'?'🔴':type==='breakout'?'🚀':type==='oversold'?'📉':'✅';
+  var isBearType=type==='sweepSell'||type==='wyckoffBear';
+  var barCol=type==='strong'?'var(--am)':type==='sweep'?'#8B5CF6':isBearType?'var(--r)':'var(--g)';
+  var typeBg=type==='strong'?'rgba(245,166,35,.15)':type==='sweep'?'rgba(139,92,246,.12)':isBearType?'var(--rb)':'var(--gb)';
+  var typeCol=type==='strong'?'#7a3f00':type==='sweep'?'#5B21B6':isBearType?'var(--rt)':'var(--gt)';
+  var ico=type==='strong'?'⚡':type==='sweep'?'🟢':type==='wyckoffBear'?'⛔':type==='wyckoffBull'?'✅':type==='sweepSell'?'🔴':type==='breakout'?'🚀':type==='oversold'?'📉':'✅';
   var chgC=d.chg>=0?'var(--g)':'var(--r)',chgS=d.chg>=0?'+':'';
-  var entryNote=d.price<=d.ema20*1.015?'🟡 At EMA20 — ideal entry':d.price<=d.ema20*1.05?'✅ Near EMA20':'⚠ Wait for pullback';
+  var entryNote=type==='wyckoffBear'?'⛔ Confirmed distribution weakness — new spot buys blocked'
+    : type==='wyckoffBull'?'✅ SOS/LPS confirmed — use the held Backup zone, never chase'
+    : d.price<=d.ema20*1.015?'🟡 At EMA20 — ideal entry':d.price<=d.ema20*1.05?'✅ Near EMA20':'⚠ Wait for pullback';
   el.innerHTML='<button class="t-close">✕</button>'+
     '<div class="t-row1"><span class="t-ico">'+ico+'</span><span class="t-pair">'+d.pair+'</span>'+
     '<span class="t-typ" style="background:'+typeBg+';color:'+typeCol+'">'+label+'</span></div>'+
@@ -15839,7 +16307,9 @@ function checkAlerts(data){
   var cur={};
   data.forEach(function(d){
     var sig='';
-    if(alPrefs.strong&&d.strongBuy)sig='strong';
+    if(alPrefs.sweepSell&&d.wyckoffBearBlock)sig='wyckoffBear';
+    else if(alPrefs.breakout&&d.wyckoffBullConfirm)sig='wyckoffBull';
+    else if(alPrefs.strong&&d.strongBuy)sig='strong';
     else if(alPrefs.sweepSell&&d.liq==='sell_sweep')sig='sweepSell';
     else if(alPrefs.sweep&&d.liq==='buy_sweep')sig='sweep';
     else if(alPrefs.buy&&d.buySignal&&!d.strongBuy)sig='buy';
@@ -15854,7 +16324,7 @@ function checkAlerts(data){
   try{var s=sessionStorage.getItem('al_prev');if(s)prev=JSON.parse(s);}catch(e){}
   var isFirst=Object.keys(prev).length===0;
   if(isFirst){try{sessionStorage.setItem('al_prev',JSON.stringify(cur));}catch(e){}return;}
-  var LABELS={strong:'⚡ Strong Buy',sweepSell:'🔴 Sweep Sell',sweep:'🟢 Sweep Buy',buy:'✅ Buy Signal',breakout:'🚀 Breakout',oversold:'📉 Oversold',rsiDiv:'📊 RSI Divergence',emaCross:'✂️ EMA Cross'};
+  var LABELS={wyckoffBull:'✅ Wyckoff SOS/LPS',wyckoffBear:'⛔ Wyckoff SOW/LPSY',strong:'⚡ Strong Buy',sweepSell:'🔴 Sweep Sell',sweep:'🟢 Sweep Buy',buy:'✅ Buy Signal',breakout:'🚀 Breakout',oversold:'📉 Oversold',rsiDiv:'📊 RSI Divergence',emaCross:'✂️ EMA Cross'};
   data.forEach(function(d){
     var cs=cur[d.sym]||'',ps=prev[d.sym]||'';
     if(!cs||cs===ps)return;
@@ -16426,7 +16896,13 @@ function _connectWS() {
         var newChg   = tick.price24hPcnt != null ? parseFloat(tick.price24hPcnt) * 100 : coin.chg;
         var newVol   = parseFloat(tick.turnover24h || coin.vol24 || 0);
         if (newPrice > 0) { coin.price = newPrice; coin.chg = newChg; coin.vol24 = newVol; _lastDataTime = Date.now(); }
-        if (chartState.sym === sym) { chartState.livePrice = newPrice; chartState.liveChange = newChg; if (chartState.klines) drawChart(); }
+        if (chartState.sym === sym) {
+          chartState.livePrice = newPrice;
+          chartState.liveChange = newChg;
+          chartState.lastPriceAt = Date.now();
+          if (chartState.klines) drawChart();
+          if (chartState.fullscreen && chartState.d) populateFSTable(chartState.d);
+        }
         // PERF: throttle full table rebuild to every 3s, skip when an overlay is open.
         if (!startWebSocket._renderPending) {
           startWebSocket._renderPending = true;
@@ -18495,7 +18971,7 @@ function runMarketBriefing(){
     myTrackRecord: (function(){ var st=signalLogStats(); return st.resolved ? (st.winRate+'% over '+st.resolved+' resolved, expectancy '+(st.expectancyR!=null?st.expectancyR+'R':'n/a')) : 'no resolved trades yet'; })()
   };
 
-  var sys = 'You are a brutally honest crypto spot-trading analyst acting as a BEST-SETUP AGENT: rank the pre-filtered candidates and name the best setups on the board, strictly from the data given. You get current market context and the top active buy signals as JSON. Rules: never predict prices or give probabilities; tie every point to the data; be blunt; SPOT only; factor the user\'s real track record (if below 40% breakeven, stress small size). Structure your reply in plain text (no markdown symbols), ~250-400 words, with these UPPERCASE labels each on their own line: MARKET STATE (BTC regime + alt weather, one or two lines). RANKED SETUPS (rank the top 1-3 candidates BEST FIRST; for each: coin, the setup, and the specific data that earns its rank — trendline touches/breaks, sweep reclaims, daily trend agreement, extension vs EMA20 (over 3.5 percent = late, downgrade it), RS rank, volume; describe QUALITY, never say buy). AVOID (any candidate the data argues against — late/extended, counter-daily-trend, broken structure — and the one number that disqualifies it). WHAT WOULD CHANGE MY RANKING (the one or two conditions to watch). BOTTOM LINE (one blunt sentence; if nothing genuinely qualifies, say the honest answer is no setup today — an empty ranking is a valid ranking). Remember: alt-unfriendly weather + weak setups = the honest answer is often "quiet, be patient." Evidence base: trend/momentum and HTF alignment are the real edges; unconfirmed breakouts and counter-trend entries underperform; keep them honest.';
+  var sys = 'You are a brutally honest crypto spot-trading analyst acting as a BEST-SETUP AGENT: rank the pre-filtered candidates and name the best setups on the board, strictly from the data given. You get current market context and the top active buy signals as JSON. Rules: never predict prices or give probabilities; tie every point to the data; be blunt; SPOT only; factor the user\'s real track record (if below 40% breakeven, stress small size). Structure your reply in plain text (no markdown symbols), ~250-400 words, with these UPPERCASE labels each on their own line: MARKET STATE (BTC regime + alt weather, one or two lines). RANKED SETUPS (rank the top 1-3 candidates BEST FIRST; for each: coin, the setup, and the specific data that earns its rank — trendline touches/breaks, sweep reclaims, daily trend agreement, extension vs EMA20 (over 3.5 percent = late, downgrade it), RS rank, volume; describe QUALITY, never say buy). AVOID (any candidate the data argues against — late/extended, counter-daily-trend, broken structure — and the one number that disqualifies it). WHAT WOULD CHANGE MY RANKING (the one or two conditions to watch). BOTTOM LINE (one blunt sentence; if nothing genuinely qualifies, say the honest answer is no setup today — an empty ranking is a valid ranking). Remember: alt-unfriendly weather + weak setups = the honest answer is often "quiet, be patient." Evidence base: trend/momentum and HTF alignment are the real edges; unconfirmed breakouts and counter-trend entries underperform; keep them honest.' + WYCKOFF_SPOT_AI_RULES;
 
   _aiCallModel(sys, [{ role:'user', content:'Brief me on the current market:\n'+JSON.stringify(ctx, null, 1) }])
   .then(function(text){
