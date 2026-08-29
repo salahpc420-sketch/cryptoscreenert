@@ -3347,6 +3347,77 @@ function calcWyckoff(h, l, c, v, atr, trend) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// AUTO FIBONACCI — confirmed pivots only, recalculated for every chart TF
+// The forming candle is removed by the caller. Both sides of an anchor pivot
+// must already be closed, so a live wick cannot move or repaint the Fib.
+// ═══════════════════════════════════════════════════════════════════════════
+function calcAutoFib(h, l, c, atr, tf, trend) {
+  var none={valid:false,direction:'none',startIndex:null,endIndex:null,startPrice:null,
+    endPrice:null,low:null,high:null,levels:[],confidence:0,reason:'No confirmed impulse swing.'};
+  var n=c.length;
+  if(n<30 || !(atr>0)) return none;
+  var pivotBars={'15m':5,'1h':5,'4h':4,'1d':3,'1w':2}[tf]||4;
+  var scanStart=Math.max(pivotBars,n-180), highs=[], lows=[];
+  for(var i=scanStart;i<n-pivotBars;i++){
+    var isH=true,isL=true;
+    for(var j=i-pivotBars;j<=i+pivotBars;j++){
+      if(j<0||j>=n||j===i) continue;
+      if(h[j]>=h[i]) isH=false;
+      if(l[j]<=l[i]) isL=false;
+      if(!isH&&!isL) break;
+    }
+    if(isH) highs.push({i:i,p:h[i]});
+    if(isL) lows.push({i:i,p:l[i]});
+  }
+  if(!highs.length||!lows.length) return none;
+
+  var minBars=Math.max(6,pivotBars*2), maxSpan=140;
+  function bullCandidate(){
+    var best=null;
+    highs.forEach(function(hi){
+      var choices=lows.filter(function(lo){return lo.i<=hi.i-minBars&&hi.i-lo.i<=maxSpan;});
+      if(!choices.length) return;
+      var lo=choices.reduce(function(a,b){return b.p<a.p?b:a;});
+      var amp=hi.p-lo.p, ampATR=amp/atr;
+      if(ampATR<3) return;
+      var score=hi.i*100 + Math.min(80,ampATR) - (hi.i-lo.i)*.05;
+      if(!best||score>best.score) best={direction:'up',startIndex:lo.i,endIndex:hi.i,
+        startPrice:lo.p,endPrice:hi.p,low:lo.p,high:hi.p,ampATR:ampATR,score:score};
+    });
+    return best;
+  }
+  function bearCandidate(){
+    var best=null;
+    lows.forEach(function(lo){
+      var choices=highs.filter(function(hi){return hi.i<=lo.i-minBars&&lo.i-hi.i<=maxSpan;});
+      if(!choices.length) return;
+      var hi=choices.reduce(function(a,b){return b.p>a.p?b:a;});
+      var amp=hi.p-lo.p, ampATR=amp/atr;
+      if(ampATR<3) return;
+      var score=lo.i*100 + Math.min(80,ampATR) - (lo.i-hi.i)*.05;
+      if(!best||score>best.score) best={direction:'down',startIndex:hi.i,endIndex:lo.i,
+        startPrice:hi.p,endPrice:lo.p,low:lo.p,high:hi.p,ampATR:ampATR,score:score};
+    });
+    return best;
+  }
+  var bull=bullCandidate(), bear=bearCandidate(), leg=null;
+  if(trend==='up'&&bull) leg=bull;
+  else if(trend==='down'&&bear) leg=bear;
+  else if(bull&&bear) leg=bull.endIndex>=bear.endIndex?bull:bear;
+  else leg=bull||bear;
+  if(!leg) return none;
+
+  var ratios=[0,.236,.382,.5,.618,.786,1,1.272,1.618];
+  leg.levels=ratios.map(function(r){return {ratio:r,price:leg.startPrice+(leg.endPrice-leg.startPrice)*r};});
+  leg.valid=true;
+  leg.confidence=Math.max(40,Math.min(100,Math.round(45+Math.min(35,leg.ampATR*2)+
+    ((trend==='up'&&leg.direction==='up')||(trend==='down'&&leg.direction==='down')?15:0))));
+  leg.reason=(leg.direction==='up'?'Confirmed low-to-high impulse':'Confirmed high-to-low impulse')+
+    ' · '+leg.ampATR.toFixed(1)+' ATR · closed pivots only.';
+  return leg;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // TREND QUALITY SCORE (0-100) — how CLEAN is the trend, not just direction
 // Combines: linearity (R²), directional strength (ADX-style), pullback shallowness,
 // EMA alignment, and consistency. A smooth steady climb scores high; choppy whipsaw low.
@@ -10420,6 +10491,13 @@ function askClaude(sym){
       confidence:d.wyckoff.confidence,bias:d.wyckoff.bias,rangeLow:d.wyckoff.rangeLow,
       rangeHigh:d.wyckoff.rangeHigh,bullConfirm:d.wyckoff.bullConfirm,
       bearBlock:d.wyckoff.bearBlock,reason:d.wyckoff.reason} : null,
+    autoFib: chartState.sym===d.sym && chartState.autoFib && chartState.autoFib.valid ? {
+      timeframe:chartState.tf,direction:chartState.autoFib.direction,
+      startPrice:chartState.autoFib.startPrice,endPrice:chartState.autoFib.endPrice,
+      confidence:chartState.autoFib.confidence,
+      levels:chartState.autoFib.levels.map(function(x){return {ratio:x.ratio,price:x.price};}),
+      rule:'Closed-pivot confluence only; never a standalone entry signal.'
+    } : null,
     // The trendline state the chart draws — previously missing from the payload,
     // so the AI could not comment on a line the user could plainly see.
     // Liquidity pools BOTH sides — where stops cluster and price tends to hunt
@@ -13745,6 +13823,7 @@ var chartState = {
   dragStartX: 0,
   dragStartOffset: 0,
   crosshair: null,
+  autoFib: null,
   loading: false,
   livePrice: null,      // current live price
   livePriceTimer: null, // interval for live updates
@@ -13856,7 +13935,7 @@ function buildChartTab(d) {
     '<div style="width:1px;height:20px;background:#2a2e39;margin:0 8px;flex:0 0 auto"></div>' +
     // Indicator toggle chips
     '<div style="display:flex;gap:4px;flex:1;min-width:0;overflow:hidden">' +
-      ['ema:EMA','vol:Vol','rsi:RSI','sr:S/R','analyst:Levels','wyckoff:Wyckoff'].map(function(s){
+      ['ema:EMA','vol:Vol','rsi:RSI','sr:S/R','analyst:Levels','fib:Fib','wyckoff:Wyckoff'].map(function(s){
         var p=s.split(':');
         return '<button class="ctv-ind active" id="ind-'+p[0]+'" onclick="toggleInd(\''+p[0]+'\')" style="font-size:10px;padding:2px 8px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit;white-space:nowrap;transition:all .15s">'+p[1]+'</button>';
       }).join('') +
@@ -13923,7 +14002,7 @@ function buildChartTab(d) {
         '</div>' +
         '<div style="width:1px;height:20px;background:#2a2e39;margin:0 8px"></div>' +
         '<div style="display:flex;gap:4px">' +
-          ['ema:EMA','vol:Vol','rsi:RSI','sr:S/R','analyst:Levels','wyckoff:Wyckoff'].map(function(s){
+          ['ema:EMA','vol:Vol','rsi:RSI','sr:S/R','analyst:Levels','fib:Fib','wyckoff:Wyckoff'].map(function(s){
             var p=s.split(':');
             return '<button class="ctv-ind active" id="ind-fs-'+p[0]+'" onclick="toggleInd(\''+p[0]+'\')" style="font-size:10px;padding:2px 8px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">'+p[1]+'</button>';
           }).join('') +
@@ -13971,7 +14050,7 @@ function buildChartTab(d) {
     });
   }
 
-  chartState.indicators = {ema:true, vol:true, rsi:true, sr:true, analyst:true, wyckoff:true};
+  chartState.indicators = {ema:true, vol:true, rsi:true, sr:true, analyst:true, fib:true, wyckoff:true};
   chartState.sym = d.sym;
   chartState.d   = d;
   chartState.livePrice = null;
@@ -14774,6 +14853,8 @@ function _drawChartNow() {
   var wxTrend=wxC.length?(wxC[wxC.length-1]>wxE20&&wxE20>wxE50?'up':wxC[wxC.length-1]<wxE20&&wxE20<wxE50?'down':'mixed'):'mixed';
   var wx = calcWyckoff(wxH,wxL,wxC,wxV,wxAtr,wxTrend);
   chartState.wyckoff = wx;
+  var fib = calcAutoFib(wxH,wxL,wxC,wxAtr,chartState.tf,wxTrend);
+  chartState.autoFib = fib;
 
   // ════════════════════════════════════════════════════════════════════════
   // DRAW — exact TradingView order
@@ -14804,7 +14885,50 @@ function _drawChartNow() {
   }
   ctx.restore();
 
-  var _srLbls = [];
+  var _srLbls = [], _fibLbls = [];
+
+  // 3a. AUTO FIB — confirmed closed-pivot impulse on the active timeframe.
+  // Lines are independent of Wyckoff/SR and can be hidden with the Fib button.
+  if(ind.fib && fib && fib.valid) {
+    var fibLineStart=Math.max(0,cX(Math.min(fib.startIndex,fib.endIndex)-offset)-candleW/2);
+    var fibLineEnd=chartW;
+    function fibLevel(r){
+      for(var fi=0;fi<fib.levels.length;fi++) if(Math.abs(fib.levels[fi].ratio-r)<.0001) return fib.levels[fi].price;
+      return null;
+    }
+    var f50=fibLevel(.5), f618=fibLevel(.618);
+    if(f50!=null&&f618!=null) {
+      var fzTop=Math.min(pY(f50),pY(f618)),fzBot=Math.max(pY(f50),pY(f618));
+      if(fzBot>=TOP_PAD&&fzTop<=TOP_PAD+CANDLE_H) {
+        ctx.save();ctx.fillStyle='rgba(240,185,11,.075)';
+        ctx.fillRect(fibLineStart,Math.max(TOP_PAD,fzTop),fibLineEnd-fibLineStart,
+          Math.min(TOP_PAD+CANDLE_H,fzBot)-Math.max(TOP_PAD,fzTop));ctx.restore();
+      }
+    }
+    var fibCols={'.236':'#64b5f6','.382':'#d1d4dc','.5':'#26a69a','.618':'#f0b90b','.786':'#f0b90b','0':'#787b86','1':'#d1d4dc','1.272':'#2962ff','1.618':'#7c4dff'};
+    fib.levels.forEach(function(fl){
+      if(fl.price<pMin||fl.price>pMax) return;
+      var fy=snapY(pY(fl.price)), key=String(fl.ratio).replace(/^0\./,'.');
+      var fc=fibCols[key]||'#787b86';
+      ctx.save();ctx.strokeStyle=fc;ctx.lineWidth=(fl.ratio===.5||fl.ratio===.618?1.35:1);
+      ctx.globalAlpha=(fl.ratio>1?.85:.68);ctx.setLineDash(fl.ratio===0||fl.ratio===1?[]:[4,4]);
+      ctx.beginPath();ctx.moveTo(fibLineStart,fy);ctx.lineTo(fibLineEnd,fy);ctx.stroke();ctx.restore();
+      _fibLbls.push({y:fy,col:fc,lbl:key+' ('+fmtPrice(fl.price)+')'});
+    });
+    var fsx=cX(fib.startIndex-offset), fex=cX(fib.endIndex-offset);
+    if((fsx>=0&&fsx<=chartW)||(fex>=0&&fex<=chartW)) {
+      ctx.save();ctx.strokeStyle=fib.direction==='up'?'#26a69a':'#ef5350';ctx.lineWidth=1;ctx.setLineDash([3,4]);
+      ctx.beginPath();ctx.moveTo(fsx,pY(fib.startPrice));ctx.lineTo(fex,pY(fib.endPrice));ctx.stroke();ctx.setLineDash([]);
+      [
+        {x:fsx,y:pY(fib.startPrice),t:'0'},
+        {x:fex,y:pY(fib.endPrice),t:'1'}
+      ].forEach(function(a){if(a.x<0||a.x>chartW)return;ctx.fillStyle=fib.direction==='up'?'#26a69a':'#ef5350';ctx.beginPath();ctx.arc(a.x,a.y,3,0,Math.PI*2);ctx.fill();});
+      ctx.restore();
+    }
+    ctx.save();ctx.font='bold 9px -apple-system,sans-serif';ctx.textAlign='right';
+    ctx.fillStyle=fib.direction==='up'?'#26a69a':'#ef5350';
+    ctx.fillText('AUTO FIB '+(fib.direction==='up'?'↑':'↓')+' · '+fib.confidence+'/100',chartW-7,TOP_PAD+13);ctx.restore();
+  }
 
   // 3b. WYCKOFF RANGE + PHASE/EVENT OVERLAY
   if(ind.wyckoff && wx && wx.rangeHigh && wx.rangeLow) {
@@ -15020,6 +15144,19 @@ function _drawChartNow() {
       ctx.fillStyle = col;
       ctx.fillRect(bLeft, bTop, bodyW, bH);
     }
+  }
+
+  // Fib labels stay at their mathematically exact line inside the plot. They do
+  // not enter the right-axis collision stack, where many S/R and plan labels
+  // could otherwise shift a Fib tag away from its true price.
+  if(_fibLbls.length){
+    ctx.save();ctx.font='bold 9px -apple-system,sans-serif';ctx.textAlign='right';
+    _fibLbls.forEach(function(L){
+      var tw=ctx.measureText(L.lbl).width+7;
+      ctx.fillStyle='rgba(19,23,34,.82)';ctx.fillRect(chartW-tw-3,L.y-11,tw+3,13);
+      ctx.fillStyle=L.col;ctx.fillText(L.lbl,chartW-5,L.y-2);
+    });
+    ctx.restore();
   }
 
   // 6.9 LEVEL LABELS — TradingView-style price tags on the right axis with
