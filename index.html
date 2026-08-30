@@ -468,6 +468,22 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 @media(max-width:900px){#chart-fs-table{width:252px!important;flex-basis:252px!important}.cp-toolbar{gap:5px;padding:6px}.cp-toolbar button,.cp-toolbar select,.cp-toolbar summary{padding:5px 7px}}
 @media(max-width:600px){#chart-fs-table{width:220px!important;flex-basis:220px!important}.cp-card{padding:10px;font-size:12px}#chart-fs-bar{padding:5px!important}.cp-ind-menu>div{left:auto;right:0}.cp-toolbar{font-size:11px}}
 </style>
+<style id="dex-flow-evidence-style">
+.dex-evidence{font:12px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--t2);margin:9px 0 14px}
+.dex-evidence-title{font-size:14px;font-weight:750;color:var(--t1)}
+.dex-scope{font-size:10px;letter-spacing:.04em;color:var(--t3);margin:3px 0 8px}
+.dex-source{font-size:11px;line-height:1.6;margin:8px 0;color:var(--t2)}.dex-source a{color:var(--acc,#2962ff);text-decoration:underline}
+.dex-addresses{font-size:11px;margin:7px 0}.dex-addresses div{overflow-wrap:anywhere;padding:6px;background:var(--card2);border-radius:5px}
+.dex-flow-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:10px 0}
+.dex-flow-card{background:var(--card2);border:1px solid var(--bd,#ddd);padding:12px;border-radius:8px;min-width:0}
+.dex-card-top{display:flex;justify-content:space-between;align-items:center;gap:8px}.dex-card-top>strong{font-size:15px}
+.dex-coverage{font-size:9px;letter-spacing:.04em;border:1px solid var(--bd,#ccc);border-radius:4px;padding:2px 5px;color:var(--t2)}
+.dex-direction{font-weight:750;font-size:11px;margin:5px 0 10px}.dex-flow-row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:3px 0}.dex-flow-row strong{text-align:right;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.dex-muted{color:var(--t3);font-size:10px;line-height:1.55;margin-top:7px}.dex-guard{font-size:10px;padding-top:8px;margin-top:8px;border-top:1px solid var(--bd,#ddd);color:var(--t2)}
+.dex-warning{padding:8px 10px;border-left:3px solid #db9d27;background:rgba(219,157,39,.07);margin:8px 0;font-size:11px}
+.dex-window-note{font-size:10px;line-height:1.6;margin-top:7px}.dex-window-note summary,.dex-addresses summary{cursor:pointer;color:var(--t2)}
+@media(max-width:720px){.dex-flow-grid{grid-template-columns:1fr}.dex-flow-row{font-size:12px}}
+</style>
 </head>
 <body>
 
@@ -4983,39 +4999,13 @@ function monitorOnchain(sym){
   if(!out) return;
   if(!d){out.innerHTML='<span style="color:var(--r);font-size:10px">Coin data not loaded.</span>';return;}
   out.innerHTML='<div style="font-size:10px;color:var(--t3)">⛓ Combining free on-chain sources…</div>';
-  _agentOnchain({sym:d.pair||d.sym, price:d.price}).then(function(x){
+  _agentOnchain({sym:d.pair||d.sym, price:d.price,force:true}).then(function(x){
     var h='', esc=function(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');};
     h+='<div style="font-size:10px;line-height:1.55;background:var(--card3);border-radius:6px;padding:8px 9px">';
     h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:5px"><b>⛓ On-chain intelligence — '+esc(x.symbol||d.pair)+'</b><span style="color:var(--t3)">'+new Date().toLocaleTimeString()+'</span></div>';
     h+='<div style="font-size:9px;color:var(--t3);margin-bottom:6px">Sources: '+esc((x.sources||[]).join(' · ')||'none')+'</div>';
-    if(x.market){
-      h+='<div><b>💧 DEX liquidity / activity</b>';
-      if(x.market.liquidity!=null) h+='<div style="font-size:9px;color:var(--t3)">Liquidity: $'+Number(x.market.liquidity).toLocaleString(undefined,{maximumFractionDigits:0})+'</div>';
-      if(x.market.volume24h!=null) h+='<div style="font-size:9px;color:var(--t3)">DEX volume 24h: $'+Number(x.market.volume24h).toLocaleString(undefined,{maximumFractionDigits:0})+'</div>';
-      if(x.market.buys!=null||x.market.sells!=null) h+='<div style="font-size:9px;color:var(--t3)">24H pool stats: buys '+(x.market.buys!=null?x.market.buys:'—')+' · sells '+(x.market.sells!=null?x.market.sells:'—')+' · tx ratio '+(x.market.buySellRatio!=null?Number(x.market.buySellRatio).toFixed(2):'—')+'</div>';
-      if(x.market.flowWindows){
-        h+='<div style="margin-top:7px"><b>⏱ Time-windowed DEX flow</b>';
-        h+='<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-top:4px">';
-        ['1h','4h','1d'].forEach(function(k){
-          var o=x.market.flowWindows[k]||{}, rr=o.ratio, vr=o.volumeRatio;
-          var dir=rr==null?'UNKNOWN':(rr>=1.15?'BUYING':(rr<=0.87?'SELLING':'BALANCED'));
-          var dc=dir==='BUYING'?'var(--g)':dir==='SELLING'?'var(--r)':'var(--t3)';
-          function fr(v){return v==null?'—':(v===Infinity?'∞':Number(v).toFixed(2));}
-          function money(v){if(v==null)return '—'; var n=Number(v); if(n>=1000000)return '$'+(n/1000000).toFixed(2)+'M'; if(n>=1000)return '$'+(n/1000).toFixed(1)+'K'; return '$'+n.toFixed(0);}
-          h+='<div style="border:1px solid var(--line);border-radius:5px;padding:5px 6px;background:var(--card2)">';
-          h+='<div style="font-weight:700">'+k.toUpperCase()+' <span style="color:'+dc+';font-size:8px">'+dir+'</span></div>';
-          h+='<div style="font-size:8px;color:var(--t3)">Tx: '+(o.buys!=null?o.buys:'—')+' buy / '+(o.sells!=null?o.sells:'—')+' sell</div>';
-          h+='<div style="font-size:8px;color:var(--t3)">Vol: '+money(o.buyVolume)+' / '+money(o.sellVolume)+'</div>';
-          h+='<div style="font-size:8px;color:var(--t3)">Tx ratio '+fr(rr)+' · $ ratio '+fr(vr)+'</div>';
-          h+='</div>';
-        });
-        h+='</div>';
-        if(x.market.flowNote) h+='<div style="font-size:8px;color:var(--am);margin-top:4px">⚠ '+esc(x.market.flowNote)+'</div>';
-        h+='<div style="font-size:8px;color:var(--t3);margin-top:3px">1H/4H/1D are calculated from timestamped DEX trades. Missing data is UNKNOWN, not zero.</div>';
-        h+='</div>';
-      }
-      h+='</div>';
-    }
+    h+=_renderSpotFlow(x.spotFlow,x.symbol||d.pair);
+    h+=_renderDexMarket(x.market,x.symbol||d.pair);
     if(x.holders){
       h+='<div style="margin-top:6px"><b>🐋 Holder / whale structure</b>';
       if(x.holders.count!=null) h+='<div style="font-size:9px;color:var(--t3)">Holders: '+Number(x.holders.count).toLocaleString()+'</div>';
@@ -5138,6 +5128,7 @@ function monitorAnalyse(sym, why){
   _agentOnchain({sym:d.pair||d.sym, price:d.price}).then(function(onchain){
     var oc=JSON.stringify(onchain||{}).slice(0,12000);
     usr += '\n\nON-CHAIN INTELLIGENCE (free-source aggregator; current evidence only):\n' + oc
+         + '\nSOURCE SEPARATION: spotFlow is centralized exchange taker-volume data, not on-chain evidence. Never mix it with DEX counts or infer buy/sell transaction counts from candles. Quote volume is not automatically USD. Name wrapped-token representations and respect all incomplete-window and eligibility flags.'
          + '\nTreat missing/unavailable fields as UNKNOWN, never as zero activity. Do not invent whale activity. Use on-chain data as confirmation/evidence, not as an automatic BUY/SELL trigger.';
     return _aiCallModel(sys, [{role:'user', content:usr}], null);
   }).then(function(txt){
@@ -8562,24 +8553,34 @@ var FREE_GT_NETWORK = {
 var FREE_EXCHANGE_WORDS = /binance|coinbase|kraken|okx|bybit|bitfinex|bitstamp|kucoin|gate\.io|gemini|crypto\.com|bitget|mexc|upbit|bithumb|robinhood|deribit/i;
 var _freeOnchainCache = {};
 
-function _freeSym(raw){ return String(raw||'').toUpperCase().trim().replace(/(USDT|USDC|USD|JPY|BTC|ETH)$/,'').replace(/[^A-Z0-9]/g,''); }
+function _freeSym(raw){
+  var s=String(raw||'').toUpperCase().trim().replace(/[^A-Z0-9]/g,'');
+  if(['BTC','ETH','WBTC','WETH','STETH','RETH','CBETH','USDT','USDC','FDUSD','BUSD','TUSD','USD','JPY','EUR','TRY','BRL'].indexOf(s)>=0)return s;
+  return s.replace(/(FDUSD|USDT|USDC|BUSD|TUSD|USD|JPY|EUR|TRY|BRL|BTC|ETH)$/,'');
+}
 function _freeJson(url,ms){ return _pfetch(url,ms||9000); }
-function _freeNum(v){ var n=Number(v); return isFinite(n)?n:null; }
+function _freeNum(v){ if(v==null||(typeof v==='string'&&!v.trim())||typeof v==='boolean')return null;var n=Number(v);return isFinite(n)?n:null; }
 
 function _freeFindCoin(sym){
   sym=_freeSym(sym);
-  var key='cgsearch_'+sym, now=Date.now();
+  // Native SOL metadata may have no contract in CoinGecko's platforms map.
+  // DEX swaps use the official Token Program WSOL mint, not a fuzzy SOL name.
+  // Source: https://solana.com/docs/tokens/basics/sync-native
+  if(sym==='SOL')return Promise.resolve({id:'solana',name:'Solana',symbol:'SOL',
+    platforms:{solana:'So11111111111111111111111111111111111111112'},representation:'WSOL on Solana (wrapped SOL DEX representation)',identitySource:'Solana official WSOL mint'});
+  var key='cgidentity_v4_'+sym, now=Date.now();
   if(_freeOnchainCache[key] && now-_freeOnchainCache[key].ts<86400000) return Promise.resolve(_freeOnchainCache[key].d);
   return _freeJson('https://api.coingecko.com/api/v3/search?query='+encodeURIComponent(sym),8000).then(function(j){
-    var arr=(j&&j.coins)||[];
-    arr.sort(function(a,b){
-      var ae=String(a.symbol||'').toUpperCase()===sym?1:0, be=String(b.symbol||'').toUpperCase()===sym?1:0;
-      return be-ae || (Number(a.market_cap_rank)||999999)-(Number(b.market_cap_rank)||999999);
-    });
-    var c=arr[0];
+    var arr=((j&&j.coins)||[]).filter(function(c){return String(c.symbol||'').toUpperCase()===sym;});
+    var known={BTC:'bitcoin',ETH:'ethereum',BNB:'binancecoin',AVAX:'avalanche-2',LINK:'chainlink',
+      XRP:'ripple',DOGE:'dogecoin',ADA:'cardano',LTC:'litecoin',DOT:'polkadot',AAVE:'aave',UNI:'uniswap',
+      ARB:'arbitrum',OP:'optimism',SUI:'sui',APT:'aptos',NEAR:'near',WBTC:'wrapped-bitcoin',WETH:'weth'};
+    var c=known[sym]?arr.find(function(v){return v.id===known[sym];}):arr.length===1?arr[0]:null;
+    if(!c&&arr.length>1)throw Error('Ambiguous token symbol '+sym+'; no contract was selected by market rank.');
     if(!c) throw Error('CoinGecko could not identify '+sym);
     return _freeJson('https://api.coingecko.com/api/v3/coins/'+encodeURIComponent(c.id)+'?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false&sparkline=false',9000).then(function(meta){
-      var d={id:c.id,name:c.name,symbol:sym,platforms:(meta&&meta.platforms)||{}};
+      if(!meta||meta.id!==c.id||String(meta.symbol||'').toUpperCase()!==sym)throw Error('Coin metadata identity mismatch for '+sym);
+      var d={id:c.id,name:meta.name||c.name,symbol:sym,platforms:meta.platforms||{},identitySource:'CoinGecko coin ID and token addresses'};
       _freeOnchainCache[key]={ts:now,d:d}; return d;
     });
   });
@@ -8590,6 +8591,65 @@ function _freePickPlatform(meta){
   var preferred=['ethereum','base','arbitrum-one','optimistic-ethereum','polygon-pos','binance-smart-chain','avalanche','gnosis','linea','scroll','zksync','celo','solana'];
   for(var i=0;i<preferred.length;i++) if(p[preferred[i]]) return {platform:preferred[i],address:p[preferred[i]],network:FREE_CG_PLATFORM_TO_NETWORK[preferred[i]]};
   return null;
+}
+
+// Resolve additional supported chains from provider metadata, never from a
+// guessed network name. Cache the registry; cap discovery to protect free APIs.
+function _freeDiscoverNetworks(platforms){
+  var missing=Object.keys(platforms||{}).filter(function(p){return platforms[p]&&!FREE_CG_PLATFORM_TO_NETWORK[p];});
+  if(!missing.length)return Promise.resolve();
+  var cached=_freeOnchainCache.gtNetworksV4,now=Date.now();
+  if(cached&&now-cached.ts<3600000)return cached.promise;
+  var seen={};
+  function page(n){return _freeJson('https://api.geckoterminal.com/api/v2/networks?page='+n,8000).then(function(j){
+    if(!j||!Array.isArray(j.data))throw Error('Network registry unavailable');
+    var added=0;
+    j.data.forEach(function(r){
+      var p=r.attributes&&r.attributes.coingecko_asset_platform_id,id=r.id;
+      if(!p||!id||seen[id]||!/^[a-zA-Z0-9_-]+$/.test(id))return;
+      seen[id]=true;added++;
+      if(!FREE_CG_PLATFORM_TO_NETWORK[p]){FREE_CG_PLATFORM_TO_NETWORK[p]=id;FREE_GT_NETWORK[id]=id;}
+    });
+    if(n<5&&added)return page(n+1);
+  });}
+  var promise=page(1).catch(function(){/* Existing verified network mappings remain usable. */});
+  _freeOnchainCache.gtNetworksV4={ts:now,promise:promise};return promise;
+}
+function _freeDexMeta(meta){
+  // Native coins need an explicitly named wrapped representation for DEX swaps.
+  // Wrapped-token evidence is NOT a native holder or native transfer snapshot.
+  var wraps={ETH:{id:'weth',symbol:'WETH',platform:'ethereum'},
+    BNB:{id:'wbnb',symbol:'WBNB',platform:'binance-smart-chain'},
+    AVAX:{id:'wrapped-avax',symbol:'WAVAX',platform:'avalanche'}};
+  var w=wraps[meta.symbol];if(!w)return Promise.resolve(meta);
+  var key='wrappedMetaV4_'+w.id,c=_freeOnchainCache[key];
+  if(c&&Date.now()-c.ts<86400000)return Promise.resolve(c.d);
+  return _freeJson('https://api.coingecko.com/api/v3/coins/'+w.id+'?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false',9000).then(function(j){
+    var addr=j&&j.platforms&&j.platforms[w.platform];
+    if(!j||j.id!==w.id||String(j.symbol).toUpperCase()!==w.symbol||!addr)throw Error('Verified '+w.symbol+' address unavailable');
+    var d=Object.assign({},meta,{platforms:{},representation:w.symbol+' on '+w.platform+' (wrapped '+meta.symbol+' DEX proxy)',wrappedProxy:true});
+    d.platforms[w.platform]=addr;_freeOnchainCache[key]={ts:Date.now(),d:d};return d;
+  });
+}
+function _freeDexAcross(meta){
+  return _freeDexMeta(meta).then(function(dm){return _freeDiscoverNetworks(dm.platforms).then(function(){
+    var first=_freePickPlatform(dm),picks=Object.keys(dm.platforms||{}).filter(function(p){return dm.platforms[p]&&FREE_CG_PLATFORM_TO_NETWORK[p];}).map(function(p){
+      return {platform:p,address:dm.platforms[p],network:FREE_CG_PLATFORM_TO_NETWORK[p]};
+    });
+    if(first)picks.sort(function(a,b){return Number(b.platform===first.platform)-Number(a.platform===first.platform);});
+    var attempts=[],limit=Math.min(picks.length,3);
+    function next(i){
+      if(i>=limit){var m=_dexUnavailable('No verified DEX pool found in '+limit+' checked network(s). Unsupported chains and additional networks are not assumed covered.');m.resolutionAttempts=attempts;return {market:m,pick:null};}
+      var p=picks[i];return _freeDex(p.network,p.address,meta.symbol).then(function(m){
+        attempts.push({network:p.network,address:p.address,available:!!m.identityVerified,reason:m.flowNote});
+        if(m.identityVerified){m.representation=dm.representation||meta.symbol+' token';m.wrappedProxy=!!dm.wrappedProxy;m.resolutionAttempts=attempts;
+          m.selection+=' First verified available network (up to 3 checked), not a global best-pool comparison.';return {market:m,pick:dm.wrappedProxy?null:p};}
+        if(/429|401|403|rate.limit|forbidden/i.test(m.flowNote||'')){m.resolutionAttempts=attempts;return {market:m,pick:null};}
+        return next(i+1);
+      });
+    }
+    return next(0);
+  });}).catch(function(e){return {market:_dexUnavailable(String(e.message||e)),pick:null};});
 }
 
 function _freeHolders(base,contract){
@@ -8634,66 +8694,321 @@ function _freeTransfers(base,contract,price){
   });
 }
 
-function _freeDexTradesWindows(network,poolId){
-  if(!network||!poolId) return Promise.resolve(null);
-  var gt=FREE_GT_NETWORK[network]; if(!gt) return Promise.resolve(null);
-  // GeckoTerminal exposes the latest DEX trades for a pool. We fetch a few
-  // pages at most, then bucket the returned trades by age. This gives true
-  // 1H/4H/24H flow instead of reusing the pool's single 24H transaction count.
-  var first='https://api.geckoterminal.com/api/v2/networks/'+gt+'/pools/'+encodeURIComponent(poolId)+'/trades';
-  var all=[], seen={};
-  function page(url,depth){
-    if(depth>2 || !url) return Promise.resolve();
-    return _freeJson(url,10000).then(function(j){
-      var rows=j&&j.data||[];
-      rows.forEach(function(r){
-        var id=String(r&&r.id||'');
-        if(!id || !seen[id]){if(id)seen[id]=1; all.push(r);}
-      });
-      var next=j&&j.links&&j.links.next;
-      if(next && depth<2) return page(next,depth+1);
-    }).catch(function(){ return; });
+// DEX evidence v3: token identity first, timestamped windows second.
+// A pool is a sample of one venue, never the coin's entire market.
+var DEX_FLOW_RULES={minTrades:20,minVolumeUsd:10000,dustSideUsd:1,maxRecords:300};
+function _dexAddress(a){var s=String(a||'').trim();return /^0x[0-9a-f]{40}$/i.test(s)?s.toLowerCase():s;}
+function _dexSameAddress(a,b){return !!a&&!!b&&_dexAddress(a)===_dexAddress(b);}
+function _dexRatio(a,b){return a==null||b==null||b<=0||!isFinite(a/b)?null:a/b;}
+function _dexMoney(value){
+  var n=_freeNum(value);if(n==null)return 'Unknown';
+  if(n===0)return '$0.00';
+  var abs=Math.abs(n),sign=n<0?'-':'';
+  if(abs<.01)return sign+'<$0.01';
+  if(abs<1000)return sign+'$'+abs.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  if(abs<1000000)return sign+'$'+(abs/1000).toFixed(1)+'K';
+  return sign+'$'+(abs/1000000).toFixed(2)+'M';
+}
+function _dexRatioText(a,b,unit){
+  if(a==null||b==null)return 'Unknown';
+  if(b===0)return unit==='usd'?'N/A — zero sell volume':a>0?'N/A — no recorded sells':'N/A — no trades';
+  return (a/b).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function _dexEmptyWindows(reason){
+  var out={};['1h','4h','1d'].forEach(function(k){
+    out[k]={buys:null,sells:null,buyVolume:null,sellVolume:null,tradeCount:null,
+      ratio:null,volumeRatio:null,status:'UNAVAILABLE',coverage:'UNAVAILABLE',
+      eligible:false,reason:reason||'No timestamped trades returned.',direction:'UNKNOWN'};
+  });return out;
+}
+function _dexUnavailable(reason){
+  return {version:3,identityVerified:false,scope:'single pool',buys:null,sells:null,
+    buySellRatio:null,liquidity:null,volume24h:null,pool:null,poolAddress:null,
+    flowWindows:_dexEmptyWindows(reason),flowNote:reason,flowTradeCount:0};
+}
+function _dexPoolIdentity(row,included,network,target){
+  var gt=FREE_GT_NETWORK[network],prefix=gt+'_',rel=row&&row.relationships||{},a=row&&row.attributes||{};
+  if(!gt||!target||!String(row.id||'').startsWith(prefix))return null;
+  function token(key){
+    var data=rel[key]&&rel[key].data,id=data&&data.id;
+    if(!id||!String(id).startsWith(prefix))return null;
+    var info=(included||[]).find(function(v){return v.id===id&&v.type==='token';});
+    return {address:(info&&info.attributes&&info.attributes.address)||String(id).slice(prefix.length),
+      symbol:info&&info.attributes&&info.attributes.symbol,
+      coinId:info&&info.attributes&&info.attributes.coingecko_coin_id};
   }
-  return page(first,0).then(function(){
-    var now=Date.now(), wins=[{key:'1h',ms:3600000},{key:'4h',ms:14400000},{key:'1d',ms:86400000}], out={};
-    wins.forEach(function(w){out[w.key]={buys:0,sells:0,buyVolume:0,sellVolume:0,totalVolume:0,tradeCount:0,ratio:null,volumeRatio:null,oldestTs:null,newestTs:null};});
-    all.forEach(function(r){
-      var a=r&&r.attributes||{}, ts=Date.parse(a.block_timestamp||a.timestamp||'');
-      if(!ts || now-ts<0 || now-ts>86400000) return;
-      var kind=String(a.kind||'').toLowerCase(), usd=_freeNum(a.volume_in_usd);
-      if(usd==null) usd=0;
-      wins.forEach(function(w){
-        if(now-ts<=w.ms){
-          var o=out[w.key]; o.tradeCount++; o.totalVolume+=usd;
-          if(!o.oldestTs||ts<o.oldestTs)o.oldestTs=ts; if(!o.newestTs||ts>o.newestTs)o.newestTs=ts;
-          if(kind==='buy'){o.buys++;o.buyVolume+=usd;} else if(kind==='sell'){o.sells++;o.sellVolume+=usd;}
-        }
-      });
+  var base=token('base_token'),quote=token('quote_token');if(!base||!quote)return null;
+  var side=_dexSameAddress(base.address,target)?'base':_dexSameAddress(quote.address,target)?'quote':null;
+  if(!side)return null;
+  var peer=side==='base'?quote:base;
+  var trustedPeer=['usd-coin','tether','dai','first-digital-usd','solana','wrapped-solana','weth','wrapped-bitcoin'].indexOf(peer.coinId)>=0;
+  return {row:row,base:base,quote:quote,side:side,network:network,gt:gt,target:target,
+    poolAddress:a.address||String(row.id).slice(prefix.length),trustedPeer:trustedPeer};
+}
+function _dexTrade(row,network,target){
+  var a=row&&row.attributes||{},stamp=a.block_timestamp||a.timestamp;
+  var ts=typeof stamp==='number'?(stamp<1e12?stamp*1000:stamp):Date.parse(stamp||'');
+  var from=a.from_token_address,to=a.to_token_address;
+  var fromTarget=_dexSameAddress(from,target),toTarget=_dexSameAddress(to,target);
+  // Do not trust kind alone: different endpoints can use different base/quote
+  // orientation. Explicit transfer direction is relative to the watched token.
+  var side=fromTarget&&!toTarget?'sell':toTarget&&!fromTarget?'buy':null;
+  var amount=_freeNum(a.volume_in_usd);if(amount!=null&&amount<0)amount=null;
+  var strong=!!(row&&row.id)||!!(a.tx_hash&&a.log_index!=null);
+  var id=row&&row.id||(a.tx_hash&&a.log_index!=null?a.tx_hash+':'+a.log_index:JSON.stringify(a));
+  return {id:String(id),strongId:strong,ts:ts,side:side,usd:amount,rawKind:a.kind||null};
+}
+function _dexBuildWindows(rows,meta){
+  meta=meta||{};var now=meta.asOf||Date.now(),seen={},trades=[],invalid=0,weak=0,duplicates=0;
+  (rows||[]).forEach(function(row){
+    var t=_dexTrade(row,meta.network,meta.target);
+    if(seen[t.id]){duplicates++;return;}seen[t.id]=true;
+    if(!isFinite(t.ts)||t.ts>now||t.ts<now-86400000){invalid++;return;}
+    if(!t.strongId)weak++;
+    trades.push(t);
+  });
+  var dailyBuy=trades.filter(function(t){return t.side==='buy';}).length;
+  var dailySell=trades.filter(function(t){return t.side==='sell';}).length;
+  var unknown=trades.length-dailyBuy-dailySell;
+  var s=meta.summary||{},summaryKnown=s.buys!=null&&s.sells!=null;
+  var sameTotal=summaryKnown&&s.buys+s.sells===trades.length;
+  var conflict=!!(meta.fetched&&sameTotal&&!unknown&&trades.length>0&&(s.buys!==dailyBuy||s.sells!==dailySell));
+  var countersMatch=summaryKnown&&s.buys===dailyBuy&&s.sells===dailySell;
+  var recordsComplete=!!(meta.fetched&&!meta.requestError&&!meta.hasNext&&
+    (rows||[]).length<DEX_FLOW_RULES.maxRecords&&!invalid&&!weak&&countersMatch&&!unknown);
+  var oldest=trades.length?Math.min.apply(null,trades.map(function(t){return t.ts;})):null;
+  var out={};
+  [{key:'1h',ms:3600000},{key:'4h',ms:14400000},{key:'1d',ms:86400000}].forEach(function(w){
+    if(!meta.fetched){out[w.key]=_dexEmptyWindows(meta.error||'Trade request unavailable.')[w.key];return;}
+    var list=trades.filter(function(t){return t.ts>=now-w.ms;});
+    var buys=0,sells=0,buyUsd=0,sellUsd=0,missingBuy=0,missingSell=0,unknownSide=0;
+    list.forEach(function(t){
+      if(!t.side){unknownSide++;return;}
+      if(t.side==='buy'){buys++;if(t.usd==null)missingBuy++;else buyUsd+=t.usd;}
+      else{sells++;if(t.usd==null)missingSell++;else sellUsd+=t.usd;}
     });
-    Object.keys(out).forEach(function(k){
-      var o=out[k];
-      o.ratio=(o.buys!=null&&o.sells!=null&&o.sells>0)?o.buys/o.sells:(o.buys>0?Infinity:null);
-      o.volumeRatio=(o.buyVolume!=null&&o.sellVolume>0)?o.buyVolume/o.sellVolume:(o.buyVolume>0?Infinity:null);
-      o.coverageHours=o.oldestTs?Math.max(0,(now-o.oldestTs)/3600000):0;
-    });
-    return {windows:out,tradesReturned:all.length,source:'GeckoTerminal recent pool trades',coverageHours:all.length?Math.max(0,(now-(Math.min.apply(null,all.map(function(r){var a=r&&r.attributes||{};return Date.parse(a.block_timestamp||a.timestamp||'')||now;}))))/3600000):0,limitNote:all.length>=300?'Recent-trade endpoint is capped/paginated; 24H may be incomplete for very active pools.':'24H trade sample fully covered by returned records.'};
+    var complete=!meta.requestError&&!invalid&&!weak&&!conflict&&!unknownSide&&
+      (recordsComplete||(oldest!=null&&oldest<=now-w.ms));
+    var status=conflict?'CONFLICT':complete?'COMPLETE':'PARTIAL';
+    var buyVolume=missingBuy?null:buyUsd,sellVolume=missingSell?null:sellUsd;
+    var volumeKnown=!missingBuy&&!missingSell&&!unknownSide;
+    var totalVolume=volumeKnown?buyUsd+sellUsd:null;
+    var enough=buys+sells>=DEX_FLOW_RULES.minTrades&&totalVolume>=DEX_FLOW_RULES.minVolumeUsd;
+    var tinySide=volumeKnown&&buys>0&&sells>0&&Math.min(buyUsd,sellUsd)<DEX_FLOW_RULES.dustSideUsd;
+    var buyShare=buys+sells?buys/(buys+sells)*100:null;
+    var buyVolumeShare=volumeKnown&&totalVolume>0?buyUsd/totalVolume*100:null;
+    var txDir=buyShare==null?'UNKNOWN':buyShare>=53.49?'BUYING':buyShare<=46.51?'SELLING':'BALANCED';
+    var usdDir=buyVolumeShare==null?'UNKNOWN':buyVolumeShare>=53.49?'BUYING':buyVolumeShare<=46.51?'SELLING':'BALANCED';
+    var direction=txDir==='UNKNOWN'?'UNKNOWN':usdDir==='UNKNOWN'?'COUNTS ONLY':txDir===usdDir?txDir:'MIXED';
+    var reason=conflict?'24H counters disagree with token-address-classified trades. Directional bias is disabled.':
+      recordsComplete?'Complete selected-pool window: returned trades reconcile with the provider 24H counters.':
+      complete?'Complete selected-pool window: latest-trade history extends past this window start.':
+      list.length?'Partial sample only; the returned records do not prove full-window coverage.':
+      'No matching trades were returned for this window; coverage is not established.';
+    if(invalid)reason+=' Invalid/out-of-window records excluded.';
+    if(unknownSide)reason+=' '+unknownSide+' trades have unknown token direction.';
+    if(!volumeKnown)reason+=' Some dollar values are missing; dollar totals/ratios are unknown.';
+    if(!enough)reason+=' Insufficient sample for bias (requires ≥'+DEX_FLOW_RULES.minTrades+' trades and ≥$'+DEX_FLOW_RULES.minVolumeUsd.toLocaleString()+' known volume).';
+    if(tinySide)reason+=' Tiny opposing volume inflates the dollar ratio; ratio excluded from bias.';
+    out[w.key]={buys:buys,sells:sells,buyVolume:buyVolume,sellVolume:sellVolume,
+      totalVolume:totalVolume,knownBuyVolume:buyUsd,knownSellVolume:sellUsd,tradeCount:list.length,
+      unknownDirection:unknownSide,missingUsd:missingBuy+missingSell,
+      ratio:_dexRatio(buys,sells),volumeRatio:_dexRatio(buyVolume,sellVolume),
+      buyShare:buyShare,buyVolumeShare:buyVolumeShare,noRecordedSells:sells===0,
+      oldestTs:list.length?Math.min.apply(null,list.map(function(t){return t.ts;})):null,
+      newestTs:list.length?Math.max.apply(null,list.map(function(t){return t.ts;})):null,
+      coverageHours:oldest==null?0:Math.min(24,(now-oldest)/3600000),
+      status:status,coverage:status,direction:direction,tinyDenominator:tinySide,sufficientSample:enough,
+      eligible:!!(complete&&meta.identityVerified&&enough&&volumeKnown&&!tinySide&&!conflict),
+      reason:reason,asOf:now};
+  });
+  return {windows:out,tradesReturned:(rows||[]).length,uniqueTrades:trades.length,
+    duplicatesRemoved:duplicates,invalidRecords:invalid,weakIdentityRecords:weak,
+    coverageHours:oldest==null?0:Math.min(24,(now-oldest)/3600000),directionConflict:conflict,
+    summaryReconciled:recordsComplete,asOf:now,source:'GeckoTerminal recent trades · watched-token direction',
+    limitNote:'One selected DEX pool, not market-wide activity. The endpoint returns at most the latest 300 trades within 24H; 4H is not substituted with 6H.'};
+}
+function _freeDexTradesWindows(network,poolId,target,summary){
+  var gt=FREE_GT_NETWORK[network];
+  if(!gt||!poolId||!target)return Promise.resolve({windows:_dexEmptyWindows('Verified network, pool and token address are required.'),tradesReturned:0});
+  var url='https://api.geckoterminal.com/api/v2/networks/'+gt+'/pools/'+encodeURIComponent(poolId)+'/trades?token='+encodeURIComponent(target);
+  return _freeJson(url,10000).then(function(j){
+    if(!j||!Array.isArray(j.data))throw Error('Trade response has no data array.');
+    return _dexBuildWindows(j.data,{network:network,target:target,summary:summary,
+      identityVerified:true,fetched:true,hasNext:!!(j.links&&j.links.next),asOf:Date.now()});
+  }).catch(function(e){
+    return {windows:_dexEmptyWindows('Trade request failed: '+String(e.message||e)),tradesReturned:0,
+      coverageHours:0,asOf:Date.now(),limitNote:'No complete trade window is available. A request failure is not zero activity.'};
   });
 }
-
 function _freeDex(network,contract,sym){
   var gt=FREE_GT_NETWORK[network];
-  var url=gt && contract ? 'https://api.geckoterminal.com/api/v2/networks/'+gt+'/tokens/'+encodeURIComponent(contract)+'/pools?include=base_token,quote_token,dex' :
-    'https://api.geckoterminal.com/api/v2/search/pools?query='+encodeURIComponent(sym||'');
+  if(!gt||!contract)return Promise.resolve(_dexUnavailable('No verified network/token address. Symbol-only pool matches are not used.'));
+  var url='https://api.geckoterminal.com/api/v2/networks/'+gt+'/tokens/'+encodeURIComponent(contract)+'/pools?include=base_token,quote_token,dex';
   return _freeJson(url,10000).then(function(j){
-    var arr=j&&j.data||[];
-    if(!arr.length) return null;
-    arr.sort(function(a,b){return (_freeNum(b.attributes&&b.attributes.reserve_in_usd)||0)-(_freeNum(a.attributes&&a.attributes.reserve_in_usd)||0);});
-    var p=arr[0].attributes||{}, tx=p.transactions&&p.transactions.h24||{}, vol=p.volume_usd&&p.volume_usd.h24, buys=_freeNum(tx.buys), sells=_freeNum(tx.sells);
-    var poolAddress=p.address||((arr[0].id||'').indexOf('_')>=0?(arr[0].id||'').split('_').slice(1).join('_'):(arr[0].id||''));
-    return _freeDexTradesWindows(network,poolAddress).then(function(flow){
-      return {liquidity:_freeNum(p.reserve_in_usd),volume24h:_freeNum(vol),buys:buys,sells:sells,buySellRatio:(buys!=null&&sells!=null)?buys/Math.max(1,sells):null,pool:p.name||arr[0].id,poolAddress:poolAddress,flowWindows:flow&&flow.windows||null,flowTradeCount:flow&&flow.tradesReturned||0,flowCoverageHours:flow&&flow.coverageHours||0,flowNote:flow&&flow.limitNote||''};
+    var candidates=((j&&j.data)||[]).map(function(p){return _dexPoolIdentity(p,j.included,network,contract);}).filter(Boolean);
+    if(!candidates.length)return _dexUnavailable('No returned pool has matching network and token-address identity.');
+    // Prefer recognized counterpart assets, then real activity, then liquidity.
+    // Report the selected venue explicitly; never imply aggregated SOL/LINK flow.
+    candidates.sort(function(a,b){
+      var aa=a.row.attributes||{},bb=b.row.attributes||{};
+      return Number(b.trustedPeer)-Number(a.trustedPeer)||
+        (_freeNum(bb.volume_usd&&bb.volume_usd.h24)||0)-(_freeNum(aa.volume_usd&&aa.volume_usd.h24)||0)||
+        (_freeNum(bb.reserve_in_usd)||0)-(_freeNum(aa.reserve_in_usd)||0);
     });
-  }).catch(function(){return null;});
+    var chosen=candidates[0],p=chosen.row.attributes||{},tx=p.transactions&&p.transactions.h24||{};
+    var baseBuys=_freeNum(tx.buys),baseSells=_freeNum(tx.sells);
+    var buys=chosen.side==='base'?baseBuys:baseSells,sells=chosen.side==='base'?baseSells:baseBuys;
+    if(buys!=null&&(!Number.isInteger(buys)||buys<0))buys=null;
+    if(sells!=null&&(!Number.isInteger(sells)||sells<0))sells=null;
+    var summary={buys:buys,sells:sells,tokenSide:chosen.side,asOf:Date.now(),
+      source:'Provider 24H pool counters; normalized from pool base-token perspective'};
+    return _freeDexTradesWindows(network,chosen.poolAddress,contract,summary).then(function(flow){
+      return {version:3,identityVerified:true,scope:'single pool',symbol:sym,network:network,
+        tokenAddress:contract,baseToken:chosen.base,quoteToken:chosen.quote,tokenSide:chosen.side,
+        liquidity:_freeNum(p.reserve_in_usd),volume24h:_freeNum(p.volume_usd&&p.volume_usd.h24),
+        buys:buys,sells:sells,buySellRatio:_dexRatio(buys,sells),summary:summary,
+        pool:p.name||chosen.row.id,poolAddress:chosen.poolAddress,
+        poolKey:network+':'+chosen.poolAddress+':'+_dexAddress(contract),
+        poolUrl:'https://www.geckoterminal.com/'+gt+'/pools/'+encodeURIComponent(chosen.poolAddress),
+        poolsConsidered:candidates.length,selection:'Verified token identity; recognized counterparty first, then 24H volume.',
+        flowWindows:flow.windows,flowTradeCount:flow.tradesReturned,flowCoverageHours:flow.coverageHours,
+        flowNote:flow.limitNote,directionConflict:!!flow.directionConflict,summaryReconciled:!!flow.summaryReconciled,
+        asOf:flow.asOf||Date.now()};
+    });
+  }).catch(function(e){return _dexUnavailable('Pool lookup failed: '+String(e.message||e));});
+}
+
+// Cross-coin exchange fallback. Binance kline fields 7/10 are total and
+// taker-buy QUOTE volume; field 8 is total trades, not a buy/sell count split.
+// Source: https://developers.binance.com/en/docs/catalog/core-trading-spot-trading/api/rest-api/market
+function _spotPair(raw){
+  var s=String(raw||'').trim().toUpperCase().replace(/[^A-Z0-9]/g,''),base=_freeSym(raw);
+  var quote=s===base?'USDT':s.slice(base.length);
+  if(!base||!quote||s!==base&&s!==base+quote||!/^[A-Z0-9]+$/.test(base+quote))return null;
+  return {symbol:base+quote,base:base,quote:quote};
+}
+function _spotUnavailable(pair,reason){
+  return {version:1,source:'Binance spot',scope:'one exchange pair; NOT on-chain',pair:pair,
+    eligibleForOnchainBias:false,windows:_dexEmptyWindows(reason),reason:reason};
+}
+function _spotBuildWindows(rows,pair,end){
+  var step=300000,map={},duplicateConflict={};
+  (rows||[]).forEach(function(r){
+    if(!Array.isArray(r))return;var t=_freeNum(r[0]);
+    if(t==null||!Number.isInteger(t)||t%step!==0||t>=end||t<end-86400000)return;
+    if(map[t]&&JSON.stringify(map[t])!==JSON.stringify(r))duplicateConflict[t]=true;
+    map[t]=r;
+  });
+  var windows={};
+  [['1h',12],['4h',48],['1d',288]].forEach(function(spec){
+    var key=spec[0],n=spec[1],start=end-n*step,buy=0,sell=0,trades=0,valid=0;
+    for(var t=start;t<end;t+=step){
+      var r=map[t];if(!r||duplicateConflict[t])continue;
+      var close=_freeNum(r[6]),total=_freeNum(r[7]),tb=_freeNum(r[10]),count=_freeNum(r[8]);
+      if(close!==t+step-1||total==null||tb==null||count==null||total<0||tb<0||tb>total||!Number.isInteger(count)||count<0)continue;
+      if(count===0&&total>0)continue;
+      buy+=tb;sell+=total-tb;trades+=count;valid++;
+    }
+    var full=valid===n&&isFinite(buy)&&isFinite(sell),volume=buy+sell;
+    windows[key]={status:full?'COMPLETE':valid?'PARTIAL':'UNAVAILABLE',start:start,end:end,
+      buyVolume:full?buy:null,sellVolume:full?sell:null,volumeRatio:full?_dexRatio(buy,sell):null,
+      totalTrades:full?trades:null,buyTransactions:null,sellTransactions:null,transactionRatio:null,
+      buyShare:full&&volume>0?buy/volume*100:null,validBars:valid,expectedBars:n,
+      direction:!full?'UNKNOWN':volume===0?'NO ACTIVITY':buy/volume>.55?'TAKER BUY-DOMINATED':buy/volume<.45?'TAKER SELL-DOMINATED':'BALANCED',
+      eligibleForOnchainBias:false,
+      reason:full?'Complete closed 5-minute bars for this Binance pair. Buy/sell transaction counts are not supplied by this endpoint.':
+        'Only '+valid+' of '+n+' valid closed bars. Missing/gapped/malformed history is not zero activity; totals withheld.'};
+  });
+  return {version:1,source:'Binance spot',scope:'one exchange pair; NOT on-chain',pair:pair,windows:windows,
+    eligibleForOnchainBias:false,asOf:end,requestedAt:Date.now(),
+    reason:'Taker-buy quote volume; taker-sell = total quote volume minus taker-buy. No USD conversion or transaction-count estimate.'};
+}
+function _freeSpotFlow(raw){
+  var pair=_spotPair(raw);if(!pair)return Promise.resolve(_spotUnavailable(null,'No valid exchange pair supplied.'));
+  var key='spotPairV1_'+pair.symbol,c=_freeOnchainCache[key];
+  var base='https://data-api.binance.vision';
+  // Read-only public market data. Never submit orders or use private API keys.
+  var identity=c&&Date.now()-c.ts<3600000?Promise.resolve(c.d):
+    _freeJson(base+'/api/v3/exchangeInfo?symbol='+encodeURIComponent(pair.symbol),8000).then(function(j){
+      var p=j&&Array.isArray(j.symbols)&&j.symbols.find(function(p){return p.symbol===pair.symbol;});
+      if(!p||p.baseAsset!==pair.base||p.quoteAsset!==pair.quote||p.status!=='TRADING'||p.isSpotTradingAllowed===false)throw Error('This exact pair is not an active Binance spot pair.');
+      _freeOnchainCache[key]={ts:Date.now(),d:p};return p;
+    });
+  return identity.then(function(){
+    var end=Math.floor(Date.now()/300000)*300000;
+    return _freeJson(base+'/api/v3/klines?symbol='+encodeURIComponent(pair.symbol)+'&interval=5m&startTime='+(end-86400000)+'&endTime='+(end-1)+'&limit=288',10000).then(function(rows){
+      if(!Array.isArray(rows))throw Error('Exchange candle data unavailable');
+      return _spotBuildWindows(rows,pair,end);
+    });
+  }).catch(function(e){return _spotUnavailable(pair,String(e.message||e));});
+}
+function _renderSpotFlow(m,symbol){
+  m=m&&m.version===1?m:_spotUnavailable(_spotPair(symbol),'No exchange sample available.');
+  var esc=function(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
+  var pair=m.pair||{},unit=pair.quote||'quote asset';
+  function amount(n){return n==null?'Unknown':(n>0&&n<.00000001?n.toExponential(3):n.toLocaleString(undefined,{maximumFractionDigits:8}))+' '+esc(unit);}
+  var h='<section class="dex-evidence"><div class="dex-evidence-title">Spot buy / sell volume · '+esc(pair.symbol||symbol)+'</div>'+
+    '<div class="dex-scope">BINANCE SPOT · ONE PAIR · EXCHANGE DATA, NOT ON-CHAIN</div>'+
+    '<div class="dex-source">Aggressive (taker) buying versus selling. Every trade has both a buyer and a seller; this measures which side initiates the trade.</div><div class="dex-flow-grid">';
+  ['1h','4h','1d'].forEach(function(k){var w=m.windows[k]||{};
+    h+='<article class="dex-flow-card"><div class="dex-card-top"><strong>'+k.toUpperCase()+'</strong><span class="dex-coverage">'+esc(w.status||'UNAVAILABLE')+'</span></div>'+
+      '<div class="dex-direction">'+esc(w.direction||'UNKNOWN')+'</div>'+
+      '<div class="dex-flow-row"><span>Taker buy volume</span><strong>'+amount(w.buyVolume)+'</strong></div>'+
+      '<div class="dex-flow-row"><span>Taker sell volume</span><strong>'+amount(w.sellVolume)+'</strong></div>'+
+      '<div class="dex-flow-row"><span>Volume buy/sell ratio</span><strong>'+_dexRatioText(w.buyVolume,w.sellVolume,'usd')+'</strong></div>'+
+      '<div class="dex-flow-row"><span>Taker buy share</span><strong>'+(w.buyShare==null?'Unknown':w.buyShare.toFixed(2)+'%')+'</strong></div>'+
+      '<div class="dex-flow-row"><span>Total trades</span><strong>'+(w.totalTrades==null?'Unknown':w.totalTrades.toLocaleString())+'</strong></div>'+
+      '<div class="dex-muted">Buy/sell transaction counts and transaction ratio: unavailable from candles.</div>'+
+      '<details class="dex-window-note"><summary>Coverage and window</summary>'+esc(w.reason||m.reason)+
+      (w.start!=null?'<br>'+esc(new Date(w.start).toISOString())+' → '+esc(new Date(w.end).toISOString())+' (end exclusive)':'')+'</details></article>';
+  });
+  return h+'</div><div class="dex-source">'+(m.asOf?'Windows end at '+esc(new Date(m.asOf).toLocaleString())+' · excludes the forming 5-minute candle (up to 5 minutes behind). ':'')+
+    'Values are in '+esc(unit)+', not assumed USD. Kept separate from DEX counts and on-chain bias. '+esc(m.reason||'')+'</div></section>';
+}
+function _renderDexMarket(m,symbol){
+  m=m&&m.version===3?m:_dexUnavailable('No verified current DEX sample. Update on-chain data to retry.');
+  var esc=function(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
+  var count=function(v){return v==null?'Unknown':Number(v).toLocaleString();};
+  function share(v){return v==null?'Unknown':v<100&&v>99.99?'>99.99%':v>0&&v<.01?'<0.01%':v.toFixed(2)+'%';}
+  var h='<section class="dex-evidence"><div class="dex-evidence-title">DEX activity · '+esc(symbol)+'</div>'+
+    '<div class="dex-scope">ONE SELECTED POOL · not all exchanges, all pools, or unique traders</div>';
+  if(m.identityVerified){
+    if(m.representation)h+='<div class="dex-source">Representation: '+esc(m.representation)+'</div>';
+    h+='<div class="dex-source"><strong>'+esc(m.pool)+'</strong> · '+esc(m.network)+' · watched token is pool '+esc(m.tokenSide)+'<br>'+
+      'Liquidity '+_dexMoney(m.liquidity)+' · provider 24H volume '+_dexMoney(m.volume24h);
+    if(/^https:\/\/www\.geckoterminal\.com\//.test(m.poolUrl||''))h+=' · <a href="'+esc(m.poolUrl)+'" target="_blank" rel="noopener noreferrer">Open source pool ↗</a>';
+    h+='</div><details class="dex-addresses"><summary>Verified token and pool addresses</summary><div>Watched token: '+esc(m.tokenAddress)+
+      '<br>Base: '+esc(m.baseToken&&m.baseToken.address)+'<br>Quote: '+esc(m.quoteToken&&m.quoteToken.address)+
+      '<br>Pool: '+esc(m.poolAddress)+'<br>'+esc(m.selection)+'</div></details>';
+    h+='<div class="dex-source">Provider 24H counters, normalized to '+esc(symbol)+': <strong>'+count(m.buys)+' buy / '+count(m.sells)+' sell</strong>'+
+      ' · Tx ratio '+_dexRatioText(m.buys,m.sells)+
+      '<br><span class="dex-muted">Reference counters may differ from the recent-trade sample because of endpoint limits or snapshot timing.</span></div>';
+  }else h+='<div class="dex-warning">'+esc(m.flowNote||'Token identity unavailable.')+'</div>';
+  if(m.directionConflict)h+='<div class="dex-warning">COUNTER / TRADE CONFLICT — the 24H summary disagrees with address-normalized trades. Directional bias is disabled; counts have not been changed to force agreement.</div>';
+  h+='<div class="dex-flow-grid">';
+  ['1h','4h','1d'].forEach(function(k){
+    var w=(m.flowWindows||{})[k]||_dexEmptyWindows()[k],status=w.status||'UNAVAILABLE';
+    var dir=status==='UNAVAILABLE'||status==='CONFLICT'?'UNKNOWN':w.direction||'UNKNOWN';
+    var label=dir==='BUYING'?'BUY-DOMINATED SAMPLE':dir==='SELLING'?'SELL-DOMINATED SAMPLE':dir==='COUNTS ONLY'?'COUNTS ONLY · USD UNKNOWN':dir==='MIXED'?'COUNTS / USD MIXED':dir;
+    if(status!=='UNAVAILABLE'&&status!=='CONFLICT'&&w.sufficientSample===false)label='INSUFFICIENT SAMPLE';
+    var color=label==='INSUFFICIENT SAMPLE'?'var(--t2)':dir==='BUYING'?'var(--g)':dir==='SELLING'?'var(--r)':'var(--t2)';
+    h+='<article class="dex-flow-card"><div class="dex-card-top"><strong>'+k.toUpperCase()+'</strong><span class="dex-coverage">'+esc(status)+'</span></div>'+
+      '<div class="dex-direction" style="color:'+color+'">'+esc(label)+'</div>'+
+      '<div class="dex-flow-row"><span>Recorded buys</span><strong>'+count(w.buys)+'</strong></div>'+
+      '<div class="dex-flow-row"><span>Recorded sells</span><strong>'+count(w.sells)+'</strong></div>'+
+      '<div class="dex-flow-row"><span>Buy volume</span><strong title="'+esc(w.buyVolume==null?'Unknown':w.buyVolume)+'">'+_dexMoney(w.buyVolume)+'</strong></div>'+
+      '<div class="dex-flow-row"><span>Sell volume</span><strong title="'+esc(w.sellVolume==null?'Unknown':w.sellVolume)+'">'+_dexMoney(w.sellVolume)+'</strong></div>'+
+      '<div class="dex-flow-row"><span>Tx buy/sell ratio</span><strong>'+_dexRatioText(w.buys,w.sells)+'</strong></div>'+
+      '<div class="dex-flow-row"><span>$ buy/sell ratio</span><strong>'+_dexRatioText(w.buyVolume,w.sellVolume,'usd')+'</strong></div>'+
+      '<div class="dex-muted">Buy share: '+share(w.buyShare)+' of known trades · '+share(w.buyVolumeShare)+' of known dollars</div>'+
+      (w.tinyDenominator?'<div class="dex-warning">Tiny opposing volume inflates the dollar ratio.</div>':'')+
+      '<div class="dex-guard">'+(w.eligible?'Eligible selected-pool evidence':'Not used for overall bias')+'</div>'+
+      '<details class="dex-window-note"><summary>Coverage and limitations</summary>'+esc(w.reason||'Coverage unknown.')+'</details></article>';
+  });
+  h+='</div><div class="dex-source">Rolling windows: 1H / 4H / 1D (24 hours), calculated from trade timestamps. '+esc(m.flowNote||'Unavailable does not mean zero trading.')+
+    (m.asOf?' As of '+esc(new Date(m.asOf).toLocaleString()):'')+'</div></section>';
+  return h;
 }
 
 function _freeBtcActivity(){
@@ -8704,19 +9019,29 @@ function _freeBtcActivity(){
   }).catch(function(){return null;});
 }
 function _freeOnchainBias(x){
-  var bull=0,bear=0,reasons=[];
-  if(x.market&&x.market.flowWindows){
-    var fw=x.market.flowWindows, f4=fw['4h'], f1=fw['1h'], fd=fw['1d'];
-    var flowVotes=0;
-    [f1,f4,fd].forEach(function(o){if(o&&o.volumeRatio!=null){if(o.volumeRatio>=1.15){bull++;flowVotes++;}else if(o.volumeRatio<=0.87){bear++;flowVotes++;}}else if(o&&o.ratio!=null){if(o.ratio>=1.15){bull++;flowVotes++;}else if(o.ratio<=0.87){bear++;flowVotes++;}}});
-    if(flowVotes===0 && x.market.buys!=null&&x.market.sells!=null){ if(x.market.buys>x.market.sells*1.15){bull++;reasons.push('DEX 24H buys exceed sells');} else if(x.market.sells>x.market.buys*1.15){bear++;reasons.push('DEX 24H sells exceed buys');} }
-    if(f4&&f4.volumeRatio!=null){if(f4.volumeRatio>=1.15) reasons.push('4H DEX flow is buying-dominant'); else if(f4.volumeRatio<=0.87) reasons.push('4H DEX flow is selling-dominant');}
-  } else if(x.market&&x.market.buys!=null&&x.market.sells!=null){ if(x.market.buys>x.market.sells*1.15){bull++;reasons.push('DEX buys exceed sells');} else if(x.market.sells>x.market.buys*1.15){bear++;reasons.push('DEX sells exceed buys');} }
-  if(x.holders&&x.holders.top10Pct!=null){ if(x.holders.top10Pct<35){bull++;reasons.push('holder concentration is relatively distributed');} else if(x.holders.top10Pct>70){bear++;reasons.push('top-holder concentration is high');} }
-  if(x.transfers&&((x.transfers.exchangeIn||0)+(x.transfers.exchangeOut||0)>0)){ var net=(x.transfers.exchangeOut||0)-(x.transfers.exchangeIn||0); if(net>0){bull++;reasons.push('labeled exchange flow is net outflow');} else if(net<0){bear++;reasons.push('labeled exchange flow is net inflow');} }
-  if(bull>bear) return {bias:'BULLISH',biasReason:reasons.join('; ')};
-  if(bear>bull) return {bias:'BEARISH',biasReason:reasons.join('; ')};
-  return {bias:'NEUTRAL',biasReason:reasons.length?reasons.join('; '):'Free sources did not provide a strong directional imbalance.'};
+  var bull=0,bear=0,reasons=[],m=x.market;
+  // Nested 1H/4H/1D windows overlap: they are ONE DEX source, not three votes.
+  var eligible=m&&m.version===3&&m.identityVerified&&!m.directionConflict&&m.flowWindows;
+  var chosen=null,key=null;
+  if(eligible)['4h','1h','1d'].some(function(k){var w=m.flowWindows[k];if(w&&w.eligible){chosen=w;key=k;return true;}return false;});
+  if(chosen){
+    if(m.representation)reasons.push('DEX representation: '+m.representation);
+    if(chosen.direction==='BUYING'){bull++;reasons.push(key.toUpperCase()+' selected-pool counts and known dollar volume are buy-dominated');}
+    else if(chosen.direction==='SELLING'){bear++;reasons.push(key.toUpperCase()+' selected-pool counts and known dollar volume are sell-dominated');}
+    else reasons.push(key.toUpperCase()+' selected-pool counts and dollar flow do not show aligned dominance');
+  } else reasons.push('DEX: insufficient, partial, unverified, or conflicting evidence; no directional vote');
+  if(m&&m.directionConflict)reasons.push('Provider 24H counters conflict with address-normalized trades');
+  // Holder concentration is a risk characteristic, not evidence of new buying.
+  if(x.holders&&x.holders.top10Pct>70)reasons.push('Risk: reported top-holder concentration is high');
+  if(x.transfers){
+    var ein=_freeNum(x.transfers.exchangeIn),eout=_freeNum(x.transfers.exchangeOut);
+    if(ein!=null&&eout!=null&&Math.abs(eout-ein)>=100000){
+      if(eout>ein){bull++;reasons.push('Latest labeled-transfer sample shows net exchange outflow');}
+      else{bear++;reasons.push('Latest labeled-transfer sample shows net exchange inflow');}
+    }
+  }
+  var bias=bull>bear?'BULLISH':bear>bull?'BEARISH':chosen||bull||bear?'NEUTRAL':'UNKNOWN';
+  return {bias:bias,biasReason:reasons.join('; ')+'. Sampled sources only, not market-wide flow.'};
 }
 
 
@@ -8875,7 +9200,9 @@ function _onchainAICall(sym, payload){
   if(!key) return Promise.resolve({enabled:false,text:'',error:'No dedicated On-chain AI API key entered.'});
   var model=_onchainAIModel();
   var system='You are a dedicated ON-CHAIN INTELLIGENCE analyst for a crypto spot screener. You are NOT the Catalyst Verification agent and NOT the general Research/Analyst agent. Analyze ONLY the supplied on-chain evidence. Do not use headlines, catalyst claims, technical indicators, or unsupported assumptions. Missing data is UNKNOWN, never zero. Cross-check Moralis indexed holder data against Blockscout and Alchemy where available. Distinguish holders, whale proxies, labeled exchanges, DEX activity, market enrichment, raw transfers, and detected anomalies. Never claim a wallet is a whale or exchange unless the data supports it. Give: 1) On-chain regime (ACCUMULATION/DISTRIBUTION/MIXED/UNKNOWN), 2) strongest evidence, 3) risks/contradictions, 4) data freshness/coverage, 5) confidence 0-100. This is evidence only, not a BUY/SELL signal.';
+  system+=' SOURCE SEPARATION: spotFlow is centralized Binance exchange taker-volume data, NOT on-chain evidence. Never combine its volume or trades with DEX counts, infer buy/sell transaction counts from candles, or use it to confirm on-chain accumulation. Its quote asset is not automatically USD. Its windows end at the latest closed 5-minute boundary. Wrapped-token DEX representations must be named; their holders and transfers are not native-coin holder/transfer coverage. BTC active-address growth alone is not a bullish buying signal.';
   var user='COIN: '+sym+'\nCURRENT ON-CHAIN EVIDENCE:\n'+JSON.stringify(payload||{},null,2);
+  system+=' DEX EVIDENCE RULES: market.scope is a single selected pool, not the whole coin or chain. Use watched-token from/to-address direction. Ignore raw kind labels and unverified symbol matches. market.flowWindows coverage COMPLETE requires explicit evidence; PARTIAL, CONFLICT and UNAVAILABLE cannot confirm accumulation or distribution. Respect eligible=false and tinyDenominator warnings. A 39-to-1 transaction ratio is different from a dollar ratio; a sub-dollar sell can inflate the latter. Missing USD is unknown, never zero. UNKNOWN must remain unknown, not become neutral certainty. Nested 1H/4H/1D samples are correlated, not three independent confirmations. Do not reinterpret counts to agree with the pool summary. Scores are heuristic, not calibrated probabilities.';
   return fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent?key='+encodeURIComponent(key),{
     method:'POST',headers:{'content-type':'application/json'},
     body:JSON.stringify({system_instruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{text:user}]}],generationConfig:{temperature:0.15,maxOutputTokens:900}})
@@ -9008,7 +9335,7 @@ function _onchainHistoryKey(sym){return 'onchain_history_v2_'+_freeSym(sym);}
 function _recordOnchainHistory(out){
   try{
     var key=_onchainHistoryKey(out.symbol), arr=JSON.parse(localStorage.getItem(key)||'[]');
-    var snap={ts:Date.now(),bias:out.bias,holders:out.holders&&out.holders.count,top10:out.holders&&out.holders.top10Pct,marketVol:out.market&&out.market.volume24h,buys:out.market&&out.market.buys,sells:out.market&&out.market.sells,
+    var snap={ts:Date.now(),bias:out.bias,holders:out.holders&&out.holders.count,top10:out.holders&&out.holders.top10Pct,marketVol:out.market&&out.market.volume24h,marketPoolKey:out.market&&out.market.poolKey,buys:out.market&&out.market.buys,sells:out.market&&out.market.sells,
       moralisTop10:out.moralis&&out.moralis.top10Pct,moralisHolders:out.moralis&&out.moralis.totalHolders,alchemyTransfers:out.alchemy&&out.alchemy.transfers,cqBtcNetflow:out.cryptoquant&&out.cryptoquant.btcBinanceNetflow,cqAsset:out.cryptoquant&&out.cryptoquant.asset};
     arr.push(snap); if(arr.length>201) arr=arr.slice(-201); localStorage.setItem(key,JSON.stringify(arr)); return arr;
   }catch(e){return [];}
@@ -9018,10 +9345,14 @@ function _onchainAnomalies(out,history){
   function pct(cur,old){return cur!=null&&old!=null&&old!==0?(cur-old)/Math.abs(old)*100:null;}
   if(prev){
     var hv=pct(out.holders&&out.holders.count,prev.holders); if(hv!=null&&Math.abs(hv)>=2) a.push({type:'holder_change',severity:Math.abs(hv)>=5?'high':'medium',text:'Holder count changed '+hv.toFixed(1)+'% since the previous snapshot.'});
-    var mv=pct(out.market&&out.market.volume24h,prev.marketVol); if(mv!=null&&Math.abs(mv)>=50) a.push({type:'dex_volume',severity:Math.abs(mv)>=100?'high':'medium',text:'DEX 24h volume changed '+mv.toFixed(0)+'% versus the previous snapshot.'});
+    var samePool=out.market&&out.market.poolKey&&out.market.poolKey===prev.marketPoolKey;
+    var mv=samePool?pct(out.market.volume24h,prev.marketVol):null; if(mv!=null&&Math.abs(mv)>=50) a.push({type:'dex_volume',severity:Math.abs(mv)>=100?'high':'medium',text:'The same selected DEX pool 24h volume changed '+mv.toFixed(0)+'% versus the previous snapshot.'});
     var mt=pct(out.moralis&&out.moralis.top10Pct,prev.moralisTop10); if(mt!=null&&Math.abs(mt)>=5) a.push({type:'holder_concentration',severity:'medium',text:'Moralis top-10 holder concentration changed '+mt.toFixed(1)+'%.'});
   }
-  if(out.market&&out.market.buySellRatio!=null&&(out.market.buySellRatio>=1.5||out.market.buySellRatio<=0.67)) a.push({type:'dex_imbalance',severity:'medium',text:'DEX buy/sell ratio is '+Number(out.market.buySellRatio).toFixed(2)+'.'});
+  if(out.market&&out.market.identityVerified&&!out.market.directionConflict&&out.market.flowWindows){
+    var fw=out.market.flowWindows['4h'];
+    if(fw&&fw.eligible&&fw.ratio!=null&&(fw.ratio>=1.5||fw.ratio<=.67))a.push({type:'dex_imbalance',severity:'medium',text:'Selected-pool 4H transaction buy/sell ratio is '+_dexRatioText(fw.buys,fw.sells)+'. Not market-wide activity.'});
+  }
   if(out.transfers){var net=(out.transfers.exchangeOut||0)-(out.transfers.exchangeIn||0);if(Math.abs(net)>=1000000)a.push({type:'exchange_flow',severity:'high',text:'Labeled exchange flow is '+(net>=0?'net outflow':'net inflow')+' by about $'+Math.abs(net).toLocaleString(undefined,{maximumFractionDigits:0})+'.'});}
   if(out.alchemy&&out.alchemy.largeTransfers>=5)a.push({type:'large_transfers',severity:'medium',text:'Alchemy observed '+out.alchemy.largeTransfers+' large ERC-20 transfers in the indexed window.'});
   if(out.cryptoquant&&out.cryptoquant.btcBinanceNetflow!=null){var q=Number(out.cryptoquant.btcBinanceNetflow); if(Math.abs(q)>0) a.push({type:'cryptoquant_netflow',severity:'medium',text:'CryptoQuant reports BTC/Binance netflow of '+q.toLocaleString(undefined,{maximumFractionDigits:2})+' in the latest daily point.'});}
@@ -9031,7 +9362,7 @@ function _onchainAnomalies(out,history){
 function _cryptoQuantEnrich(sym){
   var key=_provKey('cryptoquant');
   if(!key) return Promise.resolve(null);
-  var clean=_freeSym(sym), asset=(clean==='BTCUSDT'?'btc':clean==='ETHUSDT'?'eth':null);
+  var clean=_freeSym(sym), asset=(clean==='BTC'?'btc':clean==='ETH'?'eth':null);
   // CryptoQuant's documented exchange-flow API is strongest here as BTC/ETH
   // market-level on-chain context. For other coins we deliberately use BTC
   // context rather than pretending CryptoQuant provides coin-specific data.
@@ -9074,29 +9405,44 @@ function _freeProviderEnrichment(sym,baseOut){
 function _agentOnchain(f){
   f=f||{}; var sym=_freeSym(f.sym||f.symbol||'');
   if(!sym) return Promise.resolve({symbol:'',status:'unknown',sources:[],errors:['No symbol supplied.'],warnings:[],bias:'UNKNOWN'});
-  var cacheKey='freeoc_'+sym, now=Date.now();
-  if(_freeOnchainCache[cacheKey] && now-_freeOnchainCache[cacheKey].ts<300000) return Promise.resolve(_freeOnchainCache[cacheKey].d);
-  if(sym==='BTC') return _freeBtcActivity().then(function(b){var o={symbol:'BTC',status:b?'ok':'partial',sources:['Blockchain.com free charts'],errors:[],providerErrors:[],warnings:[],bias:'UNKNOWN',btcActivity:b}; if(b&&b.chg7d>3){o.bias='BULLISH';o.biasReason='BTC unique active addresses increased over the last 7 days.';} else if(b&&b.chg7d<-3){o.bias='BEARISH';o.biasReason='BTC unique active addresses declined over the last 7 days.';} else o.bias='NEUTRAL'; return _freeProviderEnrichment('BTC',o).then(function(v){_freeOnchainCache[cacheKey]={ts:Date.now(),d:v};return v;});});
+  var pair=_spotPair(f.sym||f.symbol),cacheKey='freeoc_v4_'+(pair?pair.symbol:sym), now=Date.now();
+  if(!f.force&&_freeOnchainCache[cacheKey] && now-_freeOnchainCache[cacheKey].ts<300000) return Promise.resolve(_freeOnchainCache[cacheKey].d);
+  var core=_agentOnchainCore(f).catch(function(e){return {symbol:sym,status:'error',sources:[],errors:[String(e.message||e)],providerErrors:[],warnings:[],market:_dexUnavailable('On-chain services failed; exchange coverage is separate.'),bias:'UNKNOWN'};});
+  return Promise.all([core,_freeSpotFlow(f.sym||f.symbol)]).then(function(r){
+    var out=r[0];out.spotFlow=r[1];out.sources=out.sources||[];
+    if(Object.keys(r[1].windows).some(function(k){return r[1].windows[k].status==='COMPLETE';}))out.sources.push('Binance spot market data (NOT on-chain)');
+    out.updatedAt=Date.now();_freeOnchainCache[cacheKey]={ts:Date.now(),d:out};return out;
+  });
+}
+function _agentOnchainCore(f){
+  var sym=_freeSym(f.sym||f.symbol||'');
+  function finish(out){return _freeProviderEnrichment(sym,out).then(function(v){
+    var b=_freeOnchainBias(v);v.bias=b.bias;v.biasReason=b.biasReason;
+    var hist=_recordOnchainHistory(v);v.anomalies=_onchainAnomalies(v,hist);v.historySamples=hist.length;v.updatedAt=Date.now();return v;
+  });}
+  if(sym==='BTC')return _freeBtcActivity().then(function(b){return finish({symbol:sym,status:b?'partial':'unknown',
+    sources:b?['Blockchain.com free charts']:[],errors:[],providerErrors:[],warnings:['Bitcoin address activity is not a directional buy/sell measure.'],bias:'UNKNOWN',btcActivity:b,
+    market:_dexUnavailable('Native BTC does not have an ERC-20/Solana token contract. Wrapped BTC is a different representation and is not silently substituted. See the separate BTC exchange-volume cards.')});});
   return _freeFindCoin(sym).then(function(meta){
-    var pick=_freePickPlatform(meta), out={symbol:sym,coinId:meta.id,status:'partial',sources:['CoinGecko keyless'],errors:[],providerErrors:[],warnings:[],bias:'UNKNOWN'};
-    if(!pick){
-      out.warnings.push('No free Blockscout EVM contract was found. GeckoTerminal will still search DEX pools for this coin.');
-      return _freeDex('',null,sym).then(function(m){ if(m){out.market=m;out.sources.push('GeckoTerminal keyless DEX API');} var b=_freeOnchainBias(out);out.bias=b.bias;out.biasReason=b.biasReason;return _freeProviderEnrichment(sym,out).then(function(v){var hist=_recordOnchainHistory(v);v.anomalies=_onchainAnomalies(v,hist);v.historySamples=hist.length;v.updatedAt=Date.now();return v;});});
-    }
-    var base=FREE_EVM_EXPLORERS[pick.network];
-    out.network=pick.network; out.contract=pick.address;
-    if(base) out.sources.push('Blockscout Community API');
-    return Promise.allSettled([
-      base ? _freeHolders(base,pick.address) : Promise.resolve(null),
-      base ? _freeTransfers(base,pick.address,_freeNum(f.price)) : Promise.resolve(null),
-      _freeDex(pick.network,pick.address,sym)
-    ]).then(function(r){
-      if(r[0].status==='fulfilled'&&r[0].value) out.holders=r[0].value; else if(base) out.errors.push('Blockscout holders unavailable for this network/token.');
-      if(r[1].status==='fulfilled'&&r[1].value) out.transfers=r[1].value; else if(base) out.errors.push('Blockscout transfers unavailable for this network/token.');
-      if(r[2].status==='fulfilled'&&r[2].value){out.market=r[2].value;out.sources.push('GeckoTerminal keyless DEX API');} else out.warnings.push('No GeckoTerminal DEX pool data returned.');
-      var b=_freeOnchainBias(out); out.bias=b.bias; out.biasReason=b.biasReason; return _freeProviderEnrichment(sym,out).then(function(v){ var hist=_recordOnchainHistory(v); v.anomalies=_onchainAnomalies(v,hist); v.historySamples=hist.length; v.updatedAt=Date.now(); return v; });
+    var out={symbol:sym,coinId:meta.id,price:_freeNum(f.price),status:'partial',sources:['CoinGecko keyless'],errors:[],providerErrors:[],warnings:[],bias:'UNKNOWN'};
+    return _freeDexAcross(meta).then(function(result){
+      out.market=result.market;
+      if(result.market.identityVerified)out.sources.push('GeckoTerminal keyless DEX API');
+      else out.warnings.push('DEX coverage unavailable or unresolved; exchange volume remains a separate source.');
+      if(result.market.wrappedProxy)out.warnings.push('DEX evidence uses '+result.market.representation+'. Wrapped-token holders/transfers are not used as native-coin holders/transfers.');
+      // Holder enrichment may still work when the DEX provider is unavailable.
+      var pick=result.pick||(result.market.wrappedProxy||['ETH','BNB','AVAX'].indexOf(sym)>=0?null:_freePickPlatform(meta));
+      if(!pick)return finish(out);
+      var base=FREE_EVM_EXPLORERS[pick.network];out.network=pick.network;out.contract=pick.address;
+      if(base)out.sources.push('Blockscout Community API');
+      if(!base)out.warnings.push('EVM-only holder/transfer services do not establish '+pick.network+' coverage.');
+      return Promise.allSettled([base?_freeHolders(base,pick.address):Promise.resolve(null),base?_freeTransfers(base,pick.address,out.price):Promise.resolve(null)]).then(function(r){
+        if(r[0].status==='fulfilled'&&r[0].value)out.holders=r[0].value;else if(base)out.errors.push('Blockscout holders unavailable for this network/token.');
+        if(r[1].status==='fulfilled'&&r[1].value)out.transfers=r[1].value;else if(base)out.errors.push('Blockscout transfers unavailable for this network/token.');
+        return finish(out);
+      });
     });
-  }).catch(function(e){return {symbol:sym,status:'error',sources:[],errors:['Free on-chain lookup failed: '+String(e.message||e)],warnings:['No paid provider is used; retry after a short delay if CoinGecko keyless rate limiting occurs.'],bias:'UNKNOWN'};}).then(function(out){_freeOnchainCache[cacheKey]={ts:Date.now(),d:out};return out;});
+  }).catch(function(e){return {symbol:sym,status:'error',sources:[],errors:['Free on-chain lookup failed: '+String(e.message||e)],providerErrors:[],warnings:['Metadata failure does not prevent the separate Binance spot lookup.'],market:_dexUnavailable(String(e.message||e)),bias:'UNKNOWN'};});
 }
 
 // ── AGENT TOOL 5: chart VISION for one coin (quota-aware, on request only) ──
@@ -9142,6 +9488,7 @@ function runResearchAgent(){
     + 'EVIDENCE BASE: trend and higher-timeframe alignment are the proven edges; entries more than 3.5 percent above EMA20 are late and this trader log proved loud extended entries lost; unconfirmed breakouts and counter-daily-trend entries underperform; accumulation scores and CHoCH have no proven edge. '
     + 'NEVER recommend a trade, predict a price, or claim an edge the data cannot support. If the honest answer is that the data is too thin, say exactly that. Cite which tool gave which number. Plain text, no markdown symbols, concise.';
 
+  sys+=' SOURCE SEPARATION: spotFlow in ONCHAIN results is Binance centralized exchange taker-volume data, NOT on-chain evidence. Do not combine it with DEX transactions, invent directional transaction counts from candles, or infer native holder data from wrapped-token proxies. Respect window coverage and quote currency.';
   var _agentChartImg = null;
   var history = [{ role:'user', content: 'Question: ' + question }];
   var steps = [];
