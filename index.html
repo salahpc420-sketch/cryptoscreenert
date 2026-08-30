@@ -5005,9 +5005,13 @@ function monitorOnchain(sym){
     h+='<div style="font-size:10px;line-height:1.55;background:var(--card3);border-radius:6px;padding:8px 9px">';
     h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:5px"><b>⛓ On-chain intelligence — '+esc(x.symbol||d.pair)+'</b><span style="color:var(--t3)">'+new Date().toLocaleTimeString()+'</span></div>';
     h+='<div style="font-size:9px;color:var(--t3);margin-bottom:6px">Sources: '+esc((x.sources||[]).join(' · ')||'none')+'</div>';
+    h+=_renderFreeCoverage(x);
     h+=_renderSpotFlow(x.spotFlow,x.symbol||d.pair);
     h+=_renderDexMarket(x.market,x.symbol||d.pair);
-    h+=_renderOnchainEvidence(x);
+    h+=_renderNetworkActivity(x.networkActivity);
+    h+='<details class="dex-evidence"><summary style="cursor:pointer;font-weight:700">Advanced: holder balances, exchange transfers and saved history</summary>';
+    if(x.holderRoute)h+='<div class="dex-source">Holder connection: '+esc(x.holderRoute.status)+' · '+esc(x.holderRoute.note)+'</div>';
+    h+=_renderOnchainEvidence(x)+'</details>';
     if(x.holders&&!x.onchainEvidence){
       h+='<div style="margin-top:6px"><b>🐋 Holder / whale structure</b>';
       if(x.holders.count!=null) h+='<div style="font-size:9px;color:var(--t3)">Holders: '+Number(x.holders.count).toLocaleString()+'</div>';
@@ -5875,7 +5879,7 @@ function renderAgent(){
      + '<span style="display:block;margin-top:2px">Separate from your analysis key and used only for this — so a large analysis payload can never hit the search limit.</span></div>';
   h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:8px 10px;margin-bottom:8px">';
   h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">⛓ Free On-chain Intelligence</b><span style="font-size:9px;color:var(--g)">No paid API required</span></div>';
-  h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.45">Combines CoinGecko keyless metadata + Blockscout community explorer data + GeckoTerminal keyless DEX data + optional Moralis/Alchemy/CryptoQuant/CoinStats evidence on demand. It measures holder concentration, recent transfers, labeled exchange flows and DEX buy/sell activity. Missing data is UNKNOWN, never zero activity.</div></div>';
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.45">Free core: Binance spot taker volume + DEX Screener / GeckoTerminal verified pool activity + Coin Metrics Community blockchain/token activity and Solana public network samples where supported. Requests are cached and rate-limit failures cool down automatically. No paid key or AI call is needed for these calculations. Optional holder and labelled-transfer services have separate coverage limits.</div></div>';
   // ── ON-CHAIN API / AI KEYS ── kept here so they are visible in the Agent Monitor itself.
   var ocKey = _onchainAIKey();
   var mKey = _provKey('moralis'), aKey = _provKey('alchemy'), cqKey = _provKey('cryptoquant'), csKey = _provKey('coinstats');
@@ -5884,6 +5888,7 @@ function renderAgent(){
   h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:9px 10px;margin-bottom:8px">';
   h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">🔑 On-chain provider keys</b><span style="font-size:9px;color:var(--t3)">save once · reused for every coin</span></div>';
   h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:7px;margin-top:8px">';
+  h += '<label style="font-size:9px;color:var(--t2)">Blockscout Pro key (optional free tier)<input id="onchain-blockscout-key" type="password" value="'+_escProviderHtml(_provKey('blockscout'))+'" placeholder="proapi_… — optional EVM holder data" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"><a href="https://dev.blockscout.com" target="_blank" rel="noopener noreferrer">Get a free key</a></label>';
   h += '<label style="font-size:9px;color:var(--t2)">🟠 Moralis API key <span style="color:'+(ocSaved.moralis?'var(--g)':'var(--t3)')+'">'+(ocSaved.moralis?'● saved':'○ not saved')+'</span><input id="onchain-moralis-key" type="password" value="'+_escProviderHtml(mKey)+'" placeholder="Enter Moralis API key" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"></label>';
   h += '<label style="font-size:9px;color:var(--t2)">🔷 Alchemy API key <span style="color:'+(ocSaved.alchemy?'var(--g)':'var(--t3)')+'">'+(ocSaved.alchemy?'● saved':'○ not saved')+'</span><input id="onchain-alchemy-key" type="password" value="'+_escProviderHtml(aKey)+'" placeholder="Enter Alchemy API key" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"></label>';
   h += '<label style="font-size:9px;color:var(--t2)">📊 CryptoQuant API key <span style="color:'+(ocSaved.cryptoquant?'var(--g)':'var(--t3)')+'">'+(ocSaved.cryptoquant?'● saved':'○ not saved')+'</span><input id="onchain-cryptoquant-key" type="password" value="'+_escProviderHtml(cqKey)+'" placeholder="Enter CryptoQuant API key" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"></label>';
@@ -5896,11 +5901,12 @@ function renderAgent(){
   h += '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:7px">';
   h += '<button onclick="saveOnchainProviderKeys()" style="padding:7px 12px;border-radius:7px;border:none;background:var(--acc);color:#fff;font-weight:700;cursor:pointer;font-size:10px">💾 Save all keys</button>';
   h += '<button onclick="testOnchainAll()" style="padding:7px 12px;border-radius:7px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-weight:700;cursor:pointer;font-size:10px">🧪 Test all providers</button>';
+  h += '<button onclick="testFreeOnchain()" style="padding:7px 12px;border-radius:7px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-weight:700;cursor:pointer;font-size:10px">Test free sources (no AI)</button>';
   h += '<span id="onchain-save-status" style="font-size:9px;color:var(--t3)">'+(ocSaved.moralis||ocSaved.alchemy||ocSaved.cryptoquant||ocSaved.coinstats||ocSaved.gemini?'Saved locally in this browser':'Not saved yet')+'</span>';
   h += '</div>';
   h += '<div id="onchain-test-out"></div>';
   if(lastTest&&lastTest.ts) h += '<div style="font-size:8px;color:var(--t3);margin-top:5px">Last provider test: '+new Date(lastTest.ts).toLocaleString()+' · '+_escProviderHtml(lastTest.coin||'')+'</div>';
-  h += '<div style="font-size:8px;color:var(--am);margin-top:6px;line-height:1.45">Direct browser mode. Keys are stored locally in this browser and reused automatically after refresh. CryptoQuant uses its documented api_key query form here to avoid GitHub Pages CORS preflight. Moralis/Alchemy/CryptoQuant/CoinStats collect on-chain/market-risk evidence; the dedicated Gemini key only interprets that evidence and remains separate from Catalyst Verification and Research AI.</div>';
+  h += '<div style="font-size:8px;color:var(--am);margin-top:6px;line-height:1.45">Direct browser mode. Optional keys are saved in this browser, never embedded in your HTML or sent to a public proxy. CryptoQuant uses its authorization header; Blockscout uses its documented Pro API key parameter. Some providers restrict browser access or free-tier endpoints. The dedicated Gemini key only interprets evidence and remains separate from Catalyst Verification and Research AI.</div>';
   h += '</div>';
   var _ocaOn = _onchainCatalystAlertsEnabled();
   h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:9px 10px;margin-bottom:8px">';
@@ -8561,19 +8567,202 @@ function _freeSym(raw){
   if(['BTC','ETH','WBTC','WETH','STETH','RETH','CBETH','USDT','USDC','FDUSD','BUSD','TUSD','USD','JPY','EUR','TRY','BRL'].indexOf(s)>=0)return s;
   return s.replace(/(FDUSD|USDT|USDC|BUSD|TUSD|USD|JPY|EUR|TRY|BRL|BTC|ETH)$/,'');
 }
-function _freeJson(url,ms){ return _pfetch(url,ms||9000); }
+function _freeJson(url,ms){ return _ffRequest(url,ms||9000); }
 function _freeNum(v){ if(v==null||(typeof v==='string'&&!v.trim())||typeof v==='boolean')return null;var n=Number(v);return isFinite(n)?n:null; }
+
+// FREE_FIRST_V1_BEGIN — public requests only; no proxy, account or paid plan required.
+var _ffRequests={},_ffCooldown={},_ffPending={},_ffCatalog=null;
+var FF_COIN_IDS={BTC:'bitcoin',ETH:'ethereum',SOL:'solana',BNB:'binancecoin',AVAX:'avalanche-2',LINK:'chainlink',
+  XRP:'ripple',DOGE:'dogecoin',ADA:'cardano',LTC:'litecoin',DOT:'polkadot',AAVE:'aave',UNI:'uniswap',ARB:'arbitrum',
+  OP:'optimism',SUI:'sui',APT:'aptos',NEAR:'near',ATOM:'cosmos',XLM:'stellar',BCH:'bitcoin-cash',ETC:'ethereum-classic',
+  FIL:'filecoin',ALGO:'algorand',WBTC:'wrapped-bitcoin',WETH:'weth'};
+var FF_NATIVE=['BTC','ETH','SOL','BNB','AVAX','XRP','DOGE','ADA','LTC','DOT','SUI','APT','NEAR','ATOM','XLM','BCH','ETC','FIL','ALGO'];
+var FF_DS_CHAINS={ethereum:'ethereum',base:'base',arbitrum_one:'arbitrum',optimism:'optimism',polygon_pos:'polygon',
+  bsc:'bsc',avalanche:'avalanche',gnosis:'gnosischain',linea:'linea',scroll:'scroll',zksync:'zksync',celo:'celo',solana:'solana',sui:'sui',aptos:'aptos'};
+var FF_BLOCKSCOUT_CHAINS={ethereum:1,base:8453,arbitrum_one:42161,optimism:10,polygon_pos:137,bsc:56,avalanche:43114,gnosis:100,linea:59144,scroll:534352,zksync:324,celo:42220};
+function _ffStatus(error){
+  var s=String(error&&error.message||error||'');
+  if(/429|rate.limit|cooldown/i.test(s))return 'RATE LIMITED';
+  if(/401|403|402|forbidden|permission|plan|access.denied/i.test(s))return 'ACCESS RESTRICTED';
+  if(/not supported|unsupported|no verified|no matching|not listed|no public/i.test(s))return 'NOT COVERED';
+  if(/identity|ambiguous/i.test(s))return 'IDENTITY UNRESOLVED';
+  if(/timeout|abort/i.test(s))return 'TIMED OUT';
+  return 'CONNECTION FAILED';
+}
+function _ffDirect(url,ms,options){
+  // Includes body parsing in the timeout. Do not echo provider bodies/URLs that may contain credentials.
+  return new Promise(function(resolve,reject){
+    var controller=new AbortController(),done=false;
+    var timer=setTimeout(function(){if(done)return;done=true;controller.abort();reject(Error('Request timeout'));},ms||9000);
+    fetch(url,Object.assign({credentials:'omit',referrerPolicy:'no-referrer'},options||{},{signal:controller.signal})).then(function(r){
+      if(!r.ok){var e=Error('HTTP '+r.status);e.status=r.status;
+        var retry=r.headers&&r.headers.get('Retry-After');e.retryMs=/^\d+$/.test(retry||'')?Number(retry)*1000:Math.max(0,Date.parse(retry||'')-Date.now());throw e;}
+      return r.json();
+    }).then(function(j){if(!done){done=true;clearTimeout(timer);resolve(j);}},function(e){if(!done){done=true;clearTimeout(timer);reject(e);}});
+  });
+}
+function _ffRequest(url,ms){
+  var host=new URL(url).host,now=Date.now(),c=_ffRequests[url];
+  var ttl=/\/catalog\/|\/coins\//.test(url)?86400000:/timeseries/.test(url)?3600000:/exchangeInfo/.test(url)?3600000:60000;
+  if(c&&c.promise)return c.promise;
+  if(c&&now-c.at<ttl)return Promise.resolve(c.value);
+  if(_ffCooldown[host]&&_ffCooldown[host].until>now)return Promise.reject(Error(_ffCooldown[host].reason+'; cooling down'));
+  var entry={at:now};_ffRequests[url]=entry;
+  entry.promise=_ffDirect(url,ms).then(function(j){
+    entry.at=Date.now();entry.value=j;delete entry.promise;
+    var keys=Object.keys(_ffRequests);if(keys.length>100)keys.filter(function(k){return k!==url&&!_ffRequests[k].promise;}).sort(function(a,b){return _ffRequests[a].at-_ffRequests[b].at;}).slice(0,keys.length-100).forEach(function(k){delete _ffRequests[k];});
+    return j;
+  }).catch(function(e){delete _ffRequests[url];if([401,402,403,429].indexOf(e.status)>=0){
+    _ffCooldown[host]={until:Date.now()+Math.min(900000,Math.max(60000,e.retryMs||0)),reason:'HTTP '+e.status};
+  }throw e;});return entry.promise;
+}
+function _ffCounterWindows(transactions,volume,side,source,now){
+  var w=_dexEmptyWindows('No provider 4H counter. A 6H counter cannot be converted into 4H.');
+  [['1h','h1'],['1d','h24']].forEach(function(k){
+    var r=transactions&&transactions[k[1]],b=_freeNum(r&&r.buys),s=_freeNum(r&&r.sells),v=_freeNum(volume&&volume[k[1]]);
+    if(!Number.isSafeInteger(b)||!Number.isSafeInteger(s)||!Number.isSafeInteger(b+s)||b<0||s<0)return;
+    if(side==='quote'){var t=b;b=s;s=t;}
+    w[k[0]]=Object.assign({},w[k[0]],{status:'COUNTERS ONLY',coverage:'PROVIDER REPORTED',buys:b,sells:s,tradeCount:b+s,
+      ratio:_dexRatio(b,s),buyShare:b+s?b/(b+s)*100:null,totalVolume:v!=null&&v>=0?v:null,
+      direction:b+s?'COUNTS ONLY':'NO ACTIVITY',eligible:false,asOf:now,source:source,
+      reason:source+' rolling '+k[0].toUpperCase()+' counters for this pool only; normalized to the watched token. Buy/sell USD split is not supplied. Counts are not unique traders.'});
+  });return w;
+}
+function _ffDexScreener(rows,network,target,sym){
+  var chain=FF_DS_CHAINS[network];
+  if(!Array.isArray(rows))throw Error('DEX Screener response schema mismatch');
+  var seen={},pools=rows.filter(function(p){
+    if(!p||p.chainId!==chain||!p.pairAddress||seen[p.pairAddress]||!p.baseToken||!p.quoteToken)return false;
+    var b=_dexSameAddress(p.baseToken.address,target),q=_dexSameAddress(p.quoteToken.address,target);if(b===q)return false;
+    seen[p.pairAddress]=true;return true;
+  });
+  if(!pools.length)return _dexUnavailable('No verified DEX Screener pool on this network.');
+  pools.sort(function(a,b){return (_freeNum(b.volume&&b.volume.h24)||0)-(_freeNum(a.volume&&a.volume.h24)||0)||(_freeNum(b.liquidity&&b.liquidity.usd)||0)-(_freeNum(a.liquidity&&a.liquidity.usd)||0);});
+  var p=pools[0],side=_dexSameAddress(p.baseToken.address,target)?'base':'quote',now=Date.now();
+  var liquidity=_freeNum(p.liquidity&&p.liquidity.usd),volume=_freeNum(p.volume&&p.volume.h24);
+  var windows=_ffCounterWindows(p.txns,p.volume,side,'DEX Screener',now),day=windows['1d'];
+  return {version:3,source:'DEX Screener',identityVerified:true,scope:'single pool',symbol:sym,network:network,
+    tokenAddress:target,baseToken:p.baseToken,quoteToken:p.quoteToken,tokenSide:side,
+    liquidity:liquidity!=null&&liquidity>=0?liquidity:null,
+    volume24h:volume!=null&&volume>=0?volume:null,buys:day.buys,sells:day.sells,buySellRatio:_dexRatio(day.buys,day.sells),
+    summary:{buys:day.buys,sells:day.sells,asOf:now,source:'DEX Screener normalized 24H counters'},counterWindows:windows,
+    pool:(p.baseToken.symbol||'Base')+' / '+(p.quoteToken.symbol||'Quote'),poolAddress:p.pairAddress,
+    poolKey:network+':'+p.pairAddress+':'+_dexAddress(target),poolUrl:'https://dexscreener.com/'+chain+'/'+encodeURIComponent(p.pairAddress),
+    poolsConsidered:pools.length,selection:'Exact network and token address; highest reported 24H volume among returned pools. Single venue, not whole-market totals.',
+    flowWindows:windows,flowTradeCount:0,asOf:now,flowNote:'Provider counters remain separate from timestamped trade samples; no estimated 4H or buy/sell USD split.'};
+}
+function _ffNetworkEmpty(sym,status,reason){return {version:1,symbol:sym,source:'Coin Metrics Community',status:status,reason:reason,metrics:[],eligible:false};}
+function _ffNetworkMetrics(rows,asset,metrics,now){
+  var day=86400000,end=Math.floor(now/day)*day,seen={},conflict={};
+  if(!Array.isArray(rows))throw Error('Network metrics response has no rows');
+  rows.forEach(function(r){var t=Date.parse(r&&r.time||'');if(!r||r.asset!==asset||!Number.isFinite(t)||t%day||t>=end||t<end-10*day)return;
+    if(seen[t]&&JSON.stringify(seen[t])!==JSON.stringify(r))conflict[t]=true;else seen[t]=r;
+  });
+  var clean=Object.keys(seen).map(Number).filter(function(t){return !conflict[t];}).sort(function(a,b){return b-a;});
+  var labels={AdrActCnt:'Active addresses',AdrBalCnt:'Addresses with a balance',TxCnt:'Transactions',FeeTotNtv:'Network fees'};
+  var result=[];metrics.forEach(function(key){
+    function value(t){if(conflict[t])return null;var n=_freeNum(seen[t]&&seen[t][key]);return n!=null&&n>=0&&(key==='FeeTotNtv'||Number.isSafeInteger(n))?n:null;}
+    var ts=clean.find(function(t){return value(t)!=null;});if(ts==null)return;
+    var n=value(ts),prior=value(ts-day),week=value(ts-7*day);
+    result.push({key:key,label:labels[key],value:n,unit:key==='FeeTotNtv'?asset.toUpperCase():'count',start:ts,end:ts+day,
+      status:ts===end-day?'REPORTED':'DELAYED',change1d:prior>0?(n-prior)/prior*100:null,change7d:week>0?(n-week)/week*100:null,
+      baseline1d:prior!=null?ts-day:null,baseline7d:week!=null?ts-7*day:null});
+  });
+  return {version:1,symbol:asset.toUpperCase(),source:'Coin Metrics Community',status:!result.length?'NO RECENT DATA':result.every(function(m){return m.status==='REPORTED';})?'REPORTED':'DELAYED',
+    metrics:result,asOf:now,eligible:false,reason:'Closed UTC calendar days, not rolling 24H. Activity is not buying pressure; addresses are not unique people. 7D compares one day with the day seven days earlier, not weekly totals.'};
+}
+function _ffNetworkActivity(sym){
+  // Verified asset registry: request LINK metrics as LINK, never as Ethereum metrics.
+  if(!FF_COIN_IDS[sym])return Promise.resolve(_ffNetworkEmpty(sym,'NOT COVERED','No verified Coin Metrics identity for this asset. Host-chain activity is not token activity.'));
+  if(sym==='SOL')return _ffSolanaActivity();
+  if(!_ffCatalog)_ffCatalog=_freeJson('https://community-api.coinmetrics.io/v4/catalog/assets',12000).then(function(j){
+    if(!j||!Array.isArray(j.data))throw Error('Network coverage catalog unavailable');return j.data;
+  }).catch(function(e){_ffCatalog=null;throw e;});
+  return _ffCatalog.then(function(catalog){
+    var asset=sym.toLowerCase(),c=catalog.find(function(r){return r.asset===asset;});
+    var metrics=(c&&c.metrics||[]).filter(function(m){return ['AdrActCnt','AdrBalCnt','TxCnt','FeeTotNtv'].indexOf(m.metric)>=0&&(m.frequencies||[]).some(function(f){return f.frequency==='1d'&&f.community===true&&Date.parse(f.max_time)>Date.now()-10*86400000;});}).map(function(m){return m.metric;});
+    if(!metrics.length)return _ffNetworkEmpty(sym,'NOT COVERED','No free daily activity metrics listed for this asset. Price-only coverage is not on-chain coverage.');
+    var end=Math.floor(Date.now()/86400000)*86400000;
+    return _freeJson('https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets='+asset+'&metrics='+metrics.join(',')+'&frequency=1d&page_size=20&start_time='+new Date(end-10*86400000).toISOString()+'&end_time='+new Date(end-1).toISOString(),12000).then(function(j){
+      var n=_ffNetworkMetrics(j&&j.data,asset,metrics,Date.now());
+      n.scope=FF_NATIVE.indexOf(sym)>=0?'Native network':'Provider-indexed token representation, not all chains or its host network';return n;
+    });
+  }).catch(function(e){return _ffNetworkEmpty(sym,_ffStatus(e),String(e.message||e));});
+}
+function _ffSolanaSamples(rows){
+  if(!Array.isArray(rows)||!rows.length)throw Error('No Solana performance samples');
+  var seen={},seconds=0,transactions=0,nonVotes=0,nonVoteKnown=true,invalid=0,count=0;
+  rows.slice(0,60).forEach(function(r){
+    if(!r||!Number.isSafeInteger(r.slot)||seen[r.slot]||!Number.isSafeInteger(r.numTransactions)||r.numTransactions<0||!Number.isInteger(r.samplePeriodSecs)||r.samplePeriodSecs<=0){invalid++;return;}
+    seen[r.slot]=true;count++;seconds+=r.samplePeriodSecs;transactions+=r.numTransactions;
+    if(Number.isSafeInteger(r.numNonVoteTransactions)&&r.numNonVoteTransactions>=0&&r.numNonVoteTransactions<=r.numTransactions)nonVotes+=r.numNonVoteTransactions;else nonVoteKnown=false;
+  });
+  if(!count)throw Error('Solana sample validation failed');
+  return {version:1,symbol:'SOL',source:'Solana mainnet public RPC',status:'SAMPLED',metrics:[],eligible:false,asOf:Date.now(),
+    performance:{samples:count,seconds:seconds,transactions:transactions,nonVoteTransactions:nonVoteKnown?nonVotes:null,invalid:invalid},
+    reason:'Recent performance samples, not exact rolling 1H/4H/1D windows. Total transactions include validator votes; non-vote transactions are still not buy/sell trades.'};
+}
+function _ffSolanaActivity(){
+  var c=_freeOnchainCache.solPerformance,now=Date.now();if(c&&now-c.ts<300000)return Promise.resolve(c.d);
+  if(c&&c.promise)return c.promise;
+  var entry={ts:now};_freeOnchainCache.solPerformance=entry;
+  entry.promise=_ffDirect('https://api.mainnet-beta.solana.com',9000,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'getRecentPerformanceSamples',params:[60]})}).then(function(j){
+    if(j&&j.error)throw Error('RPC method unavailable');return _ffSolanaSamples(j&&j.result);
+  }).catch(function(e){return Object.assign(_ffNetworkEmpty('SOL',_ffStatus(e),String(e.message||e)),{source:'Solana mainnet public RPC'});}).then(function(n){entry.d=n;delete entry.promise;return n;});
+  return entry.promise;
+}
+function _ffCoverage(out){
+  var m=out.market,n=out.networkActivity,s=out.spotFlow,rows=[];
+  var sw=Object.keys(s&&s.windows||{}).map(function(k){return s.windows[k].status;});
+  rows.push({name:'Spot taker volume',status:sw.length&&sw.every(function(k){return k==='COMPLETE';})?'AVAILABLE':sw.some(function(k){return k==='COMPLETE'||k==='PARTIAL';})?'PARTIAL':_ffStatus(s&&s.reason),note:'Binance pair only · not on-chain'+(sw.indexOf('COMPLETE')<0&&s&&s.reason?' · '+s.reason:'')});
+  rows.push({name:'DEX selected pool',status:m&&m.identityVerified?'AVAILABLE':out.symbol==='BTC'?'NOT APPLICABLE':_ffStatus(m&&m.flowNote),note:m&&m.identityVerified?(m.source||'GeckoTerminal')+' · '+m.network:(m&&m.flowNote||'No verified pool')});
+  rows.push({name:'Blockchain / token activity',status:n?n.status:'NOT COVERED',note:n?n.source+' · '+(n.scope||n.reason):'No supported adapter'});
+  return rows;
+}
+function _renderFreeCoverage(out){
+  var esc=_escProviderHtml,rows=_ffCoverage(out);
+  return '<section class="dex-evidence"><div class="dex-evidence-title">Free data coverage · '+esc(out.symbol)+'</div><div class="dex-source">No paid subscription required for these sources. Coverage is per asset, venue and metric—not a trading score.</div>'+rows.map(function(r){return '<div class="oc-proof"><strong>'+esc(r.name)+' · '+esc(r.status)+'</strong><div class="dex-muted">'+esc(r.note)+'</div></div>';}).join('')+'</section>';
+}
+function _renderNetworkActivity(n){
+  if(!n)return '';
+  var esc=_escProviderHtml;
+  function num(v){return Number(v).toLocaleString(undefined,{maximumFractionDigits:6});}
+  function pct(v){return v==null?'No matching baseline':(v>0?'+':'')+v.toFixed(2)+'%';}
+  if(n.performance){var p=n.performance;return '<section class="dex-evidence"><div class="dex-evidence-title">Solana network activity · SAMPLED</div><div class="dex-source">'+esc(n.source)+' · '+esc(n.reason)+'</div><div class="oc-proof">'+num(p.samples)+' samples · '+num(p.seconds/60)+' minutes of sampled duration<br>Total transactions (includes votes): '+num(p.transactions)+'<br>Non-vote transactions: '+(p.nonVoteTransactions==null?'Not reported':num(p.nonVoteTransactions))+'<br>Sample average TPS (includes votes): '+num(p.transactions/p.seconds)+'</div><div class="dex-guard">No automatic directional vote. This is network usage, not SOL buying pressure.</div></section>';}
+  if(!n.metrics||!n.metrics.length)return '';
+  return '<section class="dex-evidence"><div class="dex-evidence-title">Blockchain / token activity · '+esc(n.symbol)+'</div><div class="dex-source">'+esc(n.source)+' · '+esc(n.scope||'')+' · '+esc(n.reason)+'</div><div class="oc-table-wrap"><table class="oc-history-table"><thead><tr><th>Metric</th><th>Reported value</th><th>UTC date / status</th><th>vs previous day</th><th>vs 7 days earlier</th></tr></thead><tbody>'+n.metrics.map(function(m){return '<tr><td>'+esc(m.label)+'</td><td>'+num(m.value)+(m.unit==='count'?'':' '+esc(m.unit))+'</td><td>'+new Date(m.start).toISOString().slice(0,10)+' · '+esc(m.status)+'</td><td>'+pct(m.change1d)+'</td><td>'+pct(m.change7d)+'</td></tr>';}).join('')+'</tbody></table></div><div class="dex-guard">Context only · never an independent bullish/bearish vote.</div></section>';
+}
+function _ffBlockscoutJson(network,path){
+  var id=FF_BLOCKSCOUT_CHAINS[network],key=_provKey('blockscout');
+  if(!id)return Promise.reject(Error('Unsupported Blockscout chain'));
+  if(!key)return Promise.reject(Error('Needs free Blockscout Pro key'));
+  return _ffDirect('https://api.blockscout.com/'+id+'/api/v2/'+path+(path.indexOf('?')>=0?'&':'?')+'apikey='+encodeURIComponent(key),10000);
+}
+function testFreeOnchain(){
+  var el=document.getElementById('onchain-test-out');if(!el)return;
+  var d=window._d||(allData||[])[0],raw=d&&(d.pair||d.sym)||'BTCUSDT',sym=_freeSym(raw);
+  el.textContent='Checking free sources for '+raw+'… No AI call or API key is used.';
+  var core=_freeFindCoin(sym).then(function(meta){return sym==='BTC'?{market:_dexUnavailable('Native BTC has no DEX token representation in this screener.')} :_freeDexAcross(meta);}).catch(function(e){return {market:_dexUnavailable(String(e.message||e))};});
+  return Promise.all([core,_freeSpotFlow(raw),_ffNetworkActivity(sym)]).then(function(r){
+    var x={symbol:sym,market:r[0].market,spotFlow:r[1],networkActivity:r[2]};el.innerHTML=_renderFreeCoverage(x)+'<div class="dex-source">Checked '+_escProviderHtml(new Date().toLocaleString())+'. This checks the selected chart coin, or the first loaded screener coin if no chart is selected.</div>';
+  }).catch(function(e){el.textContent='Free-source check failed: '+String(e.message||e);});
+}
+// FREE_FIRST_V1_END
 
 function _freeFindCoin(sym){
   sym=_freeSym(sym);
   // Native SOL metadata may have no contract in CoinGecko's platforms map.
   // DEX swaps use the official Token Program WSOL mint, not a fuzzy SOL name.
   // Source: https://solana.com/docs/tokens/basics/sync-native
-  if(sym==='SOL')return Promise.resolve({id:'solana',name:'Solana',symbol:'SOL',
+  if(sym==='SOL')return Promise.resolve({id:'solana',name:'Solana',symbol:'SOL',wrappedProxy:true,
     platforms:{solana:'So11111111111111111111111111111111111111112'},representation:'WSOL on Solana (wrapped SOL DEX representation)',identitySource:'Solana official WSOL mint'});
   var key='cgidentity_v4_'+sym, now=Date.now();
   if(_freeOnchainCache[key] && now-_freeOnchainCache[key].ts<86400000) return Promise.resolve(_freeOnchainCache[key].d);
-  return _freeJson('https://api.coingecko.com/api/v3/search?query='+encodeURIComponent(sym),8000).then(function(j){
+  // Known IDs skip the search request. Persist only verified identities, never live prices.
+  var stored=null;try{stored=JSON.parse(localStorage.getItem(key)||'null');}catch(e){}
+  if(stored&&stored.d&&stored.d.symbol===sym&&stored.ts<=now&&now-stored.ts<86400000){_freeOnchainCache[key]=stored;return Promise.resolve(stored.d);}
+  var discovery=FF_COIN_IDS[sym]?Promise.resolve({coins:[{id:FF_COIN_IDS[sym],symbol:sym}]}):_freeJson('https://api.coingecko.com/api/v3/search?query='+encodeURIComponent(sym),8000);
+  return discovery.then(function(j){
     var arr=((j&&j.coins)||[]).filter(function(c){return String(c.symbol||'').toUpperCase()===sym;});
     var known={BTC:'bitcoin',ETH:'ethereum',BNB:'binancecoin',AVAX:'avalanche-2',LINK:'chainlink',
       XRP:'ripple',DOGE:'dogecoin',ADA:'cardano',LTC:'litecoin',DOT:'polkadot',AAVE:'aave',UNI:'uniswap',
@@ -8584,8 +8773,13 @@ function _freeFindCoin(sym){
     return _freeJson('https://api.coingecko.com/api/v3/coins/'+encodeURIComponent(c.id)+'?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false&sparkline=false',9000).then(function(meta){
       if(!meta||meta.id!==c.id||String(meta.symbol||'').toUpperCase()!==sym)throw Error('Coin metadata identity mismatch for '+sym);
       var d={id:c.id,name:meta.name||c.name,symbol:sym,platforms:meta.platforms||{},detailPlatforms:meta.detail_platforms||{},identitySource:'CoinGecko coin ID and token addresses'};
-      _freeOnchainCache[key]={ts:now,d:d}; return d;
+      _freeOnchainCache[key]={ts:now,d:d};try{localStorage.setItem(key,JSON.stringify({ts:now,d:d}));}catch(e){}return d;
     });
+  }).catch(function(e){
+    if(/identity mismatch|ambiguous/i.test(String(e.message||e)))throw e;
+    if(stored&&stored.d&&stored.d.symbol===sym&&stored.ts<=now&&now-stored.ts<7*86400000)return Object.assign({},stored.d,{identitySource:'Previously verified CoinGecko identity',identityAsOf:stored.ts,identityWarning:'Metadata refresh failed; using token identity verified within the last 7 days.'});
+    if(FF_NATIVE.indexOf(sym)>=0&&FF_COIN_IDS[sym])return {id:FF_COIN_IDS[sym],symbol:sym,name:sym,platforms:{},identitySource:'Native asset registry',identityWarning:'Coin metadata connection failed: '+String(e.message||e)};
+    throw e;
   });
 }
 
@@ -8635,7 +8829,10 @@ function _freeDexMeta(meta){
   });
 }
 function _freeDexAcross(meta){
-  return _freeDexMeta(meta).then(function(dm){return _freeDiscoverNetworks(dm.platforms).then(function(){
+  return _freeDexMeta(meta).then(function(dm){
+    // A verified known network needs no full registry scan of every bridged platform.
+    var discovery=_freePickPlatform(dm)?Promise.resolve():_freeDiscoverNetworks(dm.platforms);
+    return discovery.then(function(){
     var first=_freePickPlatform(dm),picks=Object.keys(dm.platforms||{}).filter(function(p){return dm.platforms[p]&&FREE_CG_PLATFORM_TO_NETWORK[p];}).map(function(p){
       return {platform:p,address:dm.platforms[p],network:FREE_CG_PLATFORM_TO_NETWORK[p]};
     });
@@ -8732,7 +8929,7 @@ function _ocTransferSample(rows,meta){
 }
 function _ocSnapshot(out,now){
   var id=_ocIdentity(out.network,out.contract),h=[out.holders&&out.holders.snapshot,out.moralis&&out.moralis.snapshot,out.goldRush&&out.goldRush.snapshot].find(function(v){return id&&v&&v.identityKey===id&&Array.isArray(v.holders)&&v.holders.length&&Number.isFinite(v.asOf)&&v.asOf<=now&&now-v.asOf<=1800000;});
-  var m=out.market,l=m&&m.identityVerified&&m.poolKey&&_freeNum(m.liquidity)!=null&&m.liquidity>=0&&(!m.asOf||now-m.asOf<=1800000&&m.asOf<=now)?{key:m.poolKey,source:'GeckoTerminal',asOf:m.asOf||now,usd:m.liquidity}:null;
+  var m=out.market,l=m&&m.identityVerified&&m.poolKey&&_freeNum(m.liquidity)!=null&&m.liquidity>=0&&(!m.asOf||now-m.asOf<=1800000&&m.asOf<=now)?{key:(m.source||'GeckoTerminal')+'|'+m.poolKey,source:m.source||'GeckoTerminal',asOf:m.asOf||now,usd:m.liquidity}:null;
   return {version:1,ts:now,symbol:out.symbol,holders:h||null,liquidity:l};
 }
 function _ocBaseline(history,now,ms,field,key){
@@ -8815,7 +9012,7 @@ function _ocDailyExchange(asset,data,now){
     date:days[0]&&days[0].date,netflowTotal:days[0]&&days[0].netflow,eligible:false,
     note:'Provider-labelled Binance wallets only. Calendar UTC days, not rolling 24H. Amounts are native '+asset.toUpperCase()+', not USD. Deposits/withdrawals are not executed trades.'};
 }
-function _ocAIRules(){return ' ON-CHAIN HISTORY RULES: onchainEvidence contains observations, never independent entry signals. Exchange netflow is deposits minus withdrawals, not net executed selling. All explorer transfer windows are labelled partial; missing exchange labels and pages are not zero flow. Holder changes compare only matching addresses, source, network and token; excluded institutions and absent wallets must not be treated as buying or selling. Address counts are not unique people. A token balance can rise through transfers, minting or rebasing without a purchase. Pool USD-value changes are not LP additions/removals, executable depth or slippage; token price changes can explain them. WAITING/UNAVAILABLE history cannot be extrapolated. Use actual observation dates, not assumed daily/weekly coverage. CryptoQuant calendar UTC days, units, forming/stale status and exchange scope must remain distinct from rolling windows. Never count these overlapping observations as independent confirmations.';}
+function _ocAIRules(){return ' FREE DATA RULES: networkActivity is asset-specific network/token usage, not accumulation or exchange flows; it is never a directional vote. Coin Metrics metrics use the exact reported UTC dates and coverage; Solana performance samples include votes unless explicitly labelled non-vote. COUNTERS ONLY has no measured buy/sell USD split. Do not merge provider counts with a partial recent-trade sample, estimate 4H from 6H, infer wallet purchases, or convert activity growth into a bullish signal. Coverage statuses are not confidence scores. ON-CHAIN HISTORY RULES: onchainEvidence contains observations, never independent entry signals. Exchange netflow is deposits minus withdrawals, not net executed selling. All explorer transfer windows are labelled partial; missing exchange labels and pages are not zero flow. Holder changes compare only matching addresses, source, network and token; excluded institutions and absent wallets must not be treated as buying or selling. Address counts are not unique people. A token balance can rise through transfers, minting or rebasing without a purchase. Pool USD-value changes are not LP additions/removals, executable depth or slippage; token price changes can explain them. WAITING/UNAVAILABLE history cannot be extrapolated. Use actual observation dates, not assumed daily/weekly coverage. CryptoQuant calendar UTC days, units, forming/stale status and exchange scope must remain distinct from rolling windows. Never count these overlapping observations as independent confirmations.';}
 function _renderOnchainEvidence(out){
   var e=out.onchainEvidence||_ocBuildEvidence(out,[],Date.now());
   function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
@@ -8855,7 +9052,7 @@ function _renderOnchainEvidence(out){
   if(h)html+='<details class="dex-window-note"><summary>Current addresses and classifications</summary>'+h.holders.map(function(r){return '<div class="oc-proof">'+esc(r.address)+' · '+esc(r.category)+'<br>'+esc(r.label||'No verified entity label')+' · '+(r.pct!=null?num(r.pct)+'% of supply':'Supply share unknown')+'</div>';}).join('')+'</details>';
   html+='<div class="dex-guard">Balance growth is not proof of purchases. Missing wallets are never assigned zero.</div></section>';
   html+=start('3 · Liquidity value history',esc(e.liquidity.note));
-  html+='<div class="dex-source">Source: GeckoTerminal · Same-pool key: '+esc(l?l.key:'Unavailable')+' · Observed '+date(l&&l.asOf)+'</div>'+row('Current selected-pool USD value',_dexMoney(l&&l.usd));
+  html+='<div class="dex-source">Source: '+esc(l?l.source:'No verified pool')+' · Same-pool key: '+esc(l?l.key:'Unavailable')+' · Observed '+date(l&&l.asOf)+'</div>'+row('Current selected-pool USD value',_dexMoney(l&&l.usd));
   html+='<div class="oc-table-wrap"><table class="oc-history-table"><thead><tr><th>Comparison</th><th>Coverage</th><th>USD value change</th><th>Change %</th><th>Actual baseline</th></tr></thead><tbody>';
   function liqRow(label,w){return '<tr><td>'+label+'</td><td>'+esc(w.status)+'</td><td>'+_dexMoney(w.changeUsd)+'</td><td>'+(w.changePct==null?'Unknown':signed(w.changePct)+'%')+'</td><td>'+date(w.from)+'</td></tr>';}
   ['4h','1d','7d','30d'].forEach(function(k){html+=liqRow(k.toUpperCase(),e.liquidity.windows[k]);});if(e.liquidity.previous)html+=liqRow('Previous observation',e.liquidity.previous);
@@ -8866,12 +9063,12 @@ function _renderOnchainEvidence(out){
 
 function _freeHolders(base,contract,network){
   return Promise.all([
-    _freeJson(base+'/api/v2/tokens/'+contract+'/counters',8000),
-    _freeJson(base+'/api/v2/tokens/'+contract+'/holders?items_count=100',10000)
+    (base.indexOf('https://api.blockscout.com/')===0?_ffBlockscoutJson(network,'tokens/'+contract+'/counters'):_freeJson(base+'/api/v2/tokens/'+contract+'/counters',8000)).catch(function(){return {};}),
+    base.indexOf('https://api.blockscout.com/')===0?_ffBlockscoutJson(network,'tokens/'+contract+'/holders'):_freeJson(base+'/api/v2/tokens/'+contract+'/holders?items_count=100',10000)
   ]).then(function(a){
     var counter=a[0]||{}, raw=a[1]||{}, items=raw.items;
     if(!Array.isArray(items))throw Error('Holder response missing items');
-    var infoP=_freeJson(base+'/api/v2/tokens/'+contract,8000).catch(function(){return {};});
+    var infoP=(base.indexOf('https://api.blockscout.com/')===0?_ffBlockscoutJson(network,'tokens/'+contract):_freeJson(base+'/api/v2/tokens/'+contract,8000)).catch(function(){return {};});
     return infoP.then(function(info){
       if(info.address_hash&&!_dexSameAddress(info.address_hash,contract))throw Error('Holder token identity mismatch');
       var snap=_ocHolderSnapshot(items,{source:'Blockscout',identityKey:_ocIdentity(network,contract),decimals:_freeNum(info.decimals),
@@ -8882,7 +9079,7 @@ function _freeHolders(base,contract,network){
 }
 
 function _freeTransfers(base,contract,price,network){
-  return _freeJson(base+'/api/v2/tokens/'+contract+'/transfers?items_count=100',10000).then(function(j){
+  return (base.indexOf('https://api.blockscout.com/')===0?_ffBlockscoutJson(network,'tokens/'+contract+'/transfers'):_freeJson(base+'/api/v2/tokens/'+contract+'/transfers?items_count=100',10000)).then(function(j){
     if(!j||!Array.isArray(j.items))throw Error('Transfer response missing items');
     return _ocTransferSample(j.items,{source:'Blockscout',network:network,contract:contract});
   });
@@ -9035,7 +9232,7 @@ function _freeDexTradesWindows(network,poolId,target,summary){
       coverageHours:0,asOf:Date.now(),limitNote:'No complete trade window is available. A request failure is not zero activity.'};
   });
 }
-function _freeDex(network,contract,sym){
+function _freeDexGecko(network,contract,sym){
   var gt=FREE_GT_NETWORK[network];
   if(!gt||!contract)return Promise.resolve(_dexUnavailable('No verified network/token address. Symbol-only pool matches are not used.'));
   var url='https://api.geckoterminal.com/api/v2/networks/'+gt+'/tokens/'+encodeURIComponent(contract)+'/pools?include=base_token,quote_token,dex';
@@ -9058,7 +9255,8 @@ function _freeDex(network,contract,sym){
     var summary={buys:buys,sells:sells,tokenSide:chosen.side,asOf:Date.now(),
       source:'Provider 24H pool counters; normalized from pool base-token perspective'};
     return _freeDexTradesWindows(network,chosen.poolAddress,contract,summary).then(function(flow){
-      return {version:3,identityVerified:true,scope:'single pool',symbol:sym,network:network,
+      var counters=_ffCounterWindows(p.transactions,p.volume_usd,chosen.side,'GeckoTerminal',Date.now());
+      return {version:3,source:'GeckoTerminal',identityVerified:true,scope:'single pool',symbol:sym,network:network,
         tokenAddress:contract,baseToken:chosen.base,quoteToken:chosen.quote,tokenSide:chosen.side,
         liquidity:_freeNum(p.reserve_in_usd),volume24h:_freeNum(p.volume_usd&&p.volume_usd.h24),
         buys:buys,sells:sells,buySellRatio:_dexRatio(buys,sells),summary:summary,
@@ -9066,11 +9264,29 @@ function _freeDex(network,contract,sym){
         poolKey:network+':'+chosen.poolAddress+':'+_dexAddress(contract),
         poolUrl:'https://www.geckoterminal.com/'+gt+'/pools/'+encodeURIComponent(chosen.poolAddress),
         poolsConsidered:candidates.length,selection:'Verified token identity; recognized counterparty first, then 24H volume.',
-        flowWindows:flow.windows,flowTradeCount:flow.tradesReturned,flowCoverageHours:flow.coverageHours,
+        counterWindows:counters,flowWindows:flow.windows,flowTradeCount:flow.tradesReturned,flowCoverageHours:flow.coverageHours,
         flowNote:flow.limitNote,directionConflict:!!flow.directionConflict,summaryReconciled:!!flow.summaryReconciled,
         asOf:flow.asOf||Date.now()};
     });
   }).catch(function(e){return _dexUnavailable('Pool lookup failed: '+String(e.message||e));});
+}
+
+function _freeDex(network,contract,sym){
+  var chain=FF_DS_CHAINS[network];
+  if(!chain)return _freeDexGecko(network,contract,sym);
+  return _freeJson('https://api.dexscreener.com/token-pairs/v1/'+chain+'/'+encodeURIComponent(contract),9000).then(function(j){
+    var m=_ffDexScreener(j,network,contract,sym);
+    if(!m.identityVerified)throw Error(m.flowNote);
+    // Fetch trades for exactly the same pool. Never combine counters from another venue.
+    return _freeDexTradesWindows(network,m.poolAddress,contract,m.summary).then(function(flow){
+      m.flowWindows=flow.windows;m.flowTradeCount=flow.tradesReturned;m.flowCoverageHours=flow.coverageHours;
+      m.directionConflict=!!flow.directionConflict;m.summaryReconciled=!!flow.summaryReconciled;
+      m.flowNote=flow.limitNote||m.flowNote;m.tradeSource=flow.tradesReturned?'GeckoTerminal':null;
+      return m;
+    });
+  }).catch(function(e){return _freeDexGecko(network,contract,sym).then(function(m){
+    m.providerNotes=['DEX Screener: '+String(e.message||e)];return m;
+  });});
 }
 
 // Cross-coin exchange fallback. Binance kline fields 7/10 are total and
@@ -9171,7 +9387,7 @@ function _renderDexMarket(m,symbol){
     if(m.representation)h+='<div class="dex-source">Representation: '+esc(m.representation)+'</div>';
     h+='<div class="dex-source"><strong>'+esc(m.pool)+'</strong> · '+esc(m.network)+' · watched token is pool '+esc(m.tokenSide)+'<br>'+
       'Liquidity '+_dexMoney(m.liquidity)+' · provider 24H volume '+_dexMoney(m.volume24h);
-    if(/^https:\/\/www\.geckoterminal\.com\//.test(m.poolUrl||''))h+=' · <a href="'+esc(m.poolUrl)+'" target="_blank" rel="noopener noreferrer">Open source pool ↗</a>';
+    if(/^https:\/\/(www\.geckoterminal\.com|dexscreener\.com)\//.test(m.poolUrl||''))h+=' · <a href="'+esc(m.poolUrl)+'" target="_blank" rel="noopener noreferrer">Open source pool ↗</a>';
     h+='</div><details class="dex-addresses"><summary>Verified token and pool addresses</summary><div>Watched token: '+esc(m.tokenAddress)+
       '<br>Base: '+esc(m.baseToken&&m.baseToken.address)+'<br>Quote: '+esc(m.quoteToken&&m.quoteToken.address)+
       '<br>Pool: '+esc(m.poolAddress)+'<br>'+esc(m.selection)+'</div></details>';
@@ -9182,7 +9398,11 @@ function _renderDexMarket(m,symbol){
   if(m.directionConflict)h+='<div class="dex-warning">COUNTER / TRADE CONFLICT — the 24H summary disagrees with address-normalized trades. Directional bias is disabled; counts have not been changed to force agreement.</div>';
   h+='<div class="dex-flow-grid">';
   ['1h','4h','1d'].forEach(function(k){
-    var w=(m.flowWindows||{})[k]||_dexEmptyWindows()[k],status=w.status||'UNAVAILABLE';
+    var sample=(m.flowWindows||{})[k]||_dexEmptyWindows()[k],reported=m.counterWindows&&m.counterWindows[k];
+    // Prefer reported whole-window counts over an incomplete last-300-trades sample.
+    // Do not copy sampled USD into the reported count window.
+    var useCounters=reported&&reported.status==='COUNTERS ONLY'&&!m.directionConflict&&sample.status!=='COMPLETE';
+    var w=useCounters?reported:sample,status=w.status||'UNAVAILABLE';
     var dir=status==='UNAVAILABLE'||status==='CONFLICT'?'UNKNOWN':w.direction||'UNKNOWN';
     var label=dir==='BUYING'?'BUY-DOMINATED SAMPLE':dir==='SELLING'?'SELL-DOMINATED SAMPLE':dir==='COUNTS ONLY'?'COUNTS ONLY · USD UNKNOWN':dir==='MIXED'?'COUNTS / USD MIXED':dir;
     if(status!=='UNAVAILABLE'&&status!=='CONFLICT'&&w.sufficientSample===false)label='INSUFFICIENT SAMPLE';
@@ -9195,12 +9415,14 @@ function _renderDexMarket(m,symbol){
       '<div class="dex-flow-row"><span>Sell volume</span><strong title="'+esc(w.sellVolume==null?'Unknown':w.sellVolume)+'">'+_dexMoney(w.sellVolume)+'</strong></div>'+
       '<div class="dex-flow-row"><span>Tx buy/sell ratio</span><strong>'+_dexRatioText(w.buys,w.sells)+'</strong></div>'+
       '<div class="dex-flow-row"><span>$ buy/sell ratio</span><strong>'+_dexRatioText(w.buyVolume,w.sellVolume,'usd')+'</strong></div>'+
+      (useCounters?'<div class="dex-flow-row"><span>Reported total volume</span><strong>'+_dexMoney(w.totalVolume)+'</strong></div>':'')+
       '<div class="dex-muted">Buy share: '+share(w.buyShare)+' of known trades · '+share(w.buyVolumeShare)+' of known dollars</div>'+
       (w.tinyDenominator?'<div class="dex-warning">Tiny opposing volume inflates the dollar ratio.</div>':'')+
       '<div class="dex-guard">'+(w.eligible?'Eligible selected-pool evidence':'Not used for overall bias')+'</div>'+
-      '<details class="dex-window-note"><summary>Coverage and limitations</summary>'+esc(w.reason||'Coverage unknown.')+'</details></article>';
+      '<details class="dex-window-note"><summary>Coverage and limitations</summary>'+esc(w.reason||'Coverage unknown.')+
+      (useCounters&&sample.tradeCount!=null?'<br>Separate recent-trade sample: '+esc(sample.status)+' · '+count(sample.buys)+' buys / '+count(sample.sells)+' sells · '+_dexMoney(sample.buyVolume)+' buy / '+_dexMoney(sample.sellVolume)+' sell. Not merged into the counters.':'')+'</details></article>';
   });
-  h+='</div><div class="dex-source">Rolling windows: 1H / 4H / 1D (24 hours), calculated from trade timestamps. '+esc(m.flowNote||'Unavailable does not mean zero trading.')+
+  h+='</div><div class="dex-source">1H / 4H / 1D (24 hours). COUNTERS ONLY = provider rolling totals; trade samples use timestamps. 6H is never relabelled 4H. '+esc(m.flowNote||'Unavailable does not mean zero trading.')+
     (m.asOf?' As of '+esc(new Date(m.asOf).toLocaleString()):'')+'</div></section>';
   return h;
 }
@@ -9239,6 +9461,7 @@ function _freeOnchainBias(x){
 // evidence: CoinPaprika/CoinStats/Messari are market/research context,
 // GoldRush is on-chain holder data, and StealthEX is swap-route availability.
 var FREE_MULTI_PROVIDERS = {
+  blockscout:{key:'blockscout_pro_api_key',label:'Blockscout Pro (free tier)'},
   coinstats: {key:'coinstats_api_key', label:'CoinStats API'},
   messari:   {key:'messari_api_key',   label:'Messari API'},
   goldrush:  {key:'goldrush_api_key',  label:'Covalent / GoldRush API'},
@@ -9263,6 +9486,7 @@ function _setOnchainAIModel(val){ try{ localStorage.setItem('onchain_ai_model',S
 // and are reused automatically for every monitored coin and every page refresh.
 function saveOnchainProviderKeys(){
   try{
+    var bs=document.getElementById('onchain-blockscout-key');if(bs)_setProvKey('blockscout',bs.value);
     var m=document.getElementById('onchain-moralis-key');
     var a=document.getElementById('onchain-alchemy-key');
     var cq=document.getElementById('onchain-cryptoquant-key');
@@ -9308,6 +9532,9 @@ function testOnchainAll(){
     var rows=[];
     function add(name,ok,msg){ rows.push({name:name,ok:ok,msg:msg}); }
     var jobs=[];
+    if(_provKey('blockscout'))jobs.push(_ffBlockscoutJson('ethereum','tokens/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2').then(function(j){
+      if(!j||!_dexSameAddress(j.address_hash,'0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'))throw Error('Token response identity mismatch');add('Blockscout Pro',true,'Ethereum WETH test response; not proof of coverage for every coin');
+    }).catch(function(e){add('Blockscout Pro',false,e.message);}));else add('Blockscout Pro',null,'optional free key not configured');
 
     if(st.moralis){
       jobs.push(_headerFetch('https://deep-index.moralis.io/api/v2.2/erc20/'+encodeURIComponent(contract)+'/holders?chain='+encodeURIComponent(chain),{'X-API-Key':_provKey('moralis')},10000)
@@ -9565,14 +9792,17 @@ function _freeProviderEnrichment(sym,baseOut){
 function _agentOnchain(f){
   f=f||{}; var sym=_freeSym(f.sym||f.symbol||'');
   if(!sym) return Promise.resolve({symbol:'',status:'unknown',sources:[],errors:['No symbol supplied.'],warnings:[],bias:'UNKNOWN'});
-  var pair=_spotPair(f.sym||f.symbol),cacheKey='freeoc_v5_'+(pair?pair.symbol:sym), now=Date.now();
+  var pair=_spotPair(f.sym||f.symbol),cacheKey='freeoc_v6_'+(pair?pair.symbol:sym), now=Date.now();
   if(!f.force&&_freeOnchainCache[cacheKey] && now-_freeOnchainCache[cacheKey].ts<300000) return Promise.resolve(_freeOnchainCache[cacheKey].d);
+  if(_ffPending[cacheKey])return _ffPending[cacheKey];
   var core=_agentOnchainCore(f).catch(function(e){return {symbol:sym,status:'error',sources:[],errors:[String(e.message||e)],providerErrors:[],warnings:[],market:_dexUnavailable('On-chain services failed; exchange coverage is separate.'),bias:'UNKNOWN'};});
-  return Promise.all([core,_freeSpotFlow(f.sym||f.symbol)]).then(function(r){
-    var out=r[0];out.spotFlow=r[1];out.sources=out.sources||[];
+  _ffPending[cacheKey]=Promise.all([core,_freeSpotFlow(f.sym||f.symbol),_ffNetworkActivity(sym)]).then(function(r){
+    var out=r[0];out.spotFlow=r[1];out.networkActivity=r[2];out.sources=out.sources||[];
     if(Object.keys(r[1].windows).some(function(k){return r[1].windows[k].status==='COMPLETE';}))out.sources.push('Binance spot market data (NOT on-chain)');
+    if(r[2].metrics.length||r[2].performance)out.sources.push(r[2].source+' (activity, not buy/sell flow)');
+    out.coverage=_ffCoverage(out);
     out.updatedAt=Date.now();_freeOnchainCache[cacheKey]={ts:Date.now(),d:out};return out;
-  });
+  }).finally(function(){delete _ffPending[cacheKey];});return _ffPending[cacheKey];
 }
 function _agentOnchainCore(f){
   var sym=_freeSym(f.sym||f.symbol||'');
@@ -9585,22 +9815,23 @@ function _agentOnchainCore(f){
     sources:b?['Blockchain.com free charts']:[],errors:[],providerErrors:[],warnings:['Bitcoin address activity is not a directional buy/sell measure.'],bias:'UNKNOWN',btcActivity:b,
     market:_dexUnavailable('Native BTC does not have an ERC-20/Solana token contract. Wrapped BTC is a different representation and is not silently substituted. See the separate BTC exchange-volume cards.')});});
   return _freeFindCoin(sym).then(function(meta){
-    var out={symbol:sym,coinId:meta.id,price:_freeNum(f.price),status:'partial',sources:['CoinGecko keyless'],errors:[],providerErrors:[],warnings:[],bias:'UNKNOWN'};
+    var out={symbol:sym,coinId:meta.id,price:_freeNum(f.price),status:'partial',sources:[meta.identitySource||'CoinGecko keyless'],errors:[],providerErrors:[],warnings:meta.identityWarning?[meta.identityWarning]:[],bias:'UNKNOWN'};
     return _freeDexAcross(meta).then(function(result){
       out.market=result.market;
-      if(result.market.identityVerified)out.sources.push('GeckoTerminal keyless DEX API');
+      if(result.market.identityVerified)out.sources.push(result.market.source||'GeckoTerminal keyless DEX API');
+      if(result.market.tradeSource)out.sources.push(result.market.tradeSource+' timestamped pool trades');
       else out.warnings.push('DEX coverage unavailable or unresolved; exchange volume remains a separate source.');
       if(result.market.wrappedProxy)out.warnings.push('DEX evidence uses '+result.market.representation+'. Wrapped-token holders/transfers are not used as native-coin holders/transfers.');
       // Holder enrichment may still work when the DEX provider is unavailable.
-      var pick=result.pick||(result.market.wrappedProxy||['ETH','BNB','AVAX'].indexOf(sym)>=0?null:_freePickPlatform(meta));
+      var pick=result.pick||(result.market.wrappedProxy||['SOL','ETH','BNB','AVAX'].indexOf(sym)>=0?null:_freePickPlatform(meta));
       if(!pick)return finish(out);
-      var base=FREE_EVM_EXPLORERS[pick.network];out.network=pick.network;out.contract=pick.address;
+      var chain=FF_BLOCKSCOUT_CHAINS[pick.network];
+      var base=chain&&_provKey('blockscout')?'https://api.blockscout.com/'+chain:null;out.network=pick.network;out.contract=pick.address;
       out.tokenDecimals=_freeNum(meta.detailPlatforms&&meta.detailPlatforms[pick.platform]&&meta.detailPlatforms[pick.platform].decimal_place);
-      if(base)out.sources.push('Blockscout Community API');
-      if(!base)out.warnings.push('EVM-only holder/transfer services do not establish '+pick.network+' coverage.');
+      out.holderRoute={status:base?'REQUESTED':chain?'NEEDS FREE KEY':'NOT COVERED',note:chain?'Optional Blockscout Pro free-tier key enables supported EVM token holders/transfers.':'No native holder/labelled-transfer adapter for this chain.'};
       return Promise.allSettled([base?_freeHolders(base,pick.address,pick.network):Promise.resolve(null),base?_freeTransfers(base,pick.address,null,pick.network):Promise.resolve(null)]).then(function(r){
-        if(r[0].status==='fulfilled'&&r[0].value)out.holders=r[0].value;else if(base)out.errors.push('Blockscout holders unavailable for this network/token.');
-        if(r[1].status==='fulfilled'&&r[1].value)out.transfers=r[1].value;else if(base)out.errors.push('Blockscout transfers unavailable for this network/token.');
+        if(r[0].status==='fulfilled'&&r[0].value){out.holders=r[0].value;out.sources.push('Blockscout Pro');out.holderRoute.status='AVAILABLE';}else if(base){out.holderRoute.status=_ffStatus(r[0].reason);out.errors.push('Blockscout holders: '+String(r[0].reason&&r[0].reason.message||'No data'));}
+        if(r[1].status==='fulfilled'&&r[1].value)out.transfers=r[1].value;else if(base)out.errors.push('Blockscout transfers: '+String(r[1].reason&&r[1].reason.message||'No data'));
         return finish(out);
       });
     });
@@ -9643,7 +9874,7 @@ function runResearchAgent(){
     + 'BOARD {json} - the LIVE board of all scanned coins right now. filters: signalsOnly, tier, minOpportunity, minRsRank, struct, trendlineBreak, sweep, sym, sortBy, limit. per coin returns price, chg24h, opportunity, score, rsRank, momQuintile, trendQ, accum, trendAccumScore, trendAccumGrade, rsi, volR, struct, tier, buySignal, extAboveEMA20pct, dailyTrendUp, trendline, sweep, support, resistance. '
     + 'CONTEXT {} - market regime plus the tool grading ITSELF: btcState, breadth, ethVsBtc, altWeather, suppressionReasons, buyZone, the user track record, scoringAudit (which of its own scores predict wins), icLab (information coefficients). '
     + 'NEWS {json} - recent headlines. filters: contains, limit. '
-    + 'ONCHAIN {json} - free on-chain intelligence aggregator. args: sym or symbol. Combines Moralis holder statistics/transfers when configured, Alchemy raw EVM metadata/block/transfer verification when configured, CryptoQuant exchange-flow context when configured, Blockscout Community holder/transfer data, GeckoTerminal keyless DEX activity, CoinPaprika free market data, optional CoinStats free-tier market/risk data, optional Messari market/research data, optional Covalent/GoldRush holder snapshots, and optional StealthEX swap-route availability. Use holder/transfer data as on-chain evidence; use market/research/swap sources only as enrichment. Query at most once unless necessary. Missing data is UNKNOWN, never zero activity. '
+    + 'ONCHAIN {json} - free-first data aggregator. args: sym or symbol. Returns separately scoped Binance spot taker volume (NOT on-chain), DEX Screener/GeckoTerminal verified pool counters and trade samples, Coin Metrics asset-specific daily blockchain/token metrics and Solana sampled network usage where supported. Advanced holder/transfers use optional Blockscout Pro free-tier, Moralis, Alchemy or GoldRush connections; CryptoQuant is optional BTC/ETH exchange context. Other market/research/swap sources are enrichment, never on-chain votes. Read coverage and actual timestamps. COUNTERS ONLY lacks buy/sell USD; network usage is not accumulation. Query at most once unless necessary. Missing data is UNKNOWN, never zero activity. '
     + 'CHART {\"sym\":\"BTCUSDT\"} - renders that coin chart so you can SEE it. Costs quota: use at most once, only when a visual read genuinely matters. '
     + 'WORKFLOW: call a tool, read the result, call another if needed, maximum 5 calls, then give your FINAL ANSWER with no tool line. '
     + 'STATISTICAL HONESTY IS MANDATORY: for LOG slices, under 10 resolved means the slice cannot support a conclusion, under 30 is a weak hint that must cite the confidence interval, and comparing many slices inflates false positives. BOARD data is CURRENT CONDITIONS, not outcomes - describe setup quality, never predict. '
