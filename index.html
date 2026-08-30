@@ -3410,11 +3410,115 @@ function calcAutoFib(h, l, c, atr, tf, trend) {
   var ratios=[0,.236,.382,.5,.618,.786,1,1.272,1.618];
   leg.levels=ratios.map(function(r){return {ratio:r,price:leg.startPrice+(leg.endPrice-leg.startPrice)*r};});
   leg.valid=true;
+  leg.pivotBars=pivotBars;
   leg.confidence=Math.max(40,Math.min(100,Math.round(45+Math.min(35,leg.ampATR*2)+
     ((trend==='up'&&leg.direction==='up')||(trend==='down'&&leg.direction==='down')?15:0))));
   leg.reason=(leg.direction==='up'?'Confirmed low-to-high impulse':'Confirmed high-to-low impulse')+
     ' · '+leg.ampATR.toFixed(1)+' ATR · closed pivots only.';
   return leg;
+}
+
+// Closed-candle state machine for the active Fib staircase. It records the
+// level price has proved, the next level above it, and the fallback below it.
+// A wick through a line is not a reclaim/loss; the close decides the state.
+function calcFibLadder(fib, klines, livePrice, atr) {
+  var none={valid:false,state:'NO FIB',active:null,next:null,fallback:null,
+    progress:null,lastClose:null,reason:'No confirmed Auto Fib ladder.'};
+  if(!fib||!fib.valid||!fib.levels||!fib.levels.length||!klines||klines.length<4) return none;
+  var closed=klines.slice(0,-1), last=closed[closed.length-1], prev=closed[closed.length-2];
+  var lastClose=parseFloat(last[4]), prevClose=parseFloat(prev[4]);
+  var span=fib.endPrice-fib.startPrice, absSpan=Math.abs(span);
+  if(!(absSpan>0)||!isFinite(lastClose)||!isFinite(prevClose)) return none;
+  var progress=(lastClose-fib.startPrice)/span, prevProgress=(prevClose-fib.startPrice)/span;
+  var tolPrice=Math.max((atr||0)*.20,absSpan*.004), tolRatio=tolPrice/absSpan;
+  var levels=fib.levels.slice().sort(function(a,b){return a.ratio-b.ratio;});
+  // Once two CLOSED candles finish beyond 1.618, the confirmed Fib has completed
+  // its purpose. Keep it for context, but make it unusable for fresh plans while
+  // waiting for the developing extreme to become a confirmed pivot.
+  var extensionDone=false,beyondRun=0,completedAt=null;
+  // Scan this anchor's history, not just the latest two bars: a later pullback
+  // must not reactivate a completed Fib. A new confirmed anchor resets history.
+  for(var ei=Math.max(0,(fib.endIndex||0)+1);ei<closed.length;ei++){
+    var ep=(parseFloat(closed[ei][4])-fib.startPrice)/span;
+    beyondRun=ep>1.618+1e-9?beyondRun+1:0;
+    if(beyondRun>=2){extensionDone=true;completedAt=Number(closed[ei][0]);break;}
+  }
+  if(extensionDone){
+    var provisional=null,extreme=fib.endPrice,extremeIndex=fib.endIndex;
+    for(var pi=Math.max(0,fib.endIndex+1);pi<klines.length;pi++){
+      var candidate=fib.direction==='up'?parseFloat(klines[pi][2]):parseFloat(klines[pi][3]);
+      if((fib.direction==='up'&&candidate>extreme)||(fib.direction==='down'&&candidate<extreme)){
+        extreme=candidate;extremeIndex=pi;
+      }
+    }
+    if(extremeIndex!==fib.endIndex){
+      provisional={startIndex:fib.startIndex,startPrice:fib.startPrice,endIndex:extremeIndex,endPrice:extreme,
+        pendingBars:Math.max(0,(fib.pivotBars||3)-(closed.length-1-extremeIndex)),
+        direction:fib.direction,levels:[0,.236,.382,.5,.618,.786,1,1.272,1.618].map(function(r){
+          return {ratio:r,price:fib.startPrice+(extreme-fib.startPrice)*r};
+        })};
+    }
+    return {valid:true,usable:false,stale:true,state:'EXTENSION COMPLETE',color:'#f59e0b',
+      active:levels[levels.length-1],next:null,fallback:levels[levels.length-2],
+      progress:progress,lastClose:lastClose,livePrice:livePrice,direction:fib.direction,
+      tolerance:tolPrice,provisional:provisional,completedAt:completedAt,
+      reason:'Two closed candles finished beyond 1.618. Confirmed Fib is stale; wait for the developing extreme to become a confirmed pivot.'};
+  }
+  function stepAt(p){
+    var out=levels[0];
+    for(var i=0;i<levels.length;i++){if(p+tolRatio>=levels[i].ratio)out=levels[i];else break;}
+    return out;
+  }
+  function below(level){
+    var out=null;for(var i=0;i<levels.length;i++){if(levels[i].ratio<level.ratio-.0001)out=levels[i];else break;}return out;
+  }
+  function aboveProgress(p){
+    for(var i=0;i<levels.length;i++)if(levels[i].ratio>p+tolRatio)return levels[i];return null;
+  }
+  var current=stepAt(progress), previous=stepAt(prevProgress);
+  var state='BETWEEN', active=current, fallback=below(current), next=aboveProgress(progress);
+  var movedBackward=previous&&previous.ratio>current.ratio+.0001&&progress<previous.ratio-tolRatio;
+  if(movedBackward){
+    state='LOST';active=previous;fallback=current;next=previous;
+  } else {
+    var reclaimed=prevProgress<current.ratio-tolRatio&&progress>=current.ratio-tolRatio;
+    var touched=false, recent=closed.slice(-4);
+    for(var r=0;r<recent.length;r++){
+      var bh=parseFloat(recent[r][2]),bl=parseFloat(recent[r][3]),bc=parseFloat(recent[r][4]);
+      if(fib.direction==='up'&&bl<=current.price+tolPrice&&bc>=current.price-tolPrice*.2)touched=true;
+      if(fib.direction==='down'&&bh>=current.price-tolPrice&&bc<=current.price+tolPrice*.2)touched=true;
+    }
+    if(reclaimed) state='RECLAIMED';
+    else if(touched) state='HOLDING';
+    else if(Math.abs(lastClose-current.price)<=tolPrice) state='AT LEVEL';
+  }
+  var col=state==='HOLDING'||state==='RECLAIMED'?'#26a69a':state==='LOST'?'#ef5350':state==='AT LEVEL'?'#f0b90b':'#64b5f6';
+  var ratioLabel=function(x){return x?String(x.ratio).replace(/^0\./,'.'):'—';};
+  var reason=state==='LOST'
+    ? ratioLabel(active)+' closed as lost; '+(fallback?ratioLabel(fallback)+' is the next support step.':'the impulse anchor is exposed.')
+    : state==='RECLAIMED'
+    ? ratioLabel(active)+' was reclaimed on a closed candle; require a held retest before treating it as support.'
+    : state==='HOLDING'
+    ? ratioLabel(active)+' was tested and is holding on closed candles.'
+    : state==='AT LEVEL'
+    ? 'Price is testing '+ratioLabel(active)+'; wait for the candle close.'
+    : 'Price is between '+ratioLabel(active)+' and '+ratioLabel(next)+'; the next line is resistance, not a prediction.';
+  return {valid:true,usable:true,stale:false,state:state,color:col,active:active,next:next,fallback:fallback,
+    progress:progress,lastClose:lastClose,livePrice:livePrice,reason:reason,
+    direction:fib.direction,tolerance:tolPrice};
+}
+
+// The analyst receives no actionable prices from a stale or provisional Fib.
+function getChartFibContext(sym) {
+  var fib=chartState.autoFib, ladder=chartState.fibLadder;
+  if(chartState.loading||chartState.sym!==sym||!fib||!fib.valid)return null;
+  var usable=!!(ladder&&ladder.valid&&ladder.usable!==false);
+  return {timeframe:chartState.tf,direction:fib.direction,usable:usable,
+    stale:!!(ladder&&ladder.stale),state:ladder?ladder.state:'WAITING',
+    levels:usable?fib.levels.map(function(x){return {ratio:x.ratio,price:x.price};}):[],
+    ladder:usable?{state:ladder.state,active:ladder.active,next:ladder.next,fallback:ladder.fallback,reason:ladder.reason}:null,
+    rule:usable?'Closed-pivot confluence only; never a standalone entry signal.':
+      'Fib unavailable for trading: do not use stale anchors, old extensions, or dashed provisional levels for entries, stops, targets, or confirmation. Await a new confirmed pivot.'};
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -10491,13 +10595,7 @@ function askClaude(sym){
       confidence:d.wyckoff.confidence,bias:d.wyckoff.bias,rangeLow:d.wyckoff.rangeLow,
       rangeHigh:d.wyckoff.rangeHigh,bullConfirm:d.wyckoff.bullConfirm,
       bearBlock:d.wyckoff.bearBlock,reason:d.wyckoff.reason} : null,
-    autoFib: chartState.sym===d.sym && chartState.autoFib && chartState.autoFib.valid ? {
-      timeframe:chartState.tf,direction:chartState.autoFib.direction,
-      startPrice:chartState.autoFib.startPrice,endPrice:chartState.autoFib.endPrice,
-      confidence:chartState.autoFib.confidence,
-      levels:chartState.autoFib.levels.map(function(x){return {ratio:x.ratio,price:x.price};}),
-      rule:'Closed-pivot confluence only; never a standalone entry signal.'
-    } : null,
+    autoFib: getChartFibContext(d.sym),
     // The trendline state the chart draws — previously missing from the payload,
     // so the AI could not comment on a line the user could plainly see.
     // Liquidity pools BOTH sides — where stops cluster and price tends to hunt
@@ -10533,6 +10631,7 @@ function askClaude(sym){
     sys = 'You are a brutally honest professional SPOT trading analyst. Spot only — no leverage, no shorts, long entries and exits only. You receive one coin\'s live data: price, EMA 20/50/200, RSI, volume ratio, structure, support/resistance, ATR%, BTC market state, the last ~30 CLOSED candles (OHLC, oldest first), the coin\'s historical DNA profile (personality, typical ranges, pump-giveback behavior), and the user\'s real logged track record. INVIOLABLE RULES — never break these under any circumstances: 1. NEVER give probabilities, price predictions, or "this will pump/dump" claims. Direction and timing are unknowable. 2. Tie every judgment to specific data points provided — cite specific candles and levels; if the data doesn\'t support a claim, don\'t make it. 3. Factor in the user\'s real track record; if their system is below the 40% breakeven (at 1.5 R:R), remind them to keep position size small. 4. Be blunt when a setup is weak — a weak setup called weak saves money; false encouragement loses it. 5. Every plan is conditional if-then tied to exact levels, never a forecast. 6. ABSTENTION IS A FIRST-CLASS ANSWER (mandatory): if the data does not support a clean setup, your correct output is NO SETUP - SKIP THIS COIN, stated plainly at the top, with the one or two specific conditions that would make it worth revisiting. Research shows models like you almost never volunteer this and instead manufacture a plan; that behaviour loses this user money. Saying skip is a SUCCESS, not a failure - a majority of coins on a given day deserve exactly that answer. Never invent a marginal plan to seem useful. 7. ANTI-BIAS: the user opened this coin, which signals interest - do NOT let that pull you bullish. You must include a section THE CASE AGAINST THIS TRADE giving the strongest honest bear argument from the same data (what the seller sees, what breaks this thesis, what the data does not support), BEFORE any plan. If the case against is stronger than the case for, say so and skip. 8. SPOT PHASE READ (mandatory, FIRST line of your answer): classify this coin into exactly one phase and lead with it, because a spot trader acts differently in each — ACCUMULATION (quiet near range lows, contracting volatility, volume drying up, price refusing to make new lows) → the patient buy phase, scale in at range support; MARKUP (trending up, holding above a rising EMA20, healthy shallow pullbacks) → buy pullbacks to the EMA/structure, never the highs; EXTENDED (price far above EMA20, RSI hot, climax volume) → momentum is REAL but there is no safe entry HERE; the correct spot action is WAIT for the pullback and name its zone; DISTRIBUTION (repeated failures at highs, lower highs after a run, volume fading into strength) → protect gains, do not add, consider trimming; RANGE (chop between clear boundaries) → only the edges matter, buy the lower boundary, never the middle. Say the phase in plain words and what a SPOT trader does in it. NEVER describe a strongly rising coin as merely bad or weak — if it is EXTENDED, say the trend is strong and the ENTRY is what is wrong. This distinction matters: skipping a pumping coin and skipping a dying coin are different judgments and must read differently. 9. CONTINUATION QUALITY, NOT PROBABILITY: when a breakout or continuation is in play, do NOT invent a percentage. Grade it HIGH / MODERATE / LOW quality using only checkable evidence — volume confirming the break (volR at or above 1.2-1.5), price holding above the level on CLOSES not wicks, a held retest, daily-trend agreement, and whether the move is already extended. State which of those are present and which are missing; that is the honest answer to whether this breakout can be trusted. 10. ACCUMULATION ZONES (honest limits): you may identify a zone as CONSISTENT WITH ACCUMULATION from what candles actually show — price basing near range lows, volatility contracting, volume drying up then absorbing on dips without new lows. You may NOT claim institutions or smart money are buying: that requires order-flow or on-chain data you do not have, and the research audit found accumulation scores from candles alone have no proven edge. Frame it as structure and probability of a good ENTRY LOCATION, never as insider knowledge. 11. WHEN YOU SKIP FOR EXTENSION: you must still name the concrete pullback zone that WOULD be tradeable and put it in LEVELS_JSON as planA, with its sl, so the software can watch that level and alert the user when price actually arrives. A skip for being extended is a WAIT instruction with a level, not a dismissal. DISCIPLINE DEFAULTS — strong priors built from the user\'s own logged failures; follow them by default: A. Every trigger is a candle CLOSE on the active timeframe, not a wick. B. Never recommend chasing — if price is extended more than ~3% above EMA20 or at the highs, anchor Plan A at the pullback level and say not to market-buy here. C. A first break of a FALLING 200 EMA is lower-probability — flag it. D. Use the historical DNA to shape exits — a Pumper that gives back gains means faster TPs and a trailed remainder; low trendiness means favor range levels; history is tendency, not destiny. MURPHY PLAYBOOK (apply where the data supports it): healthy pullbacks in an uptrend typically retrace 38-62% of the prior advance — a dip holding that zone with falling volume is textbook, a deeper break is a warning; volume must CONFIRM — breakouts and pattern completions on weak volume (volR under ~1.2) deserve suspicion, and price rising while volume shrinks hints exhaustion; watch RSI divergence — new price high with a lower RSI high weakens Plan B; measured-move logic — a base or flag projects roughly its own height above the breakout, use it to sanity-check TP2/TP3; money management — never risk more than ~2% of capital on one trade, derive position size from the SL distance. MURPHY PRINCIPLES (classical technical analysis — apply with judgment, cite the data): M1. Volume must confirm price — a breakout on volume below ~1.2x average is suspect; a rising trend on shrinking volume is a warning. M2. Divergence (price makes a new high while RSI makes a lower high) is a warning to tighten stops and take profits sooner — never an entry signal by itself. M3. Role reversal — broken resistance becomes support; the retest of a broken level that HOLDS is the highest-quality entry in classical TA. M4. A level grows more significant the more times it has been tested and the more volume traded there. M5. Continuation patterns (coils, triangles, flags) resolve most reliably in the direction of the PRIOR trend — favor plans aligned with it. M6. The higher timeframe dominates — a 4h setup aligned with the 1d trend carries far more weight than one fighting it; say which case this is. M7. A reversal candle (hammer, engulfing) matters only AT a meaningful level — mid-range it is noise. M8. Breaks need filters — require the close, and treat sub-1% penetrations of a level as unconfirmed to avoid whipsaw. EVIDENCE BASE (from a peer-reviewed research audit of these exact methods in crypto — weight your conviction by what is actually PROVEN, and say so): E1. STRONGEST edge: trend/momentum and higher-timeframe alignment — entries with the 1d/1w trend are the best-supported; counter-trend entries carry a documented penalty, so downgrade them. E2. Breakout + volume + retest-hold is well-founded; a breakout WITHOUT volume confirmation (volR under ~1.5) or without a held retest has a high failure rate (60%+ in crypto) — treat unconfirmed breakouts as low-conviction. E3. EMA retests work only as TREND CONTEXT, not magic support — their edge comes from the trend, so require trend-strength confirmation, never advise buying an EMA touch in a downtrend. E4. Dip-buying has positive expectancy ONLY in a confirmed uptrend (price above a rising 200-day trend); a dip in a falling market is a falling knife — refuse it. E5. CHoCH / smart-money-concepts have NO demonstrated edge beyond their plain trend-continuation core — do not lend them extra weight or institutional-order-flow narrative; evaluate a structure break as a simple breakout. E6. RSI divergence is a WARNING/context flag only, never an entry trigger — the research found no standalone edge. E7. Funding/OI extremes are SENTIMENT/cascade-risk context, not directional signals; the one defensible contrarian tell is extreme-negative funding AFTER a flush. E8. Volatility compression precedes expansion but says NOTHING about direction — never imply which way a coil breaks. E9. Coin volatility \'personality\' is real and persistent (use it for sizing and expectation), but past RETURNS do not predict future returns — do not extrapolate direction from history. E10. THE BIGGEST LEVER is position sizing and expectancy, not signal selection — always tie advice to the ~1-2% risk sizing and remind the user that surviving drawdowns matters more than any single setup. When your chart read and the evidence base conflict, name the conflict and lean toward the evidence. DEVIATION PROTOCOL: you MAY advise deviating from a DISCIPLINE DEFAULT when the specific evidence in THIS data genuinely warrants it — but only by writing an explicit line starting with RULE DEVIATION: naming which default, the exact data points that justify the exception, and what would prove the deviation wrong. Never deviate silently. Never deviate from the INVIOLABLE rules. If in doubt, follow the default. POSITIONING DATA (funding, open interest, long/short accounts): when supplied, treat it as CROWDING and squeeze risk ONLY. Crowded longs mean stops get hit on ordinary noise and flushes arrive without warning — it does NOT mean price will fall, and you must never phrase it as a direction call. The research base is explicit that funding explains only about 12.5 percent of weekly price variation and decays quickly. Legitimate uses: widening a stop, sizing smaller, or noting that an entry sits in a crowded area. Illegitimate: predicting a reversal because funding is high. If positioning data is absent, say nothing about it rather than speculating. VISION IS LOW-TRUST (evidence-based limit): if a chart image is attached it is this tool\'s own rendered chart of the same coin and timeframe. Controlled research shows vision models score at chance when reading candlestick evidence and mostly just extrapolate the recent trend, so treat the image as WEAK CONFIRMING CONTEXT ONLY. The numeric data provided is the source of truth. Never let a visual impression override, contradict or add a level that the numbers do not support, and never claim to see a pattern the numeric data cannot corroborate. If the image and the numbers disagree, say so and follow the numbers. LEVEL DISCIPLINE (mandatory): every price level you cite must be anchored to a level supplied in the data (support, resistance, EMA20/50/200, PDH/PDL/PWH/PWL/PMH/PML, the recent candle highs and lows) or a simple stated arithmetic step from one of them (for example support minus one ATR). Do NOT invent round numbers or levels you cannot trace to the supplied data - the software cross-checks your levels and flags any it cannot verify. FINAL LINE (mandatory in the first full analysis only): after everything, output exactly one line starting with LEVELS_JSON followed by a compact JSON object of NUMERIC price levels from your plan: {"planA":[zoneLow,zoneHigh],"sl":n,"tp1":n,"tp2":n,"tp3":n,"breakout":n}. Omit any key you did not specify. SECOND-TO-LAST LINE (also mandatory): output one line starting with CONDITIONS_JSON followed by a compact JSON ARRAY of the machine-checkable conditions that must ALL be true before this entry is valid — the same conditions you wrote in your plan, expressed so software can verify them live. Allowed objects: {\"t\":\"priceInZone\"} price inside your Plan A zone; {\"t\":\"priceAbove\",\"v\":n}; {\"t\":\"priceBelow\",\"v\":n}; {\"t\":\"closeAboveEMA20\"}; {\"t\":\"volRAbove\",\"v\":n}; {\"t\":\"rsiAbove\",\"v\":n}; {\"t\":\"rsiBelow\",\"v\":n}; {\"t\":\"dailyTrendUp\"}; {\"t\":\"btcOk\"} BTC stable or bullish; {\"t\":\"altWeatherOk\"}; {\"t\":\"notExtended\"} under 3.5 percent above EMA20. Include 3 to 6 conditions, ALWAYS including btcOk and dailyTrendUp unless your plan explicitly argues against them. If you gave a SECOND path (Plan B breakout / continuation, or a second revisit-if route), ALSO output a line starting with CONDITIONS_B_JSON followed by the same kind of array for THAT path — both routes get watched live, so give the breakout route its own conditions (typically priceAbove the breakout level plus volRAbove and btcOk). Nothing after the LEVELS_JSON line.';
   }
 
+  sys += '\nFIB LIFECYCLE RULE: autoFib.usable=false or EXTENSION COMPLETE means the old Fib is historical only. Ignore its anchor prices and all dashed P/PROVISIONAL levels in a chart image for entries, stops, targets, and signal confirmation. Wait for a new confirmed pivot. A target marked PASSED is not a future target or proof of an order fill. Never invent a replacement target just because the prior target was passed.';
   var key = (localStorage.getItem('ai_api_key') || localStorage.getItem('anthropic_api_key') || '').trim();
   // Anthropic keys reliably start with sk-ant. ANYTHING ELSE routes to Gemini —
   // Google uses multiple key formats (AIza…, AQ.…), so no fragile whitelist.
@@ -13824,6 +13923,7 @@ var chartState = {
   dragStartOffset: 0,
   crosshair: null,
   autoFib: null,
+  fibLadder: null,
   loading: false,
   livePrice: null,      // current live price
   livePriceTimer: null, // interval for live updates
@@ -13860,11 +13960,13 @@ function updateChartLiveHeader() {
 // ── Fetch live price and update last candle ─────────────────────────────────
 function fetchLivePrice() {
   if (!chartState.sym || !chartState.klines) return;
+  var requestedSym=chartState.sym;
   fetchJ(BINGX + '/openApi/spot/v1/ticker/24hr?symbol=' + chartState.sym.replace('USDT','-USDT').replace(/JPY$/,'-JPY'), 5000)
     .catch(function(){ return fetchJ(BYBIT + '/v5/market/tickers?category=spot&symbol=' + chartState.sym, 5000); })
     .catch(function() { return fetchJ(BYBIT2 + '/v5/market/tickers?category=spot&symbol=' + chartState.sym, 5000); })
     .then(function(data) {
       // Parse BingX or Bybit ticker response
+      if(chartState.sym!==requestedSym||!chartState.klines)return;
       var t = null;
       if (data && data.code === 0 && data.data) {
         // BingX format: {code:0, data:{symbol,lastPrice,openPrice,...}}
@@ -14193,12 +14295,15 @@ function buildCanonicalChartPlan(d) {
   var pos = loadPos ? loadPos(d.sym) : null;
   var wx = (chartState.sym===d.sym && chartState.wyckoff) ? chartState.wyckoff : (d.wyckoff || null);
   var wxBull = !!(wx && wx.bullConfirm), wxBear = !!(wx && wx.bearBlock);
+  var fib = chartState.sym===d.sym && chartState.autoFib ? chartState.autoFib : null;
+  var fibLadder = chartState.sym===d.sym && chartState.fibLadder ? chartState.fibLadder : null;
   var ai = (window._aiLevels || {})[d.sym];
   var aiCheck = (window._aiVerify || {})[d.sym];
   var aiOK = !!(ai && aiCheck && aiCheck.total > 0 && aiCheck.unverified === 0 &&
     ai.planA && ai.planA.length === 2 && ai.sl && ai.tp1);
   var live = chartState.livePrice || d.price || d.signalPrice || 0;
   var source = 'STRUCTURE';
+  var stopBasis = 'nearest structure';
   var entry, sl, tp1, tp2, tp3, zoneLow, zoneHigh;
 
   if (pos && pos.entry && pos.sl) {
@@ -14220,11 +14325,20 @@ function buildCanonicalChartPlan(d) {
   // A confirmed Phase D/E SOS/LPS changes the preferred entry LOCATION to the
   // Backup/LPS at the former range high. It does not authorize chasing the SOS.
   if(!pos && !aiOK && wxBull && wx.rangeHigh) {
-    var wxAtrAbs=(d.atrPct||2)/100*Math.max(live,entry);
+    var wxAtrAbs=chartState.sym===d.sym&&chartState.chartAtr>0?chartState.chartAtr:
+      (d.atrPct||2)/100*Math.max(live,entry);
     zoneLow=wx.rangeHigh-wxAtrAbs*.45;
     zoneHigh=wx.rangeHigh+wxAtrAbs*.25;
     entry=(zoneLow+zoneHigh)/2;
-    if(wx.rangeLow && wx.rangeLow<entry) sl=Math.min(zoneLow-wxAtrAbs*.8,wx.rangeLow-wxAtrAbs*.15);
+    // The old stop used the entire Wyckoff range low, which could create a
+    // 20–30% stop and unusable R:R. For an LPS/Backup entry the thesis is the
+    // nearby held level. Put the hard stop beyond normal noise (1.3 ATR), not
+    // beneath an unrelated distant range boundary.
+    var fibRef=fibLadder&&fibLadder.valid&&fibLadder.usable!==false&&fibLadder.direction==='up'&&fibLadder.active
+      ? fibLadder.active.price : zoneLow;
+    sl=Math.min(zoneLow-wxAtrAbs*.35,fibRef-wxAtrAbs*1.30);
+    stopBasis=(fibLadder&&fibLadder.valid&&fibLadder.usable!==false&&fibLadder.active
+      ? 'Fib '+String(fibLadder.active.ratio).replace(/^0\./,'.')+' + structure' : 'LPS structure')+' · 1.3 ATR noise buffer';
     source='WYCKOFF '+wx.event;
   }
 
@@ -14233,6 +14347,10 @@ function buildCanonicalChartPlan(d) {
   if (!(sl > 0 && sl < entry)) sl = thesis * 0.984;
   var risk = Math.max(entry - sl, entry * 0.005);
   var resistance = d.res > entry * 1.002 ? d.res * 0.998 : 0;
+  if(fibLadder&&fibLadder.valid&&fibLadder.usable!==false&&fibLadder.direction==='up'&&fibLadder.next&&fibLadder.next.price>entry*1.002){
+    var fibResistance=fibLadder.next.price;
+    resistance=resistance?Math.min(resistance,fibResistance):fibResistance;
+  }
   var planCost = CONFIG.CHART_COST_PCT || 0.20;
 
   // Structural targets. TP1 must attempt to pay at least 1.5R; if resistance
@@ -14241,7 +14359,10 @@ function buildCanonicalChartPlan(d) {
     var riskPctForTarget = risk / entry * 100;
     var requiredTPPct = (riskPctForTarget + planCost) * CONFIG.CHART_MIN_NET_RR + planCost;
     var minTP1 = Math.max(entry * 1.03, entry * (1 + requiredTPPct / 100));
-    tp1 = resistance ? Math.min(resistance, minTP1) : minTP1;
+    // A supplied structural/Fib resistance is the target. If it sits below the
+    // minimum required R:R, keep that honest low target and let rrOK block the
+    // trade; if it sits above, do not invent an earlier non-structural TP.
+    tp1 = resistance || minTP1;
   }
   if (!(tp2 > tp1)) tp2 = resistance > tp1 ? resistance : Math.max(entry * 1.06, tp1 + risk);
   if (!(tp3 > tp2)) tp3 = Math.max(entry * 1.10, tp2 + risk);
@@ -14273,32 +14394,40 @@ function buildCanonicalChartPlan(d) {
   var taOK = d.trendAccumAligned !== false;
   var btcOK = /^BTC/.test(d.sym) || d.btcTrendScore == null || d.btcTrendScore >= CONFIG.BTC_FILTER_THRESHOLD;
   var rrOK = netRR1 >= CONFIG.CHART_MIN_NET_RR;
+  var fibOK = !(fibLadder&&fibLadder.valid&&fibLadder.usable!==false&&fibLadder.direction==='up'&&fibLadder.state==='LOST');
   var closedTrigger = !!(d.buySignal || d.tlBreakUp || d.breakoutUp);
   var invalidated = live <= sl || (lastClosed && lastClosed < thesis);
   var lateLimit = Math.max(3, Math.min(5, (d.atrPct || 2) * 1.5));
   var late = !pos && liveVsEntry > lateLimit;
   var inZone = live >= zoneLow && live <= zoneHigh;
+  var tp1Passed=live>=tp1,tp2Passed=live>=tp2,tp3Passed=live>=tp3;
+  var nextTarget=!tp1Passed?{name:'TP1',price:tp1}:!tp2Passed?{name:'TP2',price:tp2}:!tp3Passed?{name:'TP3',price:tp3}:null;
   var status, color, action;
 
   if (pos) {
-    status = 'ACTIVE'; color = '#26a69a'; action = 'Position is open — manage the hard stop and scale-out targets.';
+    status = 'ACTIVE'; color = '#26a69a'; action = tp3Passed?'All planned targets passed — manage the remainder with a trailing stop.'
+      : tp2Passed?'TP1 and TP2 passed — trail the remainder above locked profit.'
+      : tp1Passed?'TP1 passed — scale out and move the stop according to the saved plan.'
+      : 'Position is open — manage the hard stop and scale-out targets.';
   } else if (wxBear) {
     status = 'BLOCKED'; color = '#f23645'; action = 'Wyckoff Phase '+wx.phase+' '+wx.event+' confirms weakness. New spot buys are blocked.';
   } else if (invalidated) {
     status = 'INVALIDATED'; color = '#f23645'; action = 'The setup lost support. Do not enter until a new closed-candle structure forms.';
-  } else if (late) {
-    status = 'LATE'; color = '#f59e0b'; action = 'Price is '+liveVsEntry.toFixed(1)+'% above the plan. Do not chase; wait for a retest.';
-  } else if (d.buySignal && closedTrigger && volumeOK && rrOK && trendOK && taOK && btcOK && !wxBear) {
+  } else if (late || tp1Passed) {
+    status = 'LATE'; color = '#f59e0b'; action = 'Price is '+liveVsEntry.toFixed(1)+'% above the plan.'+
+      (tp1Passed?' TP1 is already passed.':'')+' Do not chase; wait for a retest.';
+  } else if (d.buySignal && closedTrigger && volumeOK && rrOK && trendOK && taOK && btcOK && fibOK && !wxBear) {
     status = 'TRIGGERED'; color = '#26a69a'; action = wxBull
       ? 'Wyckoff '+wx.event+' and closed-candle trigger agree. Execute only inside the Backup/LPS zone.'
       : 'Closed-candle trigger confirmed. Execute only within the planned entry zone.';
-  } else if (inZone && trendOK && structureOK && taOK && btcOK && rrOK && !wxBear) {
+  } else if (inZone && trendOK && structureOK && taOK && btcOK && rrOK && fibOK && !wxBear) {
     status = 'READY'; color = '#7c4dff'; action = wxBull
       ? 'Price is testing the Wyckoff Backup/LPS zone. Require a bullish close; do not anticipate.'
       : 'Price is in the zone. Wait for a bullish closed candle and volume confirmation.';
   } else {
     status = 'WATCHING'; color = '#787b86';
-    action = !volumeOK ? 'Volume is only '+d.volR.toFixed(2)+'×; wait for ≥'+CONFIG.CHART_VOL_CONFIRM.toFixed(1)+'× and a closed trigger.'
+    action = !fibOK ? fibLadder.reason+' Wait for a closed-candle reclaim before considering an entry.'
+      : !volumeOK ? 'Volume is only '+d.volR.toFixed(2)+'×; wait for ≥'+CONFIG.CHART_VOL_CONFIRM.toFixed(1)+'× and a closed trigger.'
       : !rrOK ? 'Net TP1 R:R is '+netRR1.toFixed(1)+':1; wait for a better entry or more room.'
       : wx && wx.event==='SPRING' ? 'Spring is watch-only. Wait for a lower-volume Test, then SOS and LPS.'
       : wx && wx.event==='UTAD' ? 'UTAD warning. Protect gains and wait; no spot entry before the range proves strength.'
@@ -14319,11 +14448,15 @@ function buildCanonicalChartPlan(d) {
     status:status, color:color, action:action, allocation:allocation,
     rawAllocation:rawAlloc, actualRisk:actualRisk, score100:score100,
     lastClosedAt:lastClosedAt, candleClosesAt:candleClosesAt, freshSec:freshSec, wyckoff:wx,
+    fib:fib, fibLadder:fibLadder, stopBasis:stopBasis,
+    tp1Passed:tp1Passed,tp2Passed:tp2Passed,tp3Passed:tp3Passed,nextTarget:nextTarget,
     confirmations:[
       {label:(chartState.tf || TF)+' trend', ok:trendOK, value:trendOK?'Bullish':'Not bullish'},
       {label:'Structure', ok:structureOK, value:d.struct || '—'},
       {label:'Trend + accum.', ok:taOK, value:taOK?'Aligned':'Disagree'},
       {label:'Wyckoff', ok:!wxBear, value:wx?(wx.phase+' '+wx.event+' '+wx.confidence):'No range'},
+      {label:'Fib ladder', ok:fibLadder&&fibLadder.usable===false?false:fibOK, value:fibLadder&&fibLadder.valid?
+        (fibLadder.usable===false?'STALE · wait new pivot':fibLadder.state+' '+String(fibLadder.active.ratio).replace(/^0\./,'.')):'No confirmed Fib'},
       {label:'Closed trigger', ok:closedTrigger, value:closedTrigger?'Confirmed':'Waiting'},
       {label:'Volume', ok:volumeOK, value:d.volR.toFixed(2)+'×'},
       {label:'BTC gate', ok:btcOK, value:btcOK?'Passed':'Blocked'},
@@ -14343,8 +14476,9 @@ function populateFSTable(d) {
 
   var lvlEl = document.getElementById('fs-levels');
   if (lvlEl) {
-    function fsRow(icon, label, price, pct, rr, col, note) {
+    function fsRow(icon, label, price, pct, rr, col, note, passed) {
       var fromLive = p.live > 0 ? (price-p.live)/p.live*100 : 0;
+      if(passed){label+=' · PASSED';col='#787b86';note='At/below live quote — not an execution confirmation';}
       return '<div style="padding:7px 12px;border-bottom:1px solid #2a2e39">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px">' +
           '<span style="font-size:10px;font-weight:800;color:'+col+'">'+icon+' '+label+'</span>' +
@@ -14364,20 +14498,35 @@ function populateFSTable(d) {
       '<div style="font-size:11px;font-weight:800;color:'+wxCol+';margin-top:3px">'+wx.type.toUpperCase()+' · PHASE '+wx.phase+' · '+wx.event+'</div>' +
       '<div style="font-size:9px;color:#d1d4dc;line-height:1.45;margin-top:3px">'+wx.reason+'</div>' +
       (wx.rangeLow&&wx.rangeHigh?'<div style="font-size:9px;color:#787b86;margin-top:3px">Range '+fE(wx.rangeLow)+'–'+fE(wx.rangeHigh)+'</div>':'') + '</div>' : '';
+    var fl=p.fibLadder;
+    function fibRatio(x){return x?String(x.ratio).replace(/^0\./,'.'):'—';}
+    var fibCard=fl&&fl.valid ? '<div style="padding:8px 12px;background:'+fl.color+'10;border-bottom:1px solid '+fl.color+'44">' +
+      '<div style="display:flex;justify-content:space-between;gap:6px;align-items:center"><span style="font-size:9px;color:#787b86;font-weight:800">AUTO FIB LADDER · '+(chartState.tf||TF)+'</span><strong style="font-size:9px;color:'+fl.color+'">'+fl.state+'</strong></div>' +
+      (fl.usable===false?'<div style="font-size:10px;font-weight:800;color:#f59e0b;margin-top:5px">CONFIRMED FIB STALE · NOT USED BY PLAN</div>':'')+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:5px">' +
+        '<div><span style="font-size:8px;color:#787b86">'+(fl.stale?'OLD EXTENSION':'ACTIVE')+'</span><div style="font-size:11px;font-weight:800;color:'+fl.color+'">'+fibRatio(fl.active)+' · '+fE(fl.active.price)+'</div></div>' +
+        '<div><span style="font-size:8px;color:#787b86">NEXT</span><div style="font-size:11px;font-weight:800;color:#d1d4dc">'+(fl.stale?'Wait for new pivot':fl.next?fibRatio(fl.next)+' · '+fE(fl.next.price):'No further mapped level')+'</div></div>' +
+      '</div>' +
+      (fl.fallback&&!fl.stale?'<div style="font-size:9px;color:#787b86;margin-top:4px">Fallback '+fibRatio(fl.fallback)+' · '+fE(fl.fallback.price)+'</div>':'') +
+      (fl.provisional?'<div style="font-size:9px;color:#64b5f6;margin-top:4px">Dashed P = PROVISIONAL '+(fl.direction==='up'?'high ':'low ')+fE(fl.provisional.endPrice)+'. May move; not an entry or target.</div>':'')+
+      '<div style="font-size:9px;color:#d1d4dc;line-height:1.45;margin-top:4px">'+fl.reason+'</div></div>' : '';
     lvlEl.innerHTML =
       '<div style="padding:8px 12px;background:'+p.color+'12;border-bottom:1px solid '+p.color+'55">' +
         '<div style="font-size:9px;color:#787b86;text-transform:uppercase;font-weight:700">'+p.source+' PLAN</div>' +
         '<div style="font-size:10px;color:#d1d4dc;line-height:1.45;margin-top:3px">'+p.action+'</div></div>' +
       wxCard +
+      fibCard +
       '<div style="padding:7px 12px;border-bottom:1px solid #2a2e39">' +
         '<div style="display:flex;justify-content:space-between;font-size:9px;color:#787b86"><span>LIVE PRICE</span><span>VS PLANNED ENTRY</span></div>' +
         '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:2px"><strong style="font-size:15px;color:#d1d4dc">'+fE(p.live)+'</strong><strong style="font-size:11px;color:'+liveCol+'">'+(p.liveVsEntry>=0?'+':'')+p.liveVsEntry.toFixed(2)+'%</strong></div></div>' +
       fsRow('🎯','PLANNED ENTRY',p.entry,null,null,'#f59e0b','zone '+fE(p.zoneLow)+'–'+fE(p.zoneHigh)) +
       fsRow('⚠','THESIS CLOSE',p.thesis,(p.thesis-p.entry)/p.entry*100,null,'#f59e0b',(chartState.tf||TF)+' close below = setup failed') +
-      fsRow('🛡','HARD STOP',p.sl,-p.slPct,null,'#f23645','protective order') +
-      fsRow('💰','TP 1',p.tp1,p.tp1Pct,p.rr1.toFixed(1),'#26a69a',p.netRR1<CONFIG.CHART_MIN_NET_RR?'below net minimum':'sell 40%') +
-      fsRow('💰','TP 2',p.tp2,p.tp2Pct,p.rr2.toFixed(1),'#089981','sell 35%') +
-      fsRow('🎯','TP 3',p.tp3,p.tp3Pct,p.rr3.toFixed(1),'#047857','trail 25%') +
+      fsRow('🛡','HARD STOP',p.sl,-p.slPct,null,'#f23645',p.stopBasis) +
+      fsRow('💰','TP 1',p.tp1,p.tp1Pct,p.rr1.toFixed(1),'#26a69a',p.netRR1<CONFIG.CHART_MIN_NET_RR?'below net minimum':'sell 40%',p.tp1Passed) +
+      fsRow('💰','TP 2',p.tp2,p.tp2Pct,p.rr2.toFixed(1),'#089981','sell 35%',p.tp2Passed) +
+      fsRow('🎯','TP 3',p.tp3,p.tp3Pct,p.rr3.toFixed(1),'#047857','trail 25%',p.tp3Passed) +
+      '<div style="padding:8px 12px;border-bottom:1px solid #2a2e39;font-size:10px;color:#d1d4dc">Next unreached plan target: <strong>'+
+        (p.nextTarget?p.nextTarget.name+' · '+fE(p.nextTarget.price):'None — all mapped targets passed')+'</strong><div style="font-size:9px;color:#787b86;margin-top:3px">Quote-relative only. Saved orders and fills are unchanged.</div></div>'+
       '<div style="padding:8px 12px;border-bottom:1px solid #2a2e39"><div style="font-size:9px;color:#787b86;text-transform:uppercase;font-weight:700;margin-bottom:3px">CONFIRMATION</div>'+checks+'</div>' +
       '<div style="padding:8px 12px;background:rgba(38,166,154,.05)"><div style="font-size:9px;color:#787b86;text-transform:uppercase;font-weight:700">RISK CONTROL</div>' +
         '<div style="font-size:10px;color:#d1d4dc;line-height:1.5;margin-top:3px">Allocation <strong style="color:#26a69a">'+p.allocation.toFixed(1)+'% max</strong> · portfolio risk <strong>'+p.actualRisk.toFixed(2)+'%</strong><br>Hard cap '+CONFIG.MAX_SPOT_ALLOC_PCT+'% · stop distance '+p.slPct.toFixed(2)+'%</div></div>';
@@ -14464,29 +14613,40 @@ function loadChart(tf) {
   modalTF = tf;
   document.querySelectorAll('[id^="mtf-"]').forEach(function(b){ b.classList.toggle('active', b.id === 'mtf-' + tf); });
   chartState.tf = tf;
+  stopChartLive();
+  var requestSym=chartState.sym;
+  var requestId=chartState.loadRequestId=(chartState.loadRequestId||0)+1;
+  chartState.klines=null;
+  chartState.autoFib=null;chartState.fibLadder=null;chartState.wyckoff=null;chartState.chartAtr=null;
+  chartState.crosshair=null;
   syncChartTFBtns(tf);
   chartState.canvasId = chartState.fullscreen ? 'chart-canvas-fs' : 'chart-canvas';
   chartState.legendId = chartState.fullscreen ? 'chart-legend-fs' : 'chart-legend';
   var loading = document.getElementById('chart-loading');
   if (loading) loading.style.display = 'flex';
   chartState.loading = true;
+  if(chartState.fullscreen){
+    var pendingLevels=document.getElementById('fs-levels');
+    if(pendingLevels)pendingLevels.textContent='Loading '+tf+' candles — waiting for confirmed chart levels.';
+  }
 
-  bybitKlines(chartState.sym, tf, 300)
+  bybitKlines(requestSym, tf, 300)
     .then(function(klines) {
+      if(chartState.loadRequestId!==requestId||chartState.sym!==requestSym||chartState.tf!==tf)return;
       chartState.klines = klines;
       chartState.loading = false;
       var loading = document.getElementById('chart-loading');
       if (loading) loading.style.display = 'none';
       initChartEvents();
       drawChart();
-      // Update TP/SL table in fullscreen with fresh data
-      if (chartState.fullscreen && chartState.d) populateFSTable(chartState.d);
+      // The renderer refreshes the sidebar AFTER computing this TF's Fib/ATR.
       // Start live price updates every 2 seconds
       stopChartLive();
       fetchLivePrice(); // immediate first fetch
       chartState.livePriceTimer = setInterval(fetchLivePrice, 2000);
     })
     .catch(function() {
+      if(chartState.loadRequestId!==requestId)return;
       var loading = document.getElementById('chart-loading');
       if (loading) loading.innerHTML = '<div style="text-align:center;color:var(--r)">⚠ Failed to load chart data. Check connection.</div>';
     });
@@ -14849,12 +15009,16 @@ function _drawChartNow() {
     var q=parseFloat(k[7]); return isFinite(q)&&q>0?q:parseFloat(k[5])*parseFloat(k[4]);
   });
   var wxAtr = calcATR(wxH,wxL,wxC,14);
+  chartState.chartAtr=wxAtr;
   var wxE20=calcEMA(wxC,20), wxE50=calcEMA(wxC,50);
   var wxTrend=wxC.length?(wxC[wxC.length-1]>wxE20&&wxE20>wxE50?'up':wxC[wxC.length-1]<wxE20&&wxE20<wxE50?'down':'mixed'):'mixed';
   var wx = calcWyckoff(wxH,wxL,wxC,wxV,wxAtr,wxTrend);
   chartState.wyckoff = wx;
   var fib = calcAutoFib(wxH,wxL,wxC,wxAtr,chartState.tf,wxTrend);
+  var fibLadder = calcFibLadder(fib,klines,chartState.livePrice,wxAtr);
+  fib.ladder = fibLadder;
   chartState.autoFib = fib;
+  chartState.fibLadder = fibLadder;
 
   // ════════════════════════════════════════════════════════════════════════
   // DRAW — exact TradingView order
@@ -14890,6 +15054,7 @@ function _drawChartNow() {
   // 3a. AUTO FIB — confirmed closed-pivot impulse on the active timeframe.
   // Lines are independent of Wyckoff/SR and can be hidden with the Fib button.
   if(ind.fib && fib && fib.valid) {
+    var fibUsable=!(fibLadder&&fibLadder.usable===false);
     var fibLineStart=Math.max(0,cX(Math.min(fib.startIndex,fib.endIndex)-offset)-candleW/2);
     var fibLineEnd=chartW;
     function fibLevel(r){
@@ -14897,7 +15062,7 @@ function _drawChartNow() {
       return null;
     }
     var f50=fibLevel(.5), f618=fibLevel(.618);
-    if(f50!=null&&f618!=null) {
+    if(fibUsable&&f50!=null&&f618!=null) {
       var fzTop=Math.min(pY(f50),pY(f618)),fzBot=Math.max(pY(f50),pY(f618));
       if(fzBot>=TOP_PAD&&fzTop<=TOP_PAD+CANDLE_H) {
         ctx.save();ctx.fillStyle='rgba(240,185,11,.075)';
@@ -14909,15 +15074,17 @@ function _drawChartNow() {
     fib.levels.forEach(function(fl){
       if(fl.price<pMin||fl.price>pMax) return;
       var fy=snapY(pY(fl.price)), key=String(fl.ratio).replace(/^0\./,'.');
-      var fc=fibCols[key]||'#787b86';
-      ctx.save();ctx.strokeStyle=fc;ctx.lineWidth=(fl.ratio===.5||fl.ratio===.618?1.35:1);
-      ctx.globalAlpha=(fl.ratio>1?.85:.68);ctx.setLineDash(fl.ratio===0||fl.ratio===1?[]:[4,4]);
+      var fc=fibUsable?(fibCols[key]||'#787b86'):'#50535e';
+      var isActive=fibUsable&&fibLadder&&fibLadder.valid&&fibLadder.active&&Math.abs(fibLadder.active.ratio-fl.ratio)<.0001;
+      if(isActive)fc=fibLadder.color;
+      ctx.save();ctx.strokeStyle=fc;ctx.lineWidth=isActive?2:(fl.ratio===.5||fl.ratio===.618?1.35:1);
+      ctx.globalAlpha=fibUsable?(fl.ratio>1?.85:.68):.22;ctx.setLineDash(fl.ratio===0||fl.ratio===1?[]:[4,4]);
       ctx.beginPath();ctx.moveTo(fibLineStart,fy);ctx.lineTo(fibLineEnd,fy);ctx.stroke();ctx.restore();
-      _fibLbls.push({y:fy,col:fc,lbl:key+' ('+fmtPrice(fl.price)+')'});
+      if(fibUsable)_fibLbls.push({y:fy,col:fc,lbl:(isActive?'▶ ':'')+key+' ('+fmtPrice(fl.price)+')'});
     });
     var fsx=cX(fib.startIndex-offset), fex=cX(fib.endIndex-offset);
     if((fsx>=0&&fsx<=chartW)||(fex>=0&&fex<=chartW)) {
-      ctx.save();ctx.strokeStyle=fib.direction==='up'?'#26a69a':'#ef5350';ctx.lineWidth=1;ctx.setLineDash([3,4]);
+      ctx.save();ctx.strokeStyle=fibUsable?(fib.direction==='up'?'#26a69a':'#ef5350'):'#50535e';ctx.globalAlpha=fibUsable?1:.28;ctx.lineWidth=1;ctx.setLineDash([3,4]);
       ctx.beginPath();ctx.moveTo(fsx,pY(fib.startPrice));ctx.lineTo(fex,pY(fib.endPrice));ctx.stroke();ctx.setLineDash([]);
       [
         {x:fsx,y:pY(fib.startPrice),t:'0'},
@@ -14925,9 +15092,29 @@ function _drawChartNow() {
       ].forEach(function(a){if(a.x<0||a.x>chartW)return;ctx.fillStyle=fib.direction==='up'?'#26a69a':'#ef5350';ctx.beginPath();ctx.arc(a.x,a.y,3,0,Math.PI*2);ctx.fill();});
       ctx.restore();
     }
+    // While the confirmed Fib is stale, show a separate dashed PROVISIONAL Fib
+    // to the developing extreme. It can move intrabar and is visual context only;
+    // no plan, stop, target or AI recommendation may use it.
+    if(!fibUsable&&fibLadder.provisional){
+      var pf=fibLadder.provisional,pStart=Math.max(0,cX(Math.min(pf.startIndex,pf.endIndex)-offset)-candleW/2);
+      pf.levels.forEach(function(pl){
+        if(pl.price<pMin||pl.price>pMax)return;
+        var py=snapY(pY(pl.price)),pk=String(pl.ratio).replace(/^0\./,'.');
+        ctx.save();ctx.strokeStyle='#64b5f6';ctx.lineWidth=1;ctx.globalAlpha=.48;ctx.setLineDash([2,5]);
+        ctx.beginPath();ctx.moveTo(pStart,py);ctx.lineTo(chartW,py);ctx.stroke();ctx.restore();
+        _fibLbls.push({y:py,col:'#64b5f6',lbl:'P '+pk+' ('+fmtPrice(pl.price)+')'});
+      });
+      var psx=cX(pf.startIndex-offset),pex=cX(pf.endIndex-offset);
+      ctx.save();ctx.strokeStyle='#64b5f6';ctx.lineWidth=1.2;ctx.globalAlpha=.7;ctx.setLineDash([2,5]);
+      ctx.beginPath();ctx.moveTo(psx,pY(pf.startPrice));ctx.lineTo(pex,pY(pf.endPrice));ctx.stroke();ctx.restore();
+    }
     ctx.save();ctx.font='bold 9px -apple-system,sans-serif';ctx.textAlign='right';
-    ctx.fillStyle=fib.direction==='up'?'#26a69a':'#ef5350';
-    ctx.fillText('AUTO FIB '+(fib.direction==='up'?'↑':'↓')+' · '+fib.confidence+'/100',chartW-7,TOP_PAD+13);ctx.restore();
+    ctx.fillStyle=fibLadder&&fibLadder.valid?fibLadder.color:(fib.direction==='up'?'#26a69a':'#ef5350');
+    var fibHead='AUTO FIB '+(fib.direction==='up'?'↑':'↓')+' · '+fib.confidence+'/100';
+    if(fibLadder&&fibLadder.valid)fibHead+=' · '+fibLadder.state+
+      (fibLadder.usable===false?' · WAIT NEW PIVOT':' '+String(fibLadder.active.ratio).replace(/^0\./,'.')+
+      (fibLadder.next?' → '+String(fibLadder.next.ratio).replace(/^0\./,'.'):''));
+    ctx.fillText(fibHead,chartW-7,TOP_PAD+13);ctx.restore();
   }
 
   // 3b. WYCKOFF RANGE + PHASE/EVENT OVERLAY
@@ -15561,7 +15748,7 @@ function _drawChartNow() {
       }
     }
     // TP profit zone — green fill from Entry to TP1
-    if (aEntry >= pMin && aTP1 <= pMax) {
+    if (!aPlan.tp1Passed && aEntry >= pMin && aTP1 <= pMax) {
       var zTPy1 = Math.max(cT3, pY(Math.min(pMax, aTP1)));
       var zTPy2 = Math.min(cB3, pY(Math.max(pMin, aEntry)));
       if (zTPy2 > zTPy1) {
@@ -15643,9 +15830,9 @@ function _drawChartNow() {
 
     // LAYER C: Horizontal lines + right-axis pills (TV style, guaranteed no overlap)
     var tvLevels = [
-      {price: aTP3,   col:'#089981', name:'TP3 +'  + ((aTP3-aEntry)/aEntry*100).toFixed(1)+'%', dash:[3,3], lw:1},
-      {price: aTP2,   col:'#26a69a', name:'TP2 +'  + ((aTP2-aEntry)/aEntry*100).toFixed(1)+'%', dash:null,  lw:1.5},
-      {price: aTP1,   col:'#2ecc71', name:'TP1 '+aTp1R+'R', dash:null, lw:2},
+      {price: aTP3,   col:aPlan.tp3Passed?'#787b86':'#089981', name:aPlan.tp3Passed?'TP3 PASSED':'TP3 +'  + ((aTP3-aEntry)/aEntry*100).toFixed(1)+'%', dash:aPlan.tp3Passed?[2,4]:[3,3], lw:1},
+      {price: aTP2,   col:aPlan.tp2Passed?'#787b86':'#26a69a', name:aPlan.tp2Passed?'TP2 PASSED':'TP2 +'  + ((aTP2-aEntry)/aEntry*100).toFixed(1)+'%', dash:aPlan.tp2Passed?[2,4]:null,  lw:aPlan.tp2Passed?1:1.5},
+      {price: aTP1,   col:aPlan.tp1Passed?'#787b86':'#2ecc71', name:aPlan.tp1Passed?'TP1 PASSED':'TP1 '+aTp1R+'R', dash:aPlan.tp1Passed?[2,4]:null, lw:aPlan.tp1Passed?1:2},
       {price: aEntry, col:'#f59e0b', name:'PLAN '+fmtPrice(aEntry), dash:null, lw:2.5},
       {price: aThesis,col:'#f59e0b', name:'THESIS CLOSE', dash:[2,4], lw:1},
       {price: aSL,    col:'#f23645', name:'HARD SL -'+aSlPct.toFixed(1)+'%', dash:[5,4], lw:1.5},
@@ -15935,6 +16122,7 @@ function _drawChartNow() {
 
   // Analyst bar below chart
   updateChartAnalystBar(d);
+  if(chartState.fullscreen&&d)populateFSTable(d);
 }
 
 function updateChartAnalystBar(d) {
@@ -15980,9 +16168,9 @@ function updateChartAnalystBar(d) {
     tableRow('🎯 Planned entry', fE(entry),    '—',                              pctStr(fromLive(entry)),     '—',   'Only execute when status is READY/TRIGGERED', '#F59E0B', true) +
     tableRow('⚠ Thesis close',   fE(p.thesis), pctStr((p.thesis-entry)/entry*100,true), pctStr(fromLive(p.thesis)), '—', (chartState.tf||TF)+' close below = setup invalidated', '#F59E0B', false) +
     tableRow('🛡 Hard stop',      fE(sl),       pctStr(-slPct,true),              pctStr(fromLive(sl)),        '1×',  'Protective order — close 100%',          '#ef5350', false) +
-    tableRow('💰 TP1  (40%)',    fE(tp1),      pctStr(tp1Pct),                   pctStr(fromLive(tp1)),       rr1,   'Take 40%. Move SL to breakeven',        '#26a69a', false) +
-    tableRow('💰 TP2  (35%)',    fE(tp2),      pctStr(tp2Pct),                   pctStr(fromLive(tp2)),       rr2,   'Take 35%. Trail SL to TP1',             '#1a9488', false) +
-    tableRow('🎯 TP3  (25%)',    fE(tp3),      pctStr(tp3Pct),                   pctStr(fromLive(tp3)),       rr3,   'Let remainder run. Final exit',         '#0f7066', false) +
+    tableRow('💰 TP1 '+(p.tp1Passed?'· PASSED':'(40%)'),fE(tp1),pctStr(tp1Pct),pctStr(fromLive(tp1)),rr1,p.tp1Passed?'Already below live — not a future target':'Take 40%. Move SL to breakeven',p.tp1Passed?'#787b86':'#26a69a',false) +
+    tableRow('💰 TP2 '+(p.tp2Passed?'· PASSED':'(35%)'),fE(tp2),pctStr(tp2Pct),pctStr(fromLive(tp2)),rr2,p.tp2Passed?'Already below live — not a future target':'Take 35%. Trail SL to TP1',p.tp2Passed?'#787b86':'#1a9488',false) +
+    tableRow('🎯 TP3 '+(p.tp3Passed?'· PASSED':'(25%)'),fE(tp3),pctStr(tp3Pct),pctStr(fromLive(tp3)),rr3,p.tp3Passed?'Already below live — not a future target':'Let remainder run. Final exit',p.tp3Passed?'#787b86':'#0f7066',false) +
   '</tbody>' +
   '</table>' +
   '</div>' +
