@@ -471,6 +471,32 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 .cp-levels{display:grid;grid-template-columns:1fr 1fr;gap:10px}.cp-notice{border-left:3px solid #f0b90b;background:#302d231f}.cp-check{display:flex;justify-content:space-between;gap:8px;margin:7px 0}
 @media(max-width:900px){#chart-fs-table{width:252px!important;flex-basis:252px!important}.cp-toolbar{gap:5px;padding:6px}.cp-toolbar button,.cp-toolbar select,.cp-toolbar summary{padding:5px 7px}}
 @media(max-width:600px){#chart-fs-table{width:220px!important;flex-basis:220px!important}.cp-card{padding:10px;font-size:12px}#chart-fs-bar{padding:5px!important}.cp-ind-menu>div{left:auto;right:0}.cp-toolbar{font-size:11px}}
+/* Fullscreen Focus mode: the canvas uses the space occupied by the sidebar,
+   command toolbar, and summary. Only two floating escape controls remain. */
+#chart-fullscreen-ov.cp-focus #chart-pro-tools-fs,
+#chart-fullscreen-ov.cp-focus #chart-fs-table{display:none!important}
+#chart-fullscreen-ov.cp-focus #chart-fs-bar{
+  position:absolute!important;z-index:90!important;top:max(6px,env(safe-area-inset-top))!important;right:7px!important;
+  width:auto!important;height:0!important;min-height:0!important;padding:0!important;border:0!important;
+  background:transparent!important;overflow:visible!important;flex-wrap:nowrap!important
+}
+#chart-fullscreen-ov.cp-focus #chart-fs-bar>*{display:none!important}
+#chart-fullscreen-ov.cp-focus #chart-fs-bar>.cp-focus-controls{
+  display:flex!important;position:static!important;width:auto!important;margin:0!important;gap:7px!important;
+  order:0!important;justify-content:flex-end!important;pointer-events:auto!important
+}
+#chart-fullscreen-ov.cp-focus #chart-fs-bar>.cp-focus-controls>*{display:none!important}
+#chart-fullscreen-ov.cp-focus #chart-fs-bar>.cp-focus-controls>.cp-focus-keep{
+  display:inline-flex!important;align-items:center!important;justify-content:center!important;
+  min-width:42px!important;min-height:34px!important;height:34px!important;padding:0 11px!important;
+  border-radius:6px!important;box-shadow:0 3px 12px #0009!important
+}
+#chart-fullscreen-ov.cp-focus #chart-fs-main{min-height:0!important}
+#chart-fullscreen-ov.cp-focus #chart-fs-canvas{width:100%!important;height:100%!important}
+@media(max-width:600px){
+  #chart-fullscreen-ov.cp-focus #chart-fs-bar{top:max(5px,env(safe-area-inset-top))!important;right:5px!important}
+  #chart-fullscreen-ov.cp-focus #chart-fs-bar>.cp-focus-controls>.cp-focus-keep{font-size:10px!important;min-height:38px!important;height:38px!important}
+}
 </style>
 <style id="dex-flow-evidence-style">
 .dex-evidence{font:12px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--t2);margin:9px 0 14px}
@@ -5905,6 +5931,219 @@ function cancelCoinResearch(){
 }
 // COIN_RESEARCH_V1_END
 
+// COIN_UPDATES_V2_BEGIN
+// A deliberately small, manual event window. Groq and Gemini each search once;
+// their sourced JSON is validated, merged and shortened locally. The legacy
+// evidence/research engines remain available to alert code, but are not part of
+// this user-facing workflow and are never started from here.
+var _coinUpdatesOpen={},_coinUpdatesViews={},_coinUpdatesJobs={};
+var _coinUpdateSessionKeys={groq:[],gemini:[]};
+var COIN_UPDATES_TTL=2*3600000,COIN_UPDATES_VERSION=2,COIN_UPDATES_MAX_KEYS=6;
+function _cuValidKey(provider,key){
+  key=String(key||'').trim();
+  return provider==='groq'?/^gsk_[A-Za-z0-9_-]{20,220}$/.test(key):/^[A-Za-z0-9_.-]{20,250}$/.test(key);
+}
+function _cuStoredKeys(provider){
+  try{var rows=JSON.parse(localStorage.getItem('coin_updates_'+provider+'_keys_v1')||'[]');return Array.isArray(rows)?rows:[];}catch(e){return [];}
+}
+function _cuKeys(provider){
+  var rows=[].concat(_coinUpdateSessionKeys[provider]||[],_cuStoredKeys(provider));
+  try{
+    var old=provider==='groq'?(localStorage.getItem('groq_key')||''):(localStorage.getItem('gemini_research_key')||'');
+    if(old)rows.push(old);
+  }catch(e){}
+  var seen={};return rows.map(function(k){return String(k||'').trim();}).filter(function(k){
+    if(!_cuValidKey(provider,k)||seen[k])return false;seen[k]=true;return true;
+  }).slice(0,COIN_UPDATES_MAX_KEYS);
+}
+function _cuAddKeys(provider,text,remember){
+  var supplied=String(text||'').split(/[\s,;]+/).map(function(k){return k.trim();}).filter(Boolean),bad=supplied.filter(function(k){return !_cuValidKey(provider,k);});
+  if(!supplied.length)throw Error('Paste at least one '+(provider==='groq'?'Groq':'Gemini')+' key.');
+  if(bad.length)throw Error(bad.length+' '+(provider==='groq'?'Groq':'Gemini')+' key'+(bad.length===1?' is':'s are')+' not valid.');
+  var merged=_cuKeys(provider).concat(supplied),seen={};merged=merged.filter(function(k){if(seen[k])return false;seen[k]=true;return true;}).slice(0,COIN_UPDATES_MAX_KEYS);
+  _coinUpdateSessionKeys[provider]=merged;
+  if(remember)try{localStorage.setItem('coin_updates_'+provider+'_keys_v1',JSON.stringify(merged));}catch(e){throw Error('Keys are active for this tab, but browser storage is blocked.');}
+  return merged.length;
+}
+function _cuClearKeys(provider){
+  _coinUpdateSessionKeys[provider]=[];
+  try{localStorage.removeItem('coin_updates_'+provider+'_keys_v1');
+    if(provider==='groq')localStorage.removeItem('groq_key');else localStorage.removeItem('gemini_research_key');
+  }catch(e){}
+}
+function _cuISO(offset){var d=new Date();d.setUTCHours(0,0,0,0);d.setUTCDate(d.getUTCDate()+offset);return d.toISOString().slice(0,10);}
+function _cuIdentity(sym,query){
+  var d=(allData||[]).find(function(x){return x.sym===sym;}),coin=d?_freeSym(d.pair||d.sym):'',known=coin&&((COIN_ALIASES[coin]||[])[0]||'');
+  query=_crText(query||(known?known+' ('+coin+')':coin),100).replace(/[<>]/g,'');
+  if(query.length<2)throw Error('Enter a coin ticker or full project name.');
+  return {sym:sym,coin:coin,query:query,pastStart:_cuISO(-7),pastEnd:_cuISO(0),nextStart:_cuISO(1),nextEnd:_cuISO(7),today:_cuISO(0)};
+}
+function _cuHash(s){var h=2166136261;for(var i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return (h>>>0).toString(36);}
+function _cuCacheKey(c){return 'coin_updates_v2_'+_cuHash(c.query.toLowerCase()+'|'+c.today);}
+function _cuLoad(c){
+  try{var r=JSON.parse(localStorage.getItem(_cuCacheKey(c))||'null');return r&&r.version===COIN_UPDATES_VERSION&&r.query===c.query&&r.today===c.today&&Array.isArray(r.past)&&Array.isArray(r.next)?r:null;}catch(e){return null;}
+}
+function _cuSave(r){
+  try{
+    var key=_cuCacheKey(r),idx=JSON.parse(localStorage.getItem('coin_updates_index_v2')||'[]');if(!Array.isArray(idx))idx=[];
+    idx=idx.filter(function(k){return /^coin_updates_v2_/.test(k)&&k!==key;});idx.push(key);
+    while(idx.length>24)localStorage.removeItem(idx.shift());
+    localStorage.setItem(key,JSON.stringify(r));localStorage.setItem('coin_updates_index_v2',JSON.stringify(idx));
+  }catch(e){r.storageWarning='This result could not be cached in the browser.';}
+}
+function _cuJSON(text){
+  var s=_crText(text,30000).replace(/^\s*```(?:json)?\s*/i,'').replace(/\s*```\s*$/,'').trim(),a=s.indexOf('{'),b=s.lastIndexOf('}');
+  if(a<0||b<a)return null;try{var j=JSON.parse(s.slice(a,b+1));return j&&typeof j==='object'&&!Array.isArray(j)?j:null;}catch(e){return null;}
+}
+function _cuTokens(s){var stop={the:1,and:1,for:1,with:1,from:1,into:1,will:1,has:1,its:1,network:1,token:1,coin:1};return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().split(/\s+/).filter(function(x){return x.length>2&&!stop[x];});}
+function _cuSimilarity(a,b){var x=_cuTokens(a),y=_cuTokens(b),set={};x.forEach(function(t){set[t]=1;});var hit=0;y.forEach(function(t){if(set[t])hit++;});return hit/Math.max(1,Math.min(x.length,y.length));}
+function _cuHost(url){try{return new URL(url).hostname.replace(/^www\./,'');}catch(e){return '';}}
+function _cuPrompt(c){
+  return {
+    system:'You find time-bounded crypto project events using web search. Search, do not answer from memory. Resolve ticker ambiguity before including anything. Use primary project, exchange, governance or regulator sources when available. A publication date is not an execution date. Do not include price moves, forecasts, general market news, evergreen background, rumors without a dated source, or events outside the exact windows. Return JSON only. Maximum 3 important items per period and one short sentence for why each matters. Never invent a URL. Schema: {"events":[{"period":"past|next","date":"YYYY-MM-DD","title":"short factual title","category":"Upgrade|Listing|Unlock|Governance|Security|Integration|Regulation|Other","status":"Completed|Confirmed|Scheduled|Tentative|Unverified","why":"one short factual sentence","sources":["exact retrieved URL"]}],"coverage":"one short limitation"}.',
+    user:'Coin/project: '+c.query+'. Identity ticker: '+(c.coin||'not supplied')+'. Today: '+c.today+'. PAST window: '+c.pastStart+' through '+c.pastEnd+'. NEXT window: '+c.nextStart+' through '+c.nextEnd+'. Find only material updates announced/completed in the past window and scheduled events in the next window. For future items, keep tentative status and exact date uncertainty. If no source-backed item exists for a period, return an empty list for that period.'
+  };
+}
+async function _cuGroq(c,key,signal){
+  var p=_cuPrompt(c),body={model:'groq/compound-mini',messages:[{role:'system',content:p.system},{role:'user',content:p.user}],max_tokens:1400,temperature:0.1,compound_custom:{tools:{enabled_tools:['web_search']}}};
+  return _catGroqResult(await _catGroqRequest(body,key,50000,signal),true);
+}
+async function _cuGemini(c,key,signal){
+  var p=_cuPrompt(c),body={systemInstruction:{parts:[{text:p.system}]},contents:[{role:'user',parts:[{text:p.user}]}],tools:[{google_search:{}}],generationConfig:{temperature:0.1,maxOutputTokens:1800,thinkingConfig:{thinkingBudget:0}}};
+  return _crGeminiResult(await _crGeminiRequest(body,key,50000,signal),true);
+}
+function _cuSourcesForEvent(v,result){
+  var valid={},meta={};(result.sources||[]).forEach(function(s){var u=_catURL(s.url);if(u){valid[u]=true;meta[u]={url:u,title:_crText(s.title,160)||_cuHost(u)};}});
+  var urls=[];(Array.isArray(v.sources)?v.sources:[]).forEach(function(u){u=_catURL(u);if(u&&valid[u]&&urls.indexOf(u)<0)urls.push(u);});
+  if(!urls.length)(result.grounding||[]).forEach(function(g){if(_cuSimilarity(v.title+' '+(v.why||''),g.text)<0.34)return;(g.sources||[]).forEach(function(u){u=_catURL(u);if(u&&valid[u]&&urls.indexOf(u)<0)urls.push(u);});});
+  return urls.slice(0,3).map(function(u){return meta[u];}).filter(Boolean);
+}
+function _cuPacket(result,provider,c){
+  if(!result||!result.searched||!(result.sources||[]).length)throw Error('No web-search source evidence returned.');
+  var j=_cuJSON(result.text);if(!j||!Array.isArray(j.events))throw Error('Provider did not return usable structured updates.');
+  var allowedCat=['Upgrade','Listing','Unlock','Governance','Security','Integration','Regulation','Other'];
+  var allowedStatus=['Completed','Confirmed','Scheduled','Tentative','Unverified'],rows=[];
+  j.events.slice(0,16).forEach(function(v){
+    if(!v||typeof v!=='object')return;var date=_crText(v.date,10),title=_crText(v.title,140),why=_crText(v.why,220);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!title)return;
+    var period=date>=c.pastStart&&date<=c.pastEnd?'past':date>=c.nextStart&&date<=c.nextEnd?'next':'';if(!period)return;
+    var sources=_cuSourcesForEvent(v,result);if(!sources.length)return;
+    rows.push({period:period,date:date,title:title,category:allowedCat.indexOf(v.category)>=0?v.category:'Other',status:allowedStatus.indexOf(v.status)>=0?v.status:(period==='next'?'Tentative':'Unverified'),why:why||'Read the linked source for the material details.',sources:sources,providers:[provider]});
+  });
+  return {provider:provider,events:rows,coverage:_crText(j.coverage,180),sourceCount:(result.sources||[]).length,searchEntryPoint:provider==='gemini'?_crText(result.searchEntryPoint,30000):''};
+}
+function _cuMerge(packets){
+  var rows=[];(packets||[]).forEach(function(packet){(packet.events||[]).forEach(function(ev){
+    var old=rows.find(function(x){return x.period===ev.period&&_cuSimilarity(x.title,ev.title)>=0.62;});
+    if(!old){rows.push(ev);return;}
+    if(old.date!==ev.date){old.dateOptions=old.dateOptions||[old.date];if(old.dateOptions.indexOf(ev.date)<0)old.dateOptions.push(ev.date);old.status='Date conflict';}
+    ev.providers.forEach(function(p){if(old.providers.indexOf(p)<0)old.providers.push(p);});
+    ev.sources.forEach(function(s){if(!old.sources.some(function(x){return x.url===s.url;}))old.sources.push(s);});
+    if(ev.why.length<old.why.length)old.why=ev.why;
+  });});
+  rows.forEach(function(e){var hosts={};e.sources.forEach(function(s){hosts[_cuHost(s.url)]=1;});e.confidence=e.providers.length>1||Object.keys(hosts).length>1?'Cross-checked':'Single-source';});
+  var past=rows.filter(function(e){return e.period==='past';}).sort(function(a,b){return b.date.localeCompare(a.date);}).slice(0,3);
+  var next=rows.filter(function(e){return e.period==='next';}).sort(function(a,b){return a.date.localeCompare(b.date);}).slice(0,3);
+  return {past:past,next:next};
+}
+function _cuRetryable(e){return !e.status||[401,403,408,429,500,502,503,504].indexOf(e.status)>=0;}
+async function _cuProvider(provider,c,job){
+  var keys=_cuKeys(provider);if(!keys.length)return {provider:provider,status:'NO KEY',error:'No '+(provider==='groq'?'Groq':'Gemini')+' key saved.',attempts:0};
+  var last=null,max=Math.min(3,keys.length);
+  for(var i=0;i<max;i++){
+    if(job.controller.signal.aborted){var stop=Error('Update cancelled');stop.name='AbortError';throw stop;}
+    job.attempts++;_cuPaint(job.sym);
+    try{
+      var raw=provider==='groq'?await _cuGroq(c,keys[i],job.controller.signal):await _cuGemini(c,keys[i],job.controller.signal);
+      return Object.assign({provider:provider,status:'OK',attempts:i+1},_cuPacket(raw,provider,c));
+    }catch(e){last=e;if(e.name==='AbortError')throw e;if(!_cuRetryable(e))break;}
+  }
+  return {provider:provider,status:'ERROR',error:_catError(last||'Provider failed'),attempts:max};
+}
+async function _cuRun(job){
+  try{
+    var available=['groq','gemini'].filter(function(p){return _cuKeys(p).length;});
+    if(!available.length)throw Error('Add a Groq or Gemini API key in Settings.');
+    job.stage='Searching '+available.map(function(p){return p==='groq'?'Groq':'Gemini';}).join(' + ');
+    var settled=await Promise.all(available.map(function(p){return _cuProvider(p,job.config,job);}));
+    if(job.controller.signal.aborted){var stop=Error('Update cancelled');stop.name='AbortError';throw stop;}
+    ['groq','gemini'].forEach(function(p){if(!settled.some(function(x){return x.provider===p;}))settled.push({provider:p,status:'NO KEY',error:'No key saved.',attempts:0});});
+    var good=settled.filter(function(x){return x.status==='OK';}),merged=_cuMerge(good);
+    if(!good.length)throw Object.assign(Error('Both web-search providers failed. Open Provider status for details.'),{providers:settled});
+    var r={version:COIN_UPDATES_VERSION,query:job.config.query,coin:job.config.coin,today:job.config.today,pastStart:job.config.pastStart,pastEnd:job.config.pastEnd,nextStart:job.config.nextStart,nextEnd:job.config.nextEnd,checkedAt:Date.now(),status:good.length===2?'COMBINED':'PARTIAL',past:merged.past,next:merged.next,providers:settled,attempts:job.attempts};
+    _cuSave(r);_coinUpdatesViews[job.sym]={config:job.config,result:r,error:''};return r;
+  }catch(e){
+    var providers=e.providers||[],view=_coinUpdatesViews[job.sym]||{config:job.config};view.error=e.name==='AbortError'?'Update cancelled.':_catError(e);if(providers.length)view.providers=providers;_coinUpdatesViews[job.sym]=view;return null;
+  }finally{delete _coinUpdatesJobs[job.sym];_cuPaint(job.sym);}
+}
+function _cuResultHTML(r){
+  if(!r)return '<div style="margin-top:12px;color:var(--t3)">Press <b>Get updates</b> to search. Nothing runs automatically.</div>';
+  var esc=_catEsc;
+  function list(label,range,rows){
+    var h='<section style="min-width:0"><div style="font-weight:800;font-size:13px">'+label+'</div><div style="color:var(--t3);margin-bottom:7px">'+esc(range)+'</div>';
+    if(!rows.length)return h+'<div style="padding:10px;border:1px dashed var(--bd);border-radius:8px;color:var(--t2)">No source-backed key update found in this window. Coverage is limited.</div></section>';
+    rows.forEach(function(e){var dates=e.dateOptions&&e.dateOptions.length?e.dateOptions.sort().join(' / '):e.date;
+      h+='<article style="padding:9px 0;border-top:1px solid var(--bd)"><div style="display:flex;gap:7px;align-items:baseline;flex-wrap:wrap"><b>'+esc(dates)+'</b><span style="color:var(--acc)">'+esc(e.category)+'</span><span style="color:var(--t3)">'+esc(e.status)+'</span></div>'
+        +'<div style="font-weight:700">'+esc(e.title)+'</div><div>'+esc(e.why)+'</div><div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:4px"><span style="color:'+(e.confidence==='Cross-checked'?'var(--g)':'var(--t3)')+'">'+esc(e.confidence)+'</span><span style="color:var(--t3)">'+e.providers.map(function(p){return p==='groq'?'Groq':'Gemini';}).join(' + ')+'</span>'
+        +e.sources.slice(0,2).map(function(s,i){return '<a href="'+esc(s.url)+'" target="_blank" rel="noopener noreferrer" title="'+esc(s.title)+'">Source '+(i+1)+'</a>';}).join('')+'</div></article>';
+    });return h+'</section>';
+  }
+  return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px;margin-top:14px">'
+    +list('Past 7 days',r.pastStart+' → '+r.pastEnd,r.past)+list('Next 7 days',r.nextStart+' → '+r.nextEnd,r.next)+'</div>';
+}
+function _cuPanelHTML(sym,view){
+  var d=(allData||[]).find(function(x){return x.sym===sym;});if(!d)return '';
+  var base;try{base=_cuIdentity(sym,view&&view.config&&view.config.query);}catch(e){base={query:'',coin:_freeSym(d.pair||d.sym)};}
+  var r=view&&view.result,busy=!!_coinUpdatesJobs[sym],providers=r&&r.providers||view&&view.providers||[],esc=_catEsc;
+  var style='padding:7px 9px;border:1px solid var(--bd);border-radius:6px;background:var(--card);color:var(--text);font:inherit;';
+  function state(p){var x=providers.find(function(v){return v.provider===p;}),count=_cuKeys(p).length;if(busy)return 'searching';if(x)return x.status==='OK'?'ready':x.status==='NO KEY'?'no key':'failed';return count?count+' key'+(count===1?'':'s'):'no key';}
+  var h='<section style="margin-top:10px;padding:14px;border:1px solid var(--bd);border-radius:10px;background:var(--card);font-size:11px;line-height:1.55;overflow-wrap:anywhere">'
+    +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><div><b style="font-size:15px">Coin Updates</b><div style="color:var(--t2)">Only key events from the previous week and coming week. Maximum 3 per side.</div></div><button data-cu-close style="'+style+'cursor:pointer">Hide</button></div>'
+    +'<div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-top:10px"><label style="flex:1;min-width:220px">Coin or project<br><input data-cu-query maxlength="100" value="'+esc(base.query)+'" placeholder="Bitcoin (BTC), Celestia (TIA), etc." style="'+style+'width:100%;box-sizing:border-box" '+(busy?'disabled':'')+'></label>'
+    +'<button data-cu-start style="'+style+'cursor:pointer;background:var(--acc);color:#fff;font-weight:800" '+(busy?'disabled':'')+'>'+(r?'Refresh · uses API':'Get updates')+'</button>'+(busy?'<button data-cu-cancel style="'+style+'cursor:pointer">Cancel</button>':'')+'</div>'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;color:var(--t2)"><span>Groq · '+esc(state('groq'))+'</span><span>Gemini · '+esc(state('gemini'))+'</span><span>Normally 1 request each · merged locally</span><span>No Deep Research</span></div>';
+  if(busy)h+='<div role="status" aria-live="polite" style="margin-top:8px;color:var(--acc)">'+esc(_coinUpdatesJobs[sym].stage)+' · '+_coinUpdatesJobs[sym].attempts+' request attempt'+(_coinUpdatesJobs[sym].attempts===1?'':'s')+'</div>';
+  if(view&&view.error)h+='<div style="margin-top:8px;color:var(--am)">'+esc(view.error)+'</div>';
+  if(!r&&base.pastStart)h+='<div style="margin-top:9px;color:var(--t3)"><b>Past 7 days:</b> '+esc(base.pastStart)+' → '+esc(base.pastEnd)+' &nbsp; <b>Next 7 days:</b> '+esc(base.nextStart)+' → '+esc(base.nextEnd)+'</div>';
+  h+=_cuResultHTML(r);
+  h+='<details style="margin-top:12px"><summary style="cursor:pointer">Provider status</summary>';
+  if(!providers.length)h+='<div style="color:var(--t3)">No search has run yet.</div>';
+  providers.forEach(function(p){h+='<div style="margin-top:5px"><b>'+(p.provider==='groq'?'Groq':'Gemini')+' · '+esc(p.status)+'</b> · '+(p.attempts||0)+' attempt'+((p.attempts||0)===1?'':'s')+(p.error?'<div style="color:var(--am)">'+esc(p.error)+'</div>':'')+'</div>';});
+  var gem=providers.find(function(p){return p.provider==='gemini'&&p.searchEntryPoint;});if(gem)h+=_crSearchWidget({provider:'gemini',label:'Coin update search',searchEntryPoint:gem.searchEntryPoint});
+  h+='</details><details data-cu-settings style="margin-top:8px" '+(!_cuKeys('groq').length&&!_cuKeys('gemini').length?'open':'')+'><summary style="cursor:pointer">API keys & free-quota settings</summary>'
+    +'<div style="color:var(--t2);margin:6px 0">Add one or more keys per provider, separated by spaces or commas. The first key is used normally; another key is tried only after an authorization, quota, network or temporary provider failure. Maximum 3 attempts per provider. Follow each provider’s account terms.</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px"><label>Groq keys · '+_cuKeys('groq').length+' saved<br><input data-cu-groq type="password" autocomplete="off" spellcheck="false" placeholder="gsk_… , gsk_…" style="'+style+'width:100%;box-sizing:border-box"></label><label>Gemini keys · '+_cuKeys('gemini').length+' saved<br><input data-cu-gemini type="password" autocomplete="off" spellcheck="false" placeholder="key1 , key2" style="'+style+'width:100%;box-sizing:border-box"></label></div>'
+    +'<label style="display:block;margin:7px 0"><input data-cu-remember type="checkbox" checked> Remember added keys in this browser</label><div style="display:flex;gap:6px;flex-wrap:wrap"><button data-cu-save style="'+style+'cursor:pointer">Save added keys</button><button data-cu-clear-groq style="'+style+'cursor:pointer">Clear Groq</button><button data-cu-clear-gemini style="'+style+'cursor:pointer">Clear Gemini</button></div>'
+    +'<div style="color:var(--t3);margin-top:6px">Keys are sent directly from this browser to their provider and are never placed in reports or GitHub. Cached results last 2 hours. Searches are manual only.</div></details>'
+    +(r?'<div style="color:var(--t3);margin-top:8px">Updated '+esc(_catDate(r.checkedAt))+' · '+esc(r.status)+' · event research only, never a buy/sell signal.'+(r.storageWarning?' '+esc(r.storageWarning):'')+'</div>':'')+'</section>';
+  return h;
+}
+function _cuPaint(sym){
+  var out=document.getElementById('coin-updates-'+sym);if(!out||!_coinUpdatesOpen[sym])return;var view=_coinUpdatesViews[sym]||{};out.innerHTML=_cuPanelHTML(sym,view);
+  function on(sel,fn){var el=out.querySelector(sel);if(el)el.onclick=fn;}
+  on('[data-cu-close]',function(){_coinUpdatesOpen[sym]=false;out.innerHTML='';});
+  on('[data-cu-start]',function(){startCoinUpdates(sym,true);});
+  on('[data-cu-cancel]',function(){var j=_coinUpdatesJobs[sym];if(j)j.controller.abort();});
+  on('[data-cu-save]',function(){
+    try{var remember=!!out.querySelector('[data-cu-remember]').checked,g=out.querySelector('[data-cu-groq]').value,m=out.querySelector('[data-cu-gemini]').value;if(!g.trim()&&!m.trim())throw Error('Paste at least one new key.');if(g.trim())_cuAddKeys('groq',g,remember);if(m.trim())_cuAddKeys('gemini',m,remember);view.error='Keys saved. Get updates when ready.';}catch(e){view.error=_catError(e);}_coinUpdatesViews[sym]=view;_cuPaint(sym);
+  });
+  on('[data-cu-clear-groq]',function(){_cuClearKeys('groq');view.error='Groq update keys cleared.';_cuPaint(sym);});
+  on('[data-cu-clear-gemini]',function(){_cuClearKeys('gemini');view.error='Gemini update keys cleared.';_cuPaint(sym);});
+}
+function openCoinUpdates(sym){
+  var d=(allData||[]).find(function(x){return x.sym===sym;}),out=document.getElementById('coin-updates-'+sym);if(!d||!out)return;
+  _coinUpdatesOpen[sym]=true;if(!_coinUpdatesViews[sym]){var c=_cuIdentity(sym),cached=_cuLoad(c);_coinUpdatesViews[sym]={config:c,result:cached,error:''};}_cuPaint(sym);
+}
+function startCoinUpdates(sym,force){
+  var out=document.getElementById('coin-updates-'+sym),view=_coinUpdatesViews[sym]||{},query=out&&out.querySelector('[data-cu-query]')&&out.querySelector('[data-cu-query]').value;
+  try{
+    if(_coinUpdatesJobs[sym])throw Error('This coin update is already running.');var c=_cuIdentity(sym,query),cached=_cuLoad(c),now=Date.now();
+    if(cached&&_catFresh(cached.checkedAt,force?60000:COIN_UPDATES_TTL,now)){_coinUpdatesViews[sym]={config:c,result:cached,error:force?'Wait one minute before spending quota on another refresh.':''};_cuPaint(sym);return Promise.resolve(cached);}
+    var job={sym:sym,config:c,stage:'Starting web search',attempts:0,controller:new AbortController()};_coinUpdatesViews[sym]={config:c,result:cached,error:''};_coinUpdatesJobs[sym]=job;_cuPaint(sym);job.promise=_cuRun(job);return job.promise;
+  }catch(e){view.error=_catError(e);_coinUpdatesViews[sym]=view;_cuPaint(sym);return Promise.resolve(null);}
+}
+// COIN_UPDATES_V2_END
+
 
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -6609,15 +6848,8 @@ function renderAgent(){
   // ── add a coin ──
   h += '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:.8rem">';
   h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🤖 Monitor agent</div>';
-  h += '<div style="font-size:10px;color:var(--t3);margin-bottom:.5rem;padding:6px 9px;background:var(--card3);border-radius:6px;line-height:1.55">'
-     + '🔍 <b>Catalyst Evidence</b> — free source collection is ready. Optional AI: ' + (canVerify()
-        ? '<span style="color:var(--g)">key saved</span> · '
-        : '<span style="color:var(--t3)">off</span> · ')
-     + '<span onclick="setGroqKey()" style="text-decoration:underline;cursor:pointer;color:var(--acc)">'
-     + (canVerify()?'change key':'add optional Groq key') + '</span>'
-     + (canVerify() ? ' · <span onclick="groqTest()" style="text-decoration:underline;cursor:pointer;color:var(--acc)">test connection</span>' : '')
-     + '<div id="groq-test-out"></div>'
-     + '<span style="display:block;margin-top:2px">Refresh evidence makes no AI calls. Search web, Explain evidence and Coin Research Agent are manual actions. The research agent uses up to 4 API requests per run; select Budget or Deep before starting. Provider access and usage limits still apply.</span></div>';
+  h += '<div style="font-size:10px;color:var(--t2);margin-bottom:.5rem;padding:8px 10px;background:var(--card3);border-radius:6px;line-height:1.55">'
+     + '📅 <b>Coin Updates</b> — one compact view for the previous 7 days and next 7 days. Groq and Gemini search independently, then the browser merges at most three sourced key points per period. No Deep Research, no automatic search, and no catalyst score.</div>';
   h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:8px 10px;margin-bottom:8px">';
   h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">⛓ Free On-chain Intelligence</b><span style="font-size:9px;color:var(--g)">No paid API required</span></div>';
   h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.45">Free core: Binance spot taker volume + DEX Screener / GeckoTerminal verified pool activity + Coin Metrics Community blockchain/token activity and Solana public network samples where supported. Requests are cached and rate-limit failures cool down automatically. No paid key or AI call is needed for these calculations. Optional holder and labelled-transfer services have separate coverage limits.</div></div>';
@@ -6694,13 +6926,12 @@ function renderAgent(){
     h += '<label style="display:flex;gap:5px;align-items:center;font-size:10px;color:var(--t2);cursor:pointer">'
        + '<input type="checkbox" '+(mon.auto?'checked':'')+' onchange="toggleMonitorAuto(\''+mon.sym+'\',this.checked)" style="cursor:pointer">'
        + 'auto-update on 4h / 1d close</label>';
-    h += '<button onclick="buildCatalystChecklist(\''+mon.sym+'\')" title="Source-backed events, market confirmation and data health — no automatic AI call" style="padding:5px 12px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:10px;cursor:pointer;font-family:inherit">🔍 Catalyst Evidence</button>';
-    h += '<button onclick="openCoinResearch(\''+mon.sym+'\')" title="Choose Budget or Deep research; no API call until Start research" style="padding:5px 12px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:10px;cursor:pointer;font-family:inherit">📚 Coin Research Agent</button>';
+    h += '<button onclick="openCoinUpdates(\''+mon.sym+'\')" title="Past 7 days and next 7 days; Groq + Gemini, key points only" style="padding:5px 12px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:10px;cursor:pointer;font-family:inherit">📅 Coin Updates</button>';
     h += '<button onclick="monitorOnchain(\''+mon.sym+'\')" title="Read free on-chain evidence for this coin" style="padding:5px 12px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:10px;cursor:pointer;font-family:inherit">⛓ On-chain</button>';
     h += '<span id="mon-chain-'+mon.sym+'" style="display:block;width:100%;margin-top:2px"></span>';
     h += '<span id="mon-ai-'+mon.sym+'" style="font-size:10px"></span>';
     h += '</div>';
-    h += '<div id="verify-'+mon.sym+'"></div>';
+    h += '<div id="coin-updates-'+mon.sym+'"></div>';
     // timeline
     if(!mon.updates.length){
       h += '<div style="font-size:11px;color:var(--t3)">Watching. Nothing has changed since you added it — the first update appears when something does.</div>';
@@ -15914,7 +16145,7 @@ function buildChartTab(d) {
             return '<button class="ctv-ind active" id="ind-fs-'+p[0]+'" onclick="toggleInd(\''+p[0]+'\')" style="font-size:10px;padding:2px 8px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">'+p[1]+'</button>';
           }).join('') +
         '</div>' +
-        '<div style="margin-left:auto;display:flex;gap:6px;align-items:center">' +
+        '<div class="cp-focus-controls" style="margin-left:auto;display:flex;gap:6px;align-items:center">' +
           '<button onclick="chartZoom(1)"  style="font-size:13px;width:26px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">+</button>' +
           '<button onclick="chartZoom(-1)" style="font-size:13px;width:26px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">−</button>' +
           '<button id="draw-btn-fs" onclick="toggleDrawMode()" title="Draw your own trendlines — click two points" style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:var(--t2);cursor:pointer;font-family:inherit">✏️ Draw</button>' +
@@ -15922,11 +16153,12 @@ function buildChartTab(d) {
           '<button onclick="clearDrawings()" title="Clear all drawings on this chart" style="font-size:10px;padding:0 8px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">🗑</button>' +
           '<button onclick="chartReset()"  style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">Reset</button>' +
           '<button onclick="toggleFSTable()" id="fs-table-toggle" style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#d1d4dc;cursor:pointer;font-family:inherit">📊 Trade Plan</button>' +
-          '<button onclick="collapseChartFull()" style="font-size:12px;padding:0 14px;height:26px;border-radius:3px;border:none;background:#f23645;color:#fff;cursor:pointer;font-family:inherit;font-weight:700">✕ Close</button>' +
+          '<button onclick="toggleChartFocus()" id="fs-focus-toggle" class="cp-focus-keep" aria-pressed="false" title="Hide or show the sidebar and upper chart controls" style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #536887;background:#263651;color:#e2ecff;cursor:pointer;font-family:inherit;font-weight:700">⛶ Chart only</button>' +
+          '<button onclick="collapseChartFull()" id="fs-focus-close" class="cp-focus-keep" style="font-size:12px;padding:0 14px;height:26px;border-radius:3px;border:none;background:#f23645;color:#fff;cursor:pointer;font-family:inherit;font-weight:700">✕ Close</button>' +
         '</div>' +
       '</div>' +
       // Main chart area + compact table side by side
-      '<div style="display:flex;flex:1;overflow:hidden;min-height:0">' +
+      '<div id="chart-fs-main" style="display:flex;flex:1;overflow:hidden;min-height:0">' +
         // Canvas
         '<div id="chart-fs-canvas" style="flex:1;position:relative;overflow:hidden">' +
           '<canvas id="chart-canvas-fs" style="display:block;cursor:crosshair"></canvas>' +
@@ -15951,8 +16183,13 @@ function buildChartTab(d) {
     document.body.appendChild(fsOv);
 
     document.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape' && document.getElementById('chart-fullscreen-ov').classList.contains('show')) {
-        collapseChartFull();
+      var full=document.getElementById('chart-fullscreen-ov');
+      if(!full||!full.classList.contains('show')||/INPUT|SELECT|TEXTAREA/.test((e.target&&e.target.tagName)||''))return;
+      if (e.key === 'Escape') {
+        e.stopImmediatePropagation();
+        if(full.classList.contains('cp-focus'))toggleChartFocus(false);else collapseChartFull();
+      } else if(e.key==='f'||e.key==='F'){
+        e.preventDefault();e.stopImmediatePropagation();toggleChartFocus();
       }
     });
   }
@@ -16422,9 +16659,34 @@ function toggleFSTable() {
     if (chartState.klines) drawChart();
   }, 10);
 }
+function resizeFullscreenChart(){
+  if(!chartState.fullscreen)return;
+  function fit(){
+    var fsC=document.getElementById('chart-fs-canvas'),canvas=document.getElementById('chart-canvas-fs');
+    if(fsC&&canvas){canvas.style.width=fsC.clientWidth+'px';canvas.style.height=fsC.clientHeight+'px';}
+    if(chartState.klines)drawChart();
+  }
+  requestAnimationFrame(function(){requestAnimationFrame(fit);});
+  setTimeout(fit,60);
+}
+function toggleChartFocus(force){
+  var ov=document.getElementById('chart-fullscreen-ov'),btn=document.getElementById('fs-focus-toggle');
+  if(!ov)return false;
+  var focus=typeof force==='boolean'?force:!ov.classList.contains('cp-focus');
+  ov.classList.toggle('cp-focus',focus);chartState.fullscreenFocus=focus;
+  if(btn){
+    btn.setAttribute('aria-pressed',String(focus));
+    btn.textContent=focus?'☰ Show panels':'⛶ Chart only';
+    btn.title=focus?'Show the sidebar and upper chart controls':'Hide the sidebar and upper chart controls';
+  }
+  resizeFullscreenChart();return focus;
+}
 function collapseChartFull() {
   var fsOv = document.getElementById('chart-fullscreen-ov');
-  if (fsOv) fsOv.classList.remove('show');
+  if (fsOv){fsOv.classList.remove('show','cp-focus');}
+  chartState.fullscreenFocus=false;
+  var focusBtn=document.getElementById('fs-focus-toggle');
+  if(focusBtn){focusBtn.setAttribute('aria-pressed','false');focusBtn.textContent='⛶ Chart only';}
   // Restore body scroll
   document.body.style.overflow = '';
   chartState.fullscreen = false;
