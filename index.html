@@ -464,6 +464,10 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 .cp-card h4{margin:0 0 7px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#94a5bf}
 .cp-card p{margin:6px 0}.cp-card strong{color:#edf3ff}.cp-price{font-size:19px;font-variant-numeric:tabular-nums;letter-spacing:.02em}
 .cp-muted{color:#9caac0;font-size:11px}.cp-pair{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:5px 0}.cp-badge{padding:2px 6px;border-radius:4px;font-size:10px;background:#2c3548}
+.cp-chart-summary{flex-basis:100%;font-size:11px;line-height:1.6;color:#bdcce0;overflow-wrap:anywhere}.cp-chart-summary span{margin-right:14px}.cp-chart-summary .cp-health{color:#8fa3bd}
+.cp-ind-menu label{display:flex;flex-direction:column;gap:5px}.cp-ind-menu select{max-width:100%;white-space:normal;font-size:11px}
+@media(max-width:820px){.cp-chart-summary{max-height:86px;overflow-y:auto;padding-right:5px}#chart-fs-table.cp-mobile-open{display:flex!important;position:absolute;right:0;bottom:0;top:105px;width:min(340px,94vw)!important;z-index:60;box-shadow:-10px 0 24px #0009}#fs-table-toggle{display:inline-block!important}.cp-ind-menu>div{max-width:calc(100vw - 20px)}}
+.cp-fib-dialog{color:#d7e2ef;background:#181d29;border:1px solid #60728d;border-radius:9px;max-width:min(480px,90vw);max-height:85vh;overflow:auto;font:13px/1.5 sans-serif}.cp-fib-dialog::backdrop{background:#0009}.cp-fib-dialog label{display:block;margin:8px 0}.cp-fib-dialog input,.cp-fib-dialog select{max-width:100%;background:#252e40;color:white;border:1px solid #60728d;padding:7px}.cp-fib-dialog button{padding:8px;cursor:pointer}.cp-fib-dialog fieldset{margin:10px 0}#fib-edit-error{color:#ff8f8f}
 .cp-levels{display:grid;grid-template-columns:1fr 1fr;gap:10px}.cp-notice{border-left:3px solid #f0b90b;background:#302d231f}.cp-check{display:flex;justify-content:space-between;gap:8px;margin:7px 0}
 @media(max-width:900px){#chart-fs-table{width:252px!important;flex-basis:252px!important}.cp-toolbar{gap:5px;padding:6px}.cp-toolbar button,.cp-toolbar select,.cp-toolbar summary{padding:5px 7px}}
 @media(max-width:600px){#chart-fs-table{width:220px!important;flex-basis:220px!important}.cp-card{padding:10px;font-size:12px}#chart-fs-bar{padding:5px!important}.cp-ind-menu>div{left:auto;right:0}.cp-toolbar{font-size:11px}}
@@ -1524,12 +1528,14 @@ function bitbankTickers(syms){
 }
 
 function bybitKlines(sym, tf, limit) {
+  function tagged(parser,source){return function(raw){var rows=parser(raw);rows.dataSource=source;rows.fetchedAt=Date.now();return rows;};}
   // JPY pairs come from bitbank (real Japanese exchange data)
   if (sym.endsWith('JPY')) {
     var ckey = sym+'_'+tf+'_'+limit;
     var cch = _klCache[ckey];
     if (cch && (Date.now()-cch.ts) < getKLTTL(tf)) return Promise.resolve(cch.data);
     return bitbankKlines(sym, tf, limit).then(function(data){
+      data.dataSource='bitbank';data.fetchedAt=Date.now();
       _klCache[ckey] = {ts:Date.now(), data:data};
       return data;
     });
@@ -1550,9 +1556,9 @@ function bybitKlines(sym, tf, limit) {
 
   // Source order: Bybit + Bybit2 first (work in most regions incl. Japan), then
   // BingX, then Binance last (geo-blocked in some regions — avoid wasting time on it)
-  return smartFetch(bvUrl, parseBybitKlines,
+  return smartFetch(bvUrl, tagged(parseBybitKlines,'Bybit'),
     [b2Url, bxUrl, bnUrl, bn2Url],
-    [parseBybitKlines, parseBingXKlines, parseBinanceKlines, parseBinanceKlines]
+    [tagged(parseBybitKlines,'Bybit'), tagged(parseBingXKlines,'BingX'), tagged(parseBinanceKlines,'Binance'), tagged(parseBinanceKlines,'Binance')]
   ).then(function(data) {
     _klCache[cacheKey] = {ts: Date.now(), data: data};
     return data;
@@ -1868,6 +1874,11 @@ function editSelectedDrawing(action){
   saveDrawings(rows);drawChart();
 }
 function chartManualPointerDown(x,y){
+  var F=chartState.fibScope==='manual'&&readChartManualFib();
+  if(F&&!F.locked){
+    var hit=(chartState.fibHits||[]).find(function(a){return Math.hypot(x-a.x,y-a.y)<=12;});
+    if(hit){chartState.manualDrag={fib:true,anchor:hit.anchor};return true;}
+  }
   if(chartState.trendMode!=='manual'&&chartState.trendMode!=='both')return false;
   var hits=chartState.manualHits||[],found=null;
   for(var i=hits.length-1;i>=0;i--){
@@ -1883,6 +1894,14 @@ function chartManualPointerDown(x,y){
 }
 function chartManualPointerMove(x,y){
   var drag=chartState.manualDrag;if(!drag)return false;
+  if(drag.fib){
+    var fp=_screenToData(x,y),F=readChartManualFib();
+    if(fp&&fp.p>0&&isFinite(fp.p)&&F&&!F.locked&&fp.t<(chartState.klines.slice(-1)[0]||[])[0]){
+      var copy=Object.assign({},F);copy['t'+drag.anchor]=fp.t;copy['p'+drag.anchor]=fp.p;
+      if(copy.t1<copy.t2&&copy.p1!==copy.p2)saveChartManualFib(copy);
+    }
+    drawChart();return true;
+  }
   var pt=_screenToData(x,y),rows=loadDrawings(),L=rows[drag.index];
   if(pt&&L&&!L.locked&&pt.t!==L[drag.anchor===1?'t2':'t1']){
     L['t'+drag.anchor]=pt.t;L['p'+drag.anchor]=pt.p;saveDrawings(rows);
@@ -1930,6 +1949,7 @@ function drawChartTrendlines(ctx,g){
     [a,b].forEach(function(p){ctx.fillStyle=col;ctx.beginPath();ctx.arc(p.x,p.y,3,0,Math.PI*2);ctx.fill();});
     ctx.restore();
     if(label){
+      if(g.labels){g.labels.add({text:label,col:col,x:g.chartW-ctx.measureText(label).width-20,y:ey+12,priority:20});return {x:ex,y:ey};}
       var y=Math.max(g.top+38,Math.min(g.top+g.height-12,ey));
       used.forEach(function(v){if(Math.abs(y-v)<20)y=v+20;});used.push(y);
       if(y<g.top+g.height-5){ctx.save();ctx.font='11px -apple-system,sans-serif';ctx.textAlign='right';
@@ -1943,14 +1963,20 @@ function drawChartTrendlines(ctx,g){
       if(!L)return;
       var col=L.broken?'#8992a5':L.direction==='up'?'#26a69a':'#ef5350';
       var name=L.direction==='up'?'Support':'Resistance';
+      if(L.broken)name='Former '+name.toLowerCase();
       if(L.retestHeld)name=L.direction==='down'?'Support after retest':'Resistance after retest';
       var candidate=L.touches<3&&!L.broken;
-      line({x:g.cX(L.i1),y:g.pY(L.p1)},{x:g.cX(L.i2),y:g.pY(L.p2)},col,L.broken?[7,5]:candidate?[2,5]:[],name+' · '+L.state+' · '+L.touches+' reactions');
+      // An unheld broken line is historical: stop projecting at its break/failure.
+      // Only a subsequently held retest earns a continuing flipped-role guide.
+      var historyEnd=L.broken&&!L.retestHeld?g.cX(L.failedAt!=null?L.failedAt:L.breakIdx):null;
+      line({x:g.cX(L.i1),y:g.pY(L.p1)},{x:g.cX(L.i2),y:g.pY(L.p2)},col,L.broken?[7,5]:candidate?[2,5]:[],g.labels?null:name+' · '+L.state+' · '+L.touches+' reactions',historyEnd);
       ctx.save();ctx.fillStyle=col;
       (L.touchIndices||[]).forEach(function(i){var x=g.cX(i),y=g.pY(L.p1+L.slope*(i-L.i1));
         if(x>=0&&x<g.chartW&&y>=g.top&&y<=g.top+g.height){ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill();}});
-      if(L.breakIdx!=null){var bx=g.cX(L.breakIdx),by=g.pY(Number(k[L.breakIdx][4]));
-        if(bx>10&&bx<g.chartW-10&&by>g.top+15&&by<g.top+g.height-15){ctx.font='10px -apple-system,sans-serif';ctx.fillText(L.direction==='down'?'↑ CLOSE BREAK':'↓ CLOSE BREAK',bx+5,by-12);}}
+      if(L.breakIdx!=null&&k[L.breakIdx]){var bx=g.cX(L.breakIdx),by=g.pY(Number(k[L.breakIdx][4]));
+        if(bx>10&&bx<g.chartW-10&&by>g.top+15&&by<g.top+g.height-15){var text=L.direction==='down'?'↑ CLOSE BREAK':'↓ CLOSE BREAK';
+          if(g.labels)g.labels.add({text:text,col:col,x:bx+5,y:by-28,priority:55,anchor:{x:bx,y:by}});
+          else{ctx.font='10px -apple-system,sans-serif';ctx.fillText(text,bx+5,by-12);}}}
       ctx.restore();
     });
   }
@@ -1974,9 +2000,27 @@ function drawChartTrendlines(ctx,g){
 // Closed-candle, causal trendlines. Viewport coordinates NEVER enter detection.
 // Both the scanner and chart pass closed OHLC arrays. A pivot is only usable
 // after its two right-hand candles close; events cannot predate line creation.
-function detectTrendlines(h,l,c) {
+function detectTrendlines(h,l,c,context) {
+  context=context&&typeof context==='object'?context:{};
+  var stamp=function(i){return context.times&&context.times[i]!=null?context.times[i]:i;};
   var n=Math.min(h.length,l.length,c.length), strength=2, lookback=180;
   var book={up:null,down:null}, piv={up:[],down:[]}, history=[];
+  var resume=0,cacheKey=context.key,old=null,rebuilt=false,interval=context.interval||(context.times&&context.times.length>1?context.times[1]-context.times[0]:0);
+  var fingerprints={};for(var fi=0;fi<n;fi++)fingerprints[stamp(fi)]=[h[fi],l[fi],c[fi]].join('|');
+  if(cacheKey&&interval>0){
+    var books=detectTrendlines._books||(detectTrendlines._books={});old=books[cacheKey];
+    if(!old&&context.persist){try{old=JSON.parse(localStorage.getItem('tl_state_v2:'+cacheKey)||'null');}catch(e){}}
+    var revised=old&&Object.keys(fingerprints).some(function(t){return old.fingerprints&&old.fingerprints[t]!=null&&old.fingerprints[t]!==fingerprints[t];});
+    var gap=context.times.some(function(t,i){return i&&t-context.times[i-1]!==interval;});
+    if(old&&(old.version!==2||revised||gap||old.lastTime>stamp(n-1)||stamp(0)>old.lastTime+interval)){old=null;rebuilt=true;}
+    if(old){
+      var copy=JSON.parse(JSON.stringify(old)),shift=(stamp(0)-copy.firstTime)/interval;
+      function rebase(L){if(!L)return;['i1','i2','confirmedAt','breakIdx','failedAt','retestAt','lastClosedAt'].forEach(function(p){if(L[p]!=null)L[p]-=shift;});L.touchIndices=L.touchIndices.map(function(i){return i-shift;});}
+      book=copy.book;piv=copy.piv;history=copy.history;rebase(book.up);rebase(book.down);history.forEach(rebase);
+      ['up','down'].forEach(function(key){piv[key].forEach(function(p){p.i-=shift;});piv[key]=piv[key].filter(function(p){return p.i>=0;});});
+      resume=Math.max(0,context.times.findIndex(function(t){return t>copy.lastTime;}));if(stamp(n-1)===copy.lastTime)resume=n;
+    }
+  }
   function value(L,i){return L.p1+L.slope*(i-L.i1);}
   function tolerance(i){
     var sum=0,count=0;
@@ -1995,7 +2039,8 @@ function detectTrendlines(h,l,c) {
       var L={i1:a.i,p1:a.v,i2:p.i,p2:p.v,slope:slope,confirmedAt:i,
         touchTolerance:tol,touchIndices:[a.i,p.i],touches:2,state:'CANDIDATE',
         breakIdx:null,retestHeld:false,retestBarsAgo:null,broken:false,direction:key,
-        id:key+':'+a.i+':'+p.i+':'+a.v+':'+p.v};
+        anchorTime1:stamp(a.i),anchorTime2:stamp(p.i),confirmedTime:stamp(i),
+        id:(context.key||'trend')+':v2:'+key+':'+stamp(a.i)+':'+stamp(p.i)+':'+a.v+':'+p.v};
       for(var j=a.i;j<=i;j++){
         var lv=value(L,j);
         if(down?c[j]>lv+tol:c[j]<lv-tol)return;
@@ -2009,7 +2054,7 @@ function detectTrendlines(h,l,c) {
       if(!best||L.touches>best.touches||(L.touches===best.touches&&L.i1>best.i1))best=L;
     });return best;
   }
-  for(var i=0;i<n;i++){
+  for(var i=resume;i<n;i++){
     var tol=tolerance(i);
     ['up','down'].forEach(function(key){
       var down=key==='down',L=book[key];
@@ -2017,13 +2062,13 @@ function detectTrendlines(h,l,c) {
         var lv=value(L,i),beyond=down?c[i]>lv+tol:c[i]<lv-tol;
         var back=down?c[i]<lv-tol:c[i]>lv+tol;
         if(!L.broken&&i>L.confirmedAt&&beyond){
-          L.broken=true;L.breakIdx=i;L.state=down?'CLOSED ABOVE':'CLOSED BELOW';
+          L.broken=true;L.breakIdx=i;L.breakTime=stamp(i);L.state=down?'CLOSED ABOVE':'CLOSED BELOW';
         } else if(L.broken&&i>L.breakIdx){
-          if(back){L.state='FAILED BREAK';L.retestHeld=false;if(L.failedAt==null)L.failedAt=i;}
+          if(back){L.state='FAILED BREAK';L.retestHeld=false;if(L.failedAt==null){L.failedAt=i;L.failedTime=stamp(i);}}
           else if(!L.failedAt){
             var intersects=l[i]<=lv+tol&&h[i]>=lv-tol;
             var held=down?c[i]>lv:c[i]<lv;
-            if(intersects&&held){L.retestHeld=true;L.retestAt=i;L.state='RETEST HELD';}
+            if(intersects&&held){L.retestHeld=true;L.retestAt=i;L.retestTime=stamp(i);L.state='RETEST HELD';}
           }
         }
         if(i-L.i2>lookback||(L.broken&&i-L.breakIdx>24)){
@@ -2050,13 +2095,24 @@ function detectTrendlines(h,l,c) {
   ['up','down'].forEach(function(key){
     var L=book[key];if(!L)return;
     L.valueNow=value(L,n-1);L.lastClosedAt=n-1;
+    L.breakTolerance=tolerance(n-1);
     L.breakBarsAgo=L.breakIdx==null?null:n-1-L.breakIdx;
     L.retestBarsAgo=L.retestAt==null?null:n-1-L.retestAt;
     L.brokeUpNow=key==='down'&&L.broken&&!L.failedAt&&L.breakBarsAgo<=5&&c[n-1]>L.valueNow;
     L.brokeDownNow=key==='up'&&L.broken&&!L.failedAt&&L.breakBarsAgo<=5&&c[n-1]<L.valueNow;
     if(!L.broken&&Math.abs(c[n-1]-L.valueNow)<=L.touchTolerance)L.state='TESTING';
   });
-  return {up:book.up,down:book.down,history:history,closedOnly:true,lookback:lookback,pivotBars:strength};
+  if(cacheKey&&interval>0){
+    var saved={version:2,book:book,piv:piv,history:history,firstTime:stamp(0),lastTime:stamp(n-1),fingerprints:fingerprints};
+    detectTrendlines._books[cacheKey]=saved;
+    var keys=Object.keys(detectTrendlines._books);if(keys.length>40)delete detectTrendlines._books[keys[0]];
+    if(context.persist&&resume<n){try{
+      var stored=JSON.parse(localStorage.getItem('tl_state_keys_v2')||'[]').filter(function(x){return x!==cacheKey;});stored.push(cacheKey);
+      while(stored.length>8)localStorage.removeItem('tl_state_v2:'+stored.shift());
+      localStorage.setItem('tl_state_keys_v2',JSON.stringify(stored));localStorage.setItem('tl_state_v2:'+cacheKey,JSON.stringify(saved));
+    }catch(e){}}
+  }
+  return {up:book.up,down:book.down,history:history,closedOnly:true,lookback:lookback,pivotBars:strength,rebuilt:rebuilt};
 }
 
 // Liquidity sweep detection
@@ -2498,7 +2554,7 @@ function calcPP(rsi, trend, volR, st, chg, price, e20, e50, liq) {
 function processSymbol(ticker, btcClosesOverride) {
   var sym = ticker.symbol;
   var catalystTF = TF; // retain the timeframe used by this request
-  return bybitKlines(sym, TF, 150).then(function(klines) {
+  return bybitKlines(sym, TF, 300).then(function(klines) {
     var cAll = klines.map(function(k){ return parseFloat(k[4]); });
     var hAll = klines.map(function(k){ return parseFloat(k[2]); });
     var lAll = klines.map(function(k){ return parseFloat(k[3]); });
@@ -2528,7 +2584,7 @@ function processSymbol(ticker, btcClosesOverride) {
     var l = candleClosed ? lAll.slice(0, -1) : lAll;
     var v = candleClosed ? vAll.slice(0, -1) : vAll;
     var vB = candleClosed ? vBase.slice(0, -1) : vBase;
-    if (c.length < 30) { c = cAll; h = hAll; l = lAll; v = vAll; } // safety: too few bars
+    var analysisSnapshot=chartSnapshot(klines,sym,catalystTF);
 
     // Cache BTC CLOSED closes globally so other coins compute relative strength.
     // Callers may provide an immutable snapshot to avoid concurrent-scan races.
@@ -2604,7 +2660,9 @@ function processSymbol(ticker, btcClosesOverride) {
       if(_liqDn==null){ var ll=l.slice(-40).filter(function(x){return x<px*0.998;}); if(ll.length) _liqDn=Math.min.apply(null,ll); }
     })();
     // Trendline-break detection (shared engine with the chart)
-    var _tl = detectTrendlines(h, l, c);
+    var analysisContext={key:(klines.dataSource||'Unknown')+':'+sym+':'+catalystTF,interval:_chartTFDuration(catalystTF),
+      times:klines.slice(0,c.length).map(function(k){return Number(k[0]);})};
+    var _tl = detectTrendlines(h, l, c, analysisContext);
     var tlBreakUp = !!(_tl.down && _tl.down.brokeUpNow);
     var tlTouches = _tl.down ? _tl.down.touches : 0;
     // UPTREND line: bounce (dip to the ascending support line + close above =
@@ -2801,9 +2859,9 @@ function processSymbol(ticker, btcClosesOverride) {
     var relStr = calcRelStrength(c, btcClosesForCalc);
     var accum  = calcAccumulation(h, l, c, v, relStr, e20, e50);
     var trendQ = calcTrendQuality(c, e20, e50, e200);
-    var wyckoff = calcWyckoff(h, l, c, v, atr, trend);
+    var wyckoff = calcWyckoff(h, l, c, v, atr, trend, analysisContext);
     var wyckoffBullConfirm = !!wyckoff.bullConfirm;
-    var wyckoffBearBlock = !!wyckoff.bearBlock;
+    var wyckoffBearBlock = !!wyckoff.bearBlock || ['BACK INSIDE','INVALIDATED','AWAITING NEW BREAK','DATA ERROR'].indexOf(wyckoff.status)>=0;
 
     // TREND × ACCUMULATION CONFLUENCE
     // Trend Quality gets the stronger implicit weight because the research audit
@@ -2990,6 +3048,7 @@ function processSymbol(ticker, btcClosesOverride) {
       if (!precisionPass) buyConfirmed = false;
     }
 
+    if(!analysisSnapshot.usable){buyConfirmed=false;wyckoffBullConfirm=false;wyckoff.bullConfirm=false;}
     var signal = (buyConfirmed    && sc >= signalThreshold) ? 'buy'
                : (sellSignal      && sc >= signalThreshold) ? 'sell'
                : sc <= 28 ? 'sell'
@@ -3106,7 +3165,7 @@ function processSymbol(ticker, btcClosesOverride) {
       confCount:confCount, rsiRising:rsiRising, aboveEMA200:aboveEMA200, aboveEMA50:aboveEMA50, regimeTrendOK:regimeTrendOK, btcBull:btcBull, volBullish:volBullish, strongClose:strongClose,
       pullbackBuy:pullbackBuy, breakoutBuy:breakoutBuy, exhausted:exhausted, rrRatio:rrRatio, rrRisk:rrRisk, rrReward:rrReward, rrOK:rrOK, gain5:gain5,
       buyTier:buyTier, buyTierFails:buyTierFails,
-      wyckoff:wyckoff, wyckoffBullConfirm:wyckoffBullConfirm, wyckoffBearBlock:wyckoffBearBlock,
+      analysisSnapshot:analysisSnapshot,wyckoff:wyckoff, wyckoffBullConfirm:wyckoffBullConfirm, wyckoffBearBlock:wyckoffBearBlock,
       smc:smc,
       breakout:breakout, emaRetest:emaRetest, pumpDump:pumpDump,
       relStr:relStr, resil:resil, dbeta:dbeta, accum:accum, rsRank:null, opportunity:0,
@@ -3338,156 +3397,178 @@ function calcAccumulation(h, l, c, v, rs, e20, e50) {
 // accumulation, a Spring is watch-only, and only Phase D/E SOS→LPS can confirm
 // a trend-following spot entry. Confirmed SOW/LPSY blocks new spot buys.
 // ═══════════════════════════════════════════════════════════════════════════
-function calcWyckoff(h, l, c, v, atr, trend) {
-  var none = {type:'none', phase:'—', event:'NONE', eventLabel:'No reliable structure',
-    confidence:0, bias:'neutral', rangeLow:null, rangeHigh:null, rangeStart:null,
-    rangeEnd:null, events:[], bullConfirm:false, bearBlock:false, watchOnly:false,
-    reason:'No established trading range with an ordered Wyckoff event sequence.'};
-  var n = c.length;
-  if(n < 55 || !(atr > 0)) return none;
-
-  function avg(a){ return a.length ? a.reduce(function(x,y){return x+y;},0)/a.length : 0; }
-  function pct(a, q){
-    if(!a.length) return null;
-    var s=a.slice().sort(function(x,y){return x-y;});
-    return s[Math.max(0,Math.min(s.length-1,Math.round((s.length-1)*q)))];
+function calcWyckoff(h, l, c, v, atr, trend, context) {
+  // v2: replay CLOSED observations in order. Range prices and event timestamps
+  // survive new bars; interpretation may change, observations are never moved.
+  context=context||{};
+  var n=c.length,times=context.times||c.map(function(_,i){return i;}),key=context.key;
+  var none={type:'none',phase:'—',event:'NONE',eventLabel:'No reliable structure',confidence:0,bias:'neutral',
+    rangeLow:null,rangeHigh:null,rangeStart:null,rangeEnd:null,events:[],history:[],bullConfirm:false,
+    bearBlock:false,watchOnly:false,status:'NO RANGE',reason:'No established range with enough closed-candle evidence.'};
+  if(n<55||h.length!==n||l.length!==n||v.length!==n||times.length!==n)return none;
+  for(var vi=0;vi<n;vi++)if(!isFinite(c[vi])||!isFinite(h[vi])||!isFinite(l[vi])||h[vi]<l[vi]||
+      c[vi]>h[vi]||c[vi]<l[vi]||vi&&(times[vi]<=times[vi-1]||context.interval&&times[vi]-times[vi-1]!==context.interval)){
+    return Object.assign({},none,{status:'DATA ERROR',watchOnly:true,reason:'Invalid or unordered candles; Wyckoff is withheld.'});
   }
-  function volRatio(i){
-    var a=v.slice(Math.max(0,i-25),i).filter(function(x){return x>0;});
-    var m=avg(a); return m>0?v[i]/m:1;
+  function avg(a){return a.length?a.reduce(function(x,y){return x+y;},0)/a.length:0;}
+  function pct(a,q){var s=a.slice().sort(function(x,y){return x-y;});return s[Math.round((s.length-1)*q)];}
+  function atrAt(i){var tr=[];for(var k=Math.max(1,i-13);k<=i;k++)tr.push(Math.max(h[k]-l[k],Math.abs(h[k]-c[k-1]),Math.abs(l[k]-c[k-1])));return avg(tr);}
+  function volAt(i){var a=v.slice(Math.max(0,i-25),i).filter(function(x){return isFinite(x)&&x>0;});return a.length>=10&&v[i]>0?v[i]/avg(a):0;}
+  function rangeAt(end){
+    var A=atrAt(end),best=null;if(!(A>0))return null;
+    [24,30,36,42,50,60].forEach(function(w){
+      var s=end-w+1;if(s<12)return;
+      var hi=pct(h.slice(s,end+1),.9),lo=pct(l.slice(s,end+1),.1),height=hi-lo;
+      if(!(height>0)||height/A<2||height/A>14||height/((hi+lo)/2)>.32)return;
+      var tol=Math.max(A*.45,height*.055),tops=[],bots=[],inside=0;
+      for(var j=s;j<=end;j++){
+        if(Math.abs(h[j]-hi)<=tol&&(!tops.length||j-tops[tops.length-1]>=3))tops.push(j);
+        if(Math.abs(l[j]-lo)<=tol&&(!bots.length||j-bots[bots.length-1]>=3))bots.push(j);
+        if(c[j]>=lo-tol&&c[j]<=hi+tol)inside++;
+      }
+      var mid=s+Math.floor(w/2),drift=Math.abs(avg(c.slice(s,mid))-avg(c.slice(mid,end+1)))/height;
+      if(tops.length<2||bots.length<2||inside/w<.85||drift>.45)return;
+      var pre=c.slice(Math.max(0,s-20),s),half=Math.floor(pre.length/2);
+      var priorMove=avg(pre.slice(half))-avg(pre.slice(0,half));
+      var prior=Math.abs(priorMove)<A?'unknown':priorMove>0?'up':'down';
+      var score=(tops.length+bots.length)*3+w*.2-drift*12-Math.abs(height/A-7);
+      if(!best||score>best.score)best={startTime:times[s],endTime:times[end],hi:hi,lo:lo,atr:A,tol:tol,
+        priorTrend:prior,topTouches:tops.length,bottomTouches:bots.length,score:score};
+    });return best;
   }
-  function spreadATR(i){ return atr>0?(h[i]-l[i])/atr:0; }
-  function closeLoc(i){ var r=h[i]-l[i]; return r>0?(c[i]-l[i])/r:0.5; }
-
-  // Keep the most recent 12 bars outside the range-building sample. They are
-  // where a Spring/UTAD, SOS/SOW, or LPS/LPSY must prove itself.
-  var eventBars = 12, baseEnd = n-eventBars-1;
-  if(baseEnd < 35) return none;
-  var best=null;
-  [24,30,36,42,50,60].forEach(function(w){
-    var s=baseEnd-w+1; if(s<5) return;
-    var hs=h.slice(s,baseEnd+1), ls=l.slice(s,baseEnd+1);
-    var hi=pct(hs,.90), lo=pct(ls,.10); if(!(hi>lo)) return;
-    var heightATR=(hi-lo)/atr, heightPct=(hi-lo)/Math.max(1e-9,(hi+lo)/2)*100;
-    if(heightATR<2 || heightATR>14 || heightPct>32) return;
-    var tol=Math.max(atr*.45,(hi-lo)*.055), topT=0, botT=0;
-    for(var i=s;i<=baseEnd;i++){
-      if(Math.abs(h[i]-hi)<=tol) topT++;
-      if(Math.abs(l[i]-lo)<=tol) botT++;
+  var books=calcWyckoff._books||(calcWyckoff._books={}),book=key&&books[key];
+  if(!book&&key&&context.persist&&typeof localStorage!=='undefined'){
+    try{var saved=JSON.parse(localStorage.getItem('wx_state_v2:'+key)||'null');if(saved&&saved.version===2)book=saved;}catch(e){}
+  }
+  var fingerprints={},revised=false;
+  for(var f=0;f<n;f++){
+    var fp=[h[f],l[f],c[f],v[f]].join(',');
+    fingerprints[times[f]]=fp;
+    if(book&&book.fingerprints&&book.fingerprints[times[f]]!=null&&book.fingerprints[times[f]]!==fp)revised=true;
+  }
+  // A revision/reload rebuild is explicit; never carry observations across sources.
+  var reset=!!(book&&(revised||book.lastTime>times[n-1]||context.interval&&times[0]>book.lastTime+context.interval));
+  if(!book||reset){
+    var revisions=book?(book.revisions||[]).concat([{id:book.id,events:book.events,range:book.range,state:book.state,reason:revised?'Provider corrected closed candles':'History gap or replay rewind'}]).slice(-3):[];
+    book={version:2,revision:book?(book.revision||0)+1:0,revisions:revisions,range:null,events:[],history:[],lastTime:null,bias:'neutral',state:'NO RANGE'};
+  }
+  var previousTime=book.lastTime;
+  function add(code,i,price,side,label){
+    if(book.events.some(function(e){return e.code===code&&e.time===times[i];}))return;
+    var sequence=book.events.filter(function(e){return e.code===code;}).length+1;
+    book.events.push({id:book.id+':'+code+':'+times[i],code:code,time:times[i],confirmedTime:times[i]+(context.interval||0),
+      price:price,side:side,label:label,sequence:sequence,volumeRatio:volAt(i)});
+  }
+  function adopt(r,i){
+    if(book.range)book.history.push({id:book.id,range:book.range,events:book.events,state:book.state});
+    book.history=book.history.slice(-4);book.range=r;book.events=[];
+    book.id=(key||'wyckoff')+':'+r.startTime+':'+r.endTime;
+    book.frozenAt=times[i];book.bias='neutral';book.direction=null;book.breakTime=null;book.failed=false;
+    book.retestTime=null;book.outsideRun=0;book.state='RANGE CANDIDATE';
+  }
+  function signals(r,i){
+    var A=r.atr,spread=(h[i]-l[i])/A,loc=h[i]>l[i]?(c[i]-l[i])/(h[i]-l[i]):.5,vr=volAt(i);
+    return {sos:c[i]>r.hi+A*.15&&spread>=.8&&vr>=1.2&&loc>.6,
+      sow:c[i]<r.lo-A*.15&&spread>=.8&&vr>=1.2&&loc<.4,
+      spring:l[i]<r.lo-A*.05&&l[i]>r.lo-A*1.25&&c[i]>r.lo&&c[i]<r.hi&&loc>.45,
+      utad:h[i]>r.hi+A*.05&&h[i]<r.hi+A*1.25&&c[i]<r.hi&&c[i]>r.lo&&loc<.55,vr:vr,spread:spread};
+  }
+  var candidate=null;
+  for(var i=54;i<n;i++){
+    if(book.lastTime!=null&&times[i]<=book.lastTime)continue;
+    candidate=rangeAt(i-1);
+    if(!book.range&&candidate){
+      var initial=signals(candidate,i);
+      if(initial.sos||initial.sow||initial.spring||initial.utad)adopt(candidate,i);
+    }else if(book.range&&candidate&&book.breakTime!=null&&candidate.startTime>book.breakTime&&
+      (candidate.lo>book.range.hi+book.range.tol||candidate.hi<book.range.lo-book.range.tol)){
+      var newSignal=signals(candidate,i);
+      if(newSignal.sos||newSignal.sow||newSignal.spring||newSignal.utad)adopt(candidate,i);
     }
-    if(topT<2 || botT<2) return;
-    var mid=Math.floor(w/2);
-    var m1=avg(c.slice(s,s+mid)), m2=avg(c.slice(s+mid,baseEnd+1));
-    var drift=Math.abs(m2-m1)/Math.max(1e-9,(hi-lo));
-    var score=(topT+botT)*3 + Math.min(18,w*.3) - drift*12 - Math.abs(heightATR-7);
-    if(!best || score>best.score) best={start:s,end:baseEnd,hi:hi,lo:lo,
-      topTouches:topT,bottomTouches:botT,heightATR:heightATR,score:score,tol:tol};
-  });
-  if(!best) return none;
-
-  var hi=best.hi, lo=best.lo, tol=best.tol;
-  var preStart=Math.max(0,best.start-20), preBase=c[preStart]||c[best.start];
-  var preRet=preBase>0?(c[best.start]-preBase)/preBase*100:0;
-  var events=[];
-  function add(code,index,price,side,label){
-    if(index==null || index<0) return;
-    if(events.some(function(e){return e.code===code&&e.index===index;})) return;
-    events.push({code:code,index:index,price:price,side:side,label:label});
+    if(book.range){
+      var r=book.range,s=signals(r,i),A=r.atr,oldDirection=book.direction;
+      if(s.sos){
+        add('SOS',i,c[i],'bull','Sign of strength');
+        if(book.direction!=='up'||book.failed){book.breakTime=times[i];book.retestTime=null;book.failed=false;book.outsideRun=0;}
+        book.direction='up';book.bias='bullish';
+      }else if(s.sow){
+        add('SOW',i,c[i],'bear','Sign of weakness');
+        if(book.direction!=='down'||book.failed){book.breakTime=times[i];book.retestTime=null;book.failed=false;book.outsideRun=0;}
+        book.direction='down';book.bias='bearish';
+      }
+      if(!book.direction){
+        if(s.spring){add('SPRING',i,l[i],'bull','Spring candidate');book.bias='bullish';book.state='SPRING WATCH';}
+        if(s.utad){add('UTAD',i,h[i],'bear','Upthrust candidate');book.bias='bearish';book.state='UTAD WATCH';}
+        var springs=book.events.filter(function(e){return e.code==='SPRING';}),lastSpring=springs[springs.length-1];
+        if(lastSpring&&times[i]>lastSpring.time&&i-times.indexOf(lastSpring.time)<=8&&l[i]>lastSpring.price&&
+          l[i]<=r.lo+r.tol&&c[i]>=r.lo&&s.spread<1.15&&s.vr>0&&s.vr<1){
+          add('TEST',i,l[i],'bull','Spring test');book.state='TEST WATCH';
+        }
+      }else{
+        var up=book.direction==='up',inside=up?c[i]<r.hi-A*.15:c[i]>r.lo+A*.15;
+        var invalid=up?c[i]<r.lo-A*.15:c[i]>r.hi+A*.15;
+        var outside=up?c[i]>r.hi+A*.15:c[i]<r.lo-A*.15;
+        if(inside){
+          if(!book.failed)add('FAIL',i,c[i],'neutral','Closed back inside prior range');
+          book.failed=true;book.retestTime=null;book.outsideRun=0;book.state=invalid?'INVALIDATED':'BACK INSIDE';
+        }else if(book.failed){book.state='AWAITING NEW BREAK';book.outsideRun=0;}
+        else{
+          book.outsideRun=outside?book.outsideRun+1:0;
+          var level=up?r.hi:r.lo,intersects=l[i]<=level+r.tol&&h[i]>=level-r.tol;
+          var held=up?c[i]>level&&l[i]>=level-A*.75:c[i]<level&&h[i]<=level+A*.75;
+          if(times[i]>book.breakTime&&intersects&&held&&s.spread<1.3&&s.vr>0&&s.vr<1.25){
+            // Distinct retests, not every candle hovering at a line.
+            var retests=book.events.filter(function(e){return e.code===(up?'LPS':'LPSY');}),prior=retests[retests.length-1];
+            if(!prior||i-times.indexOf(prior.time)>=3)add(up?'LPS':'LPSY',i,up?l[i]:h[i],up?'bull':'bear','Held post-break retest');
+            book.retestTime=times[i];
+          }
+          book.state=book.retestTime?'RETEST HELD':book.outsideRun>=2?'OUTSIDE BASE':'BREAK CLOSED';
+        }
+      }
+    }
+    book.lastTime=times[i];
   }
-
-  // Phase A clue: the strongest wide/high-volume rejection inside the range.
-  var sc=null,bc=null;
-  for(var i=best.start;i<=best.end;i++){
-    var vr=volRatio(i), sp=spreadATR(i), loc=closeLoc(i);
-    var nearLow=l[i]<=lo+tol, nearHigh=h[i]>=hi-tol;
-    var effort=vr*sp;
-    if(nearLow && vr>=1.5 && sp>=1.2 && loc>.35 && (!sc||effort>sc.effort)) sc={i:i,effort:effort};
-    if(nearHigh&& vr>=1.5 && sp>=1.2 && loc<.65 && (!bc||effort>bc.effort)) bc={i:i,effort:effort};
-  }
-  if(sc) add('SC',sc.i,l[sc.i],'bull','Selling Climax');
-  if(bc) add('BC',bc.i,h[bc.i],'bear','Buying Climax');
-
-  var spring=null,utad=null,sos=null,sow=null,test=null,lps=null,lpsy=null;
-  var scanStart=Math.max(best.start,best.end-8);
-  for(var j=scanStart;j<n;j++){
-    var vrj=volRatio(j), spj=spreadATR(j), locj=closeLoc(j);
-    if(l[j] < lo-atr*.05 && l[j] > lo-atr*1.25 && c[j] > lo && locj>.45)
-      spring={i:j,vr:vrj};
-    if(h[j] > hi+atr*.05 && h[j] < hi+atr*1.25 && c[j] < hi && locj<.55)
-      utad={i:j,vr:vrj};
-    if(c[j] > hi+atr*.15 && spj>=.8 && vrj>=1.2 && locj>.60)
-      sos={i:j,vr:vrj};
-    if(c[j] < lo-atr*.15 && spj>=.8 && vrj>=1.2 && locj<.40)
-      sow={i:j,vr:vrj};
-  }
-  if(spring){
-    for(var k=spring.i+1;k<Math.min(n,spring.i+9);k++){
-      if(l[k]>l[spring.i] && l[k]<=lo+tol && c[k]>=lo && spreadATR(k)<1.15 && volRatio(k)<Math.max(1,spring.vr*.8)) test={i:k};
+  book.fingerprints=fingerprints;book.rebuilt=reset;
+  if(key){
+    books[key]=book;
+    var keys=Object.keys(books);if(keys.length>80)delete books[keys[0]];
+    if(context.persist&&typeof localStorage!=='undefined'&&(reset||previousTime!==book.lastTime)){
+      try{
+        localStorage.setItem('wx_state_v2:'+key,JSON.stringify(book));
+        var savedKeys=JSON.parse(localStorage.getItem('wx_state_v2_keys')||'[]').filter(function(x){return x!==key;});savedKeys.push(key);
+        while(savedKeys.length>12)localStorage.removeItem('wx_state_v2:'+savedKeys.shift());
+        localStorage.setItem('wx_state_v2_keys',JSON.stringify(savedKeys));
+      }catch(e){}
     }
   }
-  if(sos){
-    for(var k2=sos.i+1;k2<n;k2++){
-      if(l[k2]<=hi+tol && l[k2]>=hi-atr*.75 && c[k2]>hi && spreadATR(k2)<1.3 && volRatio(k2)<1.25) lps={i:k2};
-    }
-  }
-  if(sow){
-    for(var k3=sow.i+1;k3<n;k3++){
-      if(h[k3]>=lo-tol && h[k3]<=lo+atr*.75 && c[k3]<lo && spreadATR(k3)<1.3 && volRatio(k3)<1.25) lpsy={i:k3};
-    }
-  }
-  if(spring) add('SPRING',spring.i,l[spring.i],'bull','Spring — watch only');
-  if(test)   add('TEST',test.i,l[test.i],'bull','Spring Test');
-  if(utad)   add('UTAD',utad.i,h[utad.i],'bear','Upthrust After Distribution');
-  if(sos)    add('SOS',sos.i,c[sos.i],'bull','Sign of Strength');
-  if(sow)    add('SOW',sow.i,c[sow.i],'bear','Sign of Weakness');
-  if(lps)    add('LPS',lps.i,l[lps.i],'bull','Last Point of Support');
-  if(lpsy)   add('LPSY',lpsy.i,h[lpsy.i],'bear','Last Point of Supply');
-  events.sort(function(a,b){return a.index-b.index;});
-
-  var last=events.length?events[events.length-1]:null;
-  var bullSeq=!!(lps || sos || test || spring), bearSeq=!!(lpsy || sow || utad);
-  var type='none', bias='neutral';
-  if(bearSeq && (!bullSeq || (last&&last.side==='bear'))){
-    type=(trend==='down'||preRet<0)?'redistribution':'distribution'; bias='bearish';
-  } else if(bullSeq){
-    type=(trend==='up'||preRet>0)?'reaccumulation':'accumulation'; bias='bullish';
-  } else if(preRet>5 || trend==='up') type='reaccumulation';
-  else if(preRet<-5 || trend==='down') type='accumulation';
-
-  var phase='B';
-  if(last && (last.code==='SPRING'||last.code==='TEST'||last.code==='UTAD')) phase='C';
-  if(last && ['SOS','SOW','LPS','LPSY'].indexOf(last.code)>=0) phase='D';
-  var aboveCount=0,belowCount=0;
-  for(var z=Math.max(0,n-3);z<n;z++){if(c[z]>hi)aboveCount++;if(c[z]<lo)belowCount++;}
-  if((bias==='bullish'&&aboveCount>=2)||(bias==='bearish'&&belowCount>=2)) phase='E';
-  if(!last && (sc||bc)) phase='B';
-
-  var conf=20;
-  conf+=Math.min(20,(best.topTouches+best.bottomTouches)*2);
-  conf+=events.length>=2?12:events.length?6:0;
-  if((sos&&lps)||(sow&&lpsy)||(spring&&test)) conf+=22;
-  else if(sos||sow) conf+=15;
-  else if(spring||utad) conf+=8;
-  if((type==='reaccumulation'&&trend==='up')||(type==='redistribution'&&trend==='down')) conf+=12;
-  if((bias==='bullish'&&last&&last.side==='bull')||(bias==='bearish'&&last&&last.side==='bear')) conf+=8;
-  conf=Math.max(0,Math.min(100,Math.round(conf)));
-  var event=last?last.code:'RANGE';
-  var eventLabel=last?last.label:'Trading range — direction unconfirmed';
-  var bullConfirm=(type==='accumulation'||type==='reaccumulation') && (phase==='D'||phase==='E') &&
-    (event==='SOS'||event==='LPS') && conf>=65;
-  var bearBlock=(type==='distribution'||type==='redistribution') && (phase==='D'||phase==='E') &&
-    (event==='SOW'||event==='LPSY') && conf>=65;
-  var watchOnly=(event==='SPRING'||event==='TEST'||event==='UTAD'||event==='RANGE');
-  var reason=bullConfirm ? 'Phase '+phase+' '+event+' confirms strength; favor the held retest, not the first breakout.'
-    : bearBlock ? 'Phase '+phase+' '+event+' confirms weakness; block new spot buys.'
-    : event==='SPRING' ? 'Spring detected, but it is watch-only until a lower-volume Test and SOS.'
-    : event==='TEST' ? 'Spring Test passed, but it remains watch-only until a closed-candle SOS.'
-    : event==='UTAD' ? 'UTAD warning; require a later SOW before treating distribution as confirmed.'
-    : 'Range/event sequence is incomplete; do not force a Wyckoff label.';
-  return {type:type,phase:phase,event:event,eventLabel:eventLabel,confidence:conf,bias:bias,
-    rangeLow:lo,rangeHigh:hi,rangeStart:best.start,rangeEnd:best.end,events:events,
-    bullConfirm:bullConfirm,bearBlock:bearBlock,watchOnly:watchOnly,reason:reason,
-    topTouches:best.topTouches,bottomTouches:best.bottomTouches,heightATR:best.heightATR};
+  var r=book.range||candidate||rangeAt(n-2);
+  if(!r)return none;
+  var bias=book.range?book.bias:'neutral',direction=book.direction;
+  var type=bias==='bullish'?(r.priorTrend==='up'?'reaccumulation':r.priorTrend==='down'?'accumulation':'undetermined'):
+    bias==='bearish'?(r.priorTrend==='down'?'redistribution':r.priorTrend==='up'?'distribution':'undetermined'):'undetermined';
+  var state=book.range?book.state:'RANGE CANDIDATE',events=book.range?book.events:[],last=events[events.length-1];
+  var phase=!direction?(events.length?'C':'B'):book.failed?'—':book.outsideRun>=2?'E':'D';
+  var score=20+Math.min(20,(r.topTouches+r.bottomTouches)*2)+(direction?21:events.length?8:0)+(book.retestTime?18:0)+(bias!=='neutral'?8:0);
+  if(book.failed)score=Math.min(score,40);
+  var valid=!!direction&&!book.failed&&state!=='AWAITING NEW BREAK',known=type!=='undetermined';
+  var bullConfirm=valid&&known&&direction==='up'&&score>=65;
+  var bearBlock=valid&&known&&direction==='down'&&score>=65;
+  var watchOnly=!!book.range&&!bullConfirm&&!bearBlock;
+  var map=function(e){return Object.assign({},e,{index:times.indexOf(e.time),confirmedAt:times.indexOf(e.time)});};
+  var reason=book.failed?'The prior break failed its closed-candle threshold. Historical events are retained; fresh bullish confirmation is withheld.':
+    state==='RETEST HELD'?'A later, quieter closed candle held the frozen range boundary. This is evidence, not a standalone entry.':
+    state==='OUTSIDE BASE'?'Price is outside the historical base. The old box stays at its original prices; a retest is not yet confirmed.':
+    state==='BREAK CLOSED'?'Closed expansion beyond the prior range. Wait for follow-through or a separate held retest.':
+    'Range interpretation remains tentative. A spring, test, or quiet range alone is not a buy.';
+  if(!known)reason+=' Prior-trend context is ambiguous; accumulation/reaccumulation is not forced.';
+  return {id:book.range?book.id:null,type:type,phase:phase,event:last?last.code:'RANGE',eventLabel:last?last.label:'Range candidate',
+    confidence:Math.min(100,score),bias:bias,rangeLow:r.lo,rangeHigh:r.hi,rangeStart:times.indexOf(r.startTime),
+    rangeEnd:times.indexOf(r.endTime),rangeStartTime:r.startTime,rangeEndTime:r.endTime,confirmedTime:book.frozenAt,
+    events:events.map(map),history:book.history,revision:book.revision||0,revisions:book.revisions||[],priorTrend:r.priorTrend,status:state,bullConfirm:bullConfirm,
+    bearBlock:bearBlock,watchOnly:watchOnly,reason:reason,breakTime:book.breakTime,retestTime:book.retestTime,
+    breakBarsAgo:book.breakTime!=null?(context.interval?Math.round((times[n-1]-book.breakTime)/context.interval):n-1-times.indexOf(book.breakTime)):null,rebuilt:reset,
+    topTouches:r.topTouches,bottomTouches:r.bottomTouches,heightATR:(r.hi-r.lo)/r.atr,rangeATR:r.atr,tolerance:r.atr*.15,
+    currentDistance:(c[n-1]-(direction==='down'?r.lo:r.hi))/r.atr,settingsVersion:2};
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3618,13 +3699,14 @@ function calcFibLadder(fib, klines, livePrice, atr) {
   // Once two CLOSED candles finish beyond 1.618, the confirmed Fib has completed
   // its purpose. Keep it for context, but make it unusable for fresh plans while
   // waiting for the developing extreme to become a confirmed pivot.
-  var extensionDone=false,beyondRun=0,completedAt=null;
+  var extensionDone=false,beyondRun=0,completedAt=null,originBroken=false;
   // Scan this anchor's history, not just the latest two bars: a later pullback
   // must not reactivate a completed Fib. A new confirmed anchor resets history.
   for(var ei=Math.max(0,(fib.endIndex||0)+1);ei<closed.length;ei++){
     var ep=(parseFloat(closed[ei][4])-fib.startPrice)/span;
+    if(ep < -tolRatio){originBroken=true;completedAt=Number(closed[ei][0]);break;}
     beyondRun=ep>1.618+1e-9?beyondRun+1:0;
-    if(beyondRun>=2){extensionDone=true;completedAt=Number(closed[ei][0]);break;}
+    if(beyondRun>=2&&fib.retirementPolicy!=='origin'){extensionDone=true;completedAt=Number(closed[ei][0]);break;}
   }
   var provisional=null,developingStart=fib.developingStart;
   var provisionalStart=developingStart?developingStart.index:fib.startIndex;
@@ -3637,7 +3719,7 @@ function calcFibLadder(fib, klines, livePrice, atr) {
         extreme=candidate;extremeIndex=pi;
       }
   }
-  if(extremeIndex>(developingStart?provisionalStart:fib.endIndex)){
+  if(!fib.manual&&extremeIndex>(developingStart?provisionalStart:fib.endIndex)){
       provisional={startIndex:provisionalStart,startPrice:provisionalPrice,endIndex:extremeIndex,endPrice:extreme,
         pendingBars:Math.max(0,(fib.pivotBars||3)-Math.max(0,closed.length-1-extremeIndex)),
         forming:extremeIndex>=closed.length,
@@ -3645,12 +3727,12 @@ function calcFibLadder(fib, klines, livePrice, atr) {
           return {ratio:r,price:provisionalPrice+(extreme-provisionalPrice)*r};
         })};
   }
-  if(extensionDone){
-    return {valid:true,usable:false,stale:true,state:'EXTENSION COMPLETE',color:'#f59e0b',
+  if(extensionDone||originBroken){
+    return {valid:true,usable:false,stale:true,state:originBroken?'ORIGIN BROKEN':'EXTENSION COMPLETE',color:'#f59e0b',
       active:levels[levels.length-1],next:null,fallback:levels[levels.length-2],
       progress:progress,lastClose:lastClose,livePrice:livePrice,direction:fib.direction,
       tolerance:tolPrice,provisional:provisional,completedAt:completedAt,
-      reason:'Two closed candles finished beyond 1.618. Confirmed Fib is stale; wait for the developing extreme to become a confirmed pivot.'};
+      reason:originBroken?'A completed candle closed through the starting anchor beyond tolerance. This swing is invalidated.':'Custom retirement rule: two closed candles beyond 1.618. Historical Fib retained; wait for a new confirmed swing, or select origin-only retirement.'};
   }
   function stepAt(p){
     var out=levels[0];
@@ -3714,12 +3796,12 @@ function calcFibLadder(fib, klines, livePrice, atr) {
 function getChartFibContext(sym) {
   var fib=chartState.autoFib, ladder=chartState.fibLadder;
   if(chartState.loading||chartState.sym!==sym||!fib||!fib.valid)return null;
-  var usable=!!(ladder&&ladder.valid&&ladder.usable!==false);
-  return {timeframe:chartState.tf,direction:fib.direction,usable:usable,
+  var usable=!!(ladder&&ladder.valid&&ladder.usable!==false&&!fib.manual&&(!chartState.snapshot||chartState.snapshot.usable));
+  return {timeframe:chartState.tf,source:chartState.snapshot&&chartState.snapshot.source,snapshotId:chartState.snapshot&&chartState.snapshot.signature,manual:!!fib.manual,direction:fib.direction,usable:usable,
     stale:!!(ladder&&ladder.stale),state:ladder?ladder.state:'WAITING',
     levels:usable?fib.levels.map(function(x){return {ratio:x.ratio,price:x.price};}):[],
     ladder:usable?{state:ladder.state,above:ladder.above,below:ladder.below,at:ladder.at,reason:ladder.reason}:null,
-    rule:usable?'Closed-pivot confluence only; never a standalone entry signal.':
+    rule:fib.manual?'Manual visual study only. These anchors are user-selected, not detector-confirmed. Never use them for automated entries, targets, stops or confirmation.':usable?'Closed-pivot confluence only; never a standalone entry signal.':
       'Fib unavailable for trading: do not use stale anchors, old extensions, or dashed provisional levels for entries, stops, targets, or confirmation. Await a new confirmed pivot.'};
 }
 
@@ -12137,6 +12219,8 @@ function askClaude(sym){
       bearBlock:d.wyckoff.bearBlock,reason:d.wyckoff.reason} : null,
     autoFib: getChartFibContext(d.sym),
     chartTrendlines: getChartTrendContext(d.sym),
+    chartWyckoff: getChartWyckoffContext(d.sym),
+    chartContextRule:'All chart tools share the same source-tagged closed snapshot. Scanner metrics are a separate timeframe/source; never merge them into chart confirmation.',
     scannerTrendlineTimeframe: TF,
     // The trendline state the chart draws — previously missing from the payload,
     // so the AI could not comment on a line the user could plainly see.
@@ -13309,15 +13393,19 @@ function runConsistencyCheck(sym){
 function _verifyAILevels(sym, lv){
   var d = (allData||[]).find(function(x){ return x.sym===sym; });
   if(!d || !lv) return null;
+  var snapshot=d.analysisSnapshot;
+  if(chartState.sym===sym&&!chartState.loading&&chartState.snapshot&&chartState.snapshot.usable){
+    d=Object.assign({},chartMetrics(d),{_closes:(chartState.klines||[]).slice(0,-1).map(function(k){return Number(k[4]);})});snapshot=chartState.snapshot;
+  }
   var anchors = [];
   function add(v, name){ if(v && isFinite(v) && v>0) anchors.push({v:v, name:name}); }
   add(d.sup,'support'); add(d.res,'resistance');
   add(d.ema20,'EMA20'); add(d.ema50,'EMA50'); add(d.ema200,'EMA200');
-  add(d.price,'current price');
+  if(d._closes&&d._closes.length)add(d._closes[d._closes.length-1],'last closed price');
   // levels the chart engine computed for this coin, when present
   try {
     var pk = window._periodLevels && window._periodLevels[sym];
-    if(pk){ ['pdh','pdl','pwh','pwl','pmh','pml'].forEach(function(k){ add(pk[k], k.toUpperCase()); }); }
+    if(pk&&!snapshot){ ['pdh','pdl','pwh','pwl','pmh','pml'].forEach(function(k){ add(pk[k], k.toUpperCase()); }); }
   } catch(e){}
   // recent closed-candle extremes give legitimate structure levels too
   try {
@@ -13349,7 +13437,8 @@ function _verifyAILevels(sym, lv){
   check(lv.breakout,'breakout level');
   if(!checks.length) return null;
   var bad = checks.filter(function(x){ return !x.ok; });
-  return { checks:checks, unverified:bad.length, total:checks.length,
+  return { checks:checks, unverified:bad.length, total:checks.length,snapshotId:snapshot&&snapshot.usable?snapshot.signature:null,
+           source:snapshot&&snapshot.source,timeframe:snapshot&&snapshot.timeframe,
            tolPct: Math.round(tol*1000)/10 };
 }
 
@@ -15463,7 +15552,7 @@ var CHART_VIEWS={
 function saveChartPreferences(){
   try{localStorage.setItem('chart_pro_preferences_v1',JSON.stringify({view:chartState.viewMode,
     trend:chartState.trendMode,indicators:chartState.indicators,magnet:chartState.magnet,
-    fibConnector:!!chartState.fibConnector,fibScope:chartState.fibScope==='recent'?'recent':'major',tab:chartState.sideTab}));}catch(e){}
+    fibConnector:!!chartState.fibConnector,fibScope:chartState.fibScope||'major',fibRetirement:chartState.fibRetirement||'extension',tab:chartState.sideTab}));}catch(e){}
 }
 function restoreChartPreferences(){
   var p={};try{p=JSON.parse(localStorage.getItem('chart_pro_preferences_v1')||'{}');}catch(e){}
@@ -15473,7 +15562,8 @@ function restoreChartPreferences(){
   chartState.trendMode=['auto','manual','both','off'].includes(p.trend)?p.trend:'auto';
   chartState.sideTab=['overview','plan','evidence'].includes(p.tab)?p.tab:'overview';
   chartState.magnet=p.magnet!==false;chartState.fibConnector=!!p.fibConnector;
-  chartState.fibScope=p.fibScope==='recent'?'recent':'major';
+  chartState.fibScope=['major','recent','manual'].includes(p.fibScope)?p.fibScope:'major';
+  chartState.fibRetirement=p.fibRetirement==='origin'?'origin':'extension';
 }
 function setChartView(mode){
   if(!CHART_VIEWS[mode])return;
@@ -15491,10 +15581,76 @@ function setChartTab(tab){
   chartState.sideTab=tab;saveChartPreferences();
   if(chartState.d)populateFSTable(chartState.d);
 }
+function chartFibStorageKey(){
+  return ((chartState.klines||[]).dataSource||'Unknown')+':'+chartState.sym+':'+chartState.tf;
+}
+function readChartManualFib(){
+  try{return JSON.parse(localStorage.getItem('chart_manual_fibs_v1')||'{}')[chartFibStorageKey()]||null;}catch(e){return null;}
+}
+function saveChartManualFib(F){
+  try{var all=JSON.parse(localStorage.getItem('chart_manual_fibs_v1')||'{}');
+    all[chartFibStorageKey()]=F;localStorage.setItem('chart_manual_fibs_v1',JSON.stringify(all));
+  }catch(e){window.alert('Unable to save Fib anchors. Browser storage may be full.');}
+}
+function lockChartFib(){
+  var F=chartState.fibScope==='manual'&&readChartManualFib(),f=chartState.autoFib,k=chartState.klines||[];
+  if(F){F.locked=!F.locked;saveChartManualFib(F);drawChart();return;}
+  if(!f||!f.valid||!k[f.startIndex]||!k[f.endIndex]){window.alert('No confirmed swing to lock. Use Edit anchors first.');return;}
+  saveChartManualFib({t1:Number(k[f.startIndex][0]),p1:f.startPrice,t2:Number(k[f.endIndex][0]),p2:f.endPrice,locked:true});
+  setChartFibScope('manual');
+}
+function resolveChartFib(h,l,c,atr,trend){
+  var k=chartState.klines||[],f;
+  if(chartState.snapshot&&!chartState.snapshot.valid)return {valid:false,reason:chartState.snapshot.message};
+  if(chartState.fibScope!=='manual')f=calcAutoFib(h,l,c,atr,chartState.tf,trend,chartState.fibScope);
+  else{
+    var F=readChartManualFib();
+    if(!F||!(F.t1<F.t2)||!(F.p1>0&&F.p2>0)||F.p1===F.p2)return {valid:false,manual:true,reason:'Choose two chronological candle anchors with Edit anchors.'};
+    function ix(t){return k.findIndex(function(r){return Number(r[0])===t;});}
+    var a=ix(F.t1),b=ix(F.t2);
+    if(a<0||b<0)return {valid:false,manual:true,reason:'Saved anchors are outside the loaded candle history. They have not been moved. Load a wider history or edit anchors.'};
+    var up=F.p2>F.p1;
+    f={valid:true,manual:true,locked:!!F.locked,scope:'manual',direction:up?'up':'down',startIndex:a,endIndex:b,
+      startPrice:F.p1,endPrice:F.p2,startTime:F.t1,endTime:F.t2,low:Math.min(F.p1,F.p2),high:Math.max(F.p1,F.p2),
+      startKind:up?'low':'high',endKind:up?'high':'low',pivotBars:0,confirmedAt:null,
+      levels:[0,.236,.382,.5,.618,.786,1,1.272,1.618].map(function(r){return {ratio:r,price:F.p1+(F.p2-F.p1)*r};}),
+      reason:'Manual '+(F.locked?'locked':'editable')+' anchors. 0 = start; 1 = end. Visual study only; excluded from automatic plans and AI signals.'};
+  }
+  f.retirementPolicy=chartState.fibRetirement||'extension';
+  if(f.valid){f.startTime=Number(k[f.startIndex][0]);f.endTime=Number(k[f.endIndex][0]);
+    f.id=chartFibStorageKey()+':fib:'+f.startTime+':'+f.endTime+':'+f.startPrice+':'+f.endPrice;}
+  return f;
+}
+function setChartFibRetirement(policy){
+  chartState.fibRetirement=policy==='origin'?'origin':'extension';saveChartPreferences();syncChartProUI();drawChart();
+}
+function editChartFib(){
+  var k=(chartState.klines||[]).slice(0,-1),f=chartState.autoFib;if(k.length<2)return;
+  var old=document.getElementById('chart-fib-editor');if(old)old.remove();
+  var dialog=document.createElement('dialog');dialog.id='chart-fib-editor';dialog.className='cp-fib-dialog';
+  function options(selected){return k.map(function(r,i){return '<option value="'+i+'"'+(i===selected?' selected':'')+'>'+new Date(Number(r[0])).toISOString().slice(0,16).replace('T',' ')+' UTC</option>';}).join('');}
+  var a=f&&f.valid?f.startIndex:Math.max(0,k.length-40),b=f&&f.valid?f.endIndex:k.length-4;
+  b=Math.max(a+1,b);var up=!(f&&f.valid&&f.direction==='down');
+  dialog.innerHTML='<form><h3>Edit Fib anchors</h3><p>0 = starting wick; 1 = ending wick. Use two candles from the same move. Manual Fib is a visual study, not an automatic signal.</p>'+
+    [1,2].map(function(n){var i=n===1?a:b,p=f&&f.valid?(n===1?f.startPrice:f.endPrice):Number(k[i][(n===1?up:!up)?3:2]);
+      return '<fieldset><legend>Anchor '+(n-1)+'</legend><label>Candle <select id="fib-date-'+n+'">'+options(i)+'</select></label><label>Price <input id="fib-price-'+n+'" type="number" step="any" min="0" required value="'+p+'"></label><button type="button" data-fib-snap="'+n+':3">Low wick</button> <button type="button" data-fib-snap="'+n+':2">High wick</button></fieldset>';
+    }).join('')+'<p id="fib-edit-error" role="alert"></p><button type="submit">Save manual Fib</button> <button type="button" id="fib-edit-cancel">Cancel</button></form>';
+  (document.getElementById('chart-fs-wrap')||document.body).appendChild(dialog);
+  dialog.addEventListener('keydown',function(e){if(e.key==='Escape')e.stopPropagation();});
+  dialog.addEventListener('close',function(){dialog.remove();});
+  dialog.querySelectorAll('[data-fib-snap]').forEach(function(btn){btn.onclick=function(){var s=btn.dataset.fibSnap.split(':'),i=Number(dialog.querySelector('#fib-date-'+s[0]).value);dialog.querySelector('#fib-price-'+s[0]).value=k[i][Number(s[1])];};});
+  dialog.querySelector('#fib-edit-cancel').onclick=function(){dialog.close();dialog.remove();};
+  dialog.querySelector('form').onsubmit=function(e){e.preventDefault();
+    var i=Number(dialog.querySelector('#fib-date-1').value),j=Number(dialog.querySelector('#fib-date-2').value),p=Number(dialog.querySelector('#fib-price-1').value),q=Number(dialog.querySelector('#fib-price-2').value);
+    if(!(i<j&&isFinite(p)&&isFinite(q)&&p>0&&q>0&&p!==q)){dialog.querySelector('#fib-edit-error').textContent='Start must precede end; prices must be positive and different.';return;}
+    saveChartManualFib({t1:Number(k[i][0]),p1:p,t2:Number(k[j][0]),p2:q,locked:false});dialog.close();dialog.remove();setChartFibScope('manual');chartFit('swing');
+  };dialog.showModal();
+}
 function setChartFibScope(scope){
-  if(scope!=='major'&&scope!=='recent')return;
+  if(!['major','recent','manual'].includes(scope))return;
   chartState.fibScope=scope;chartState.indicators.fib=true;
   chartState.autoFib=null;chartState.fibLadder=null;
+  if(scope==='manual')chartState.autoFib=resolveChartFib([],[],[],chartState.chartAtr||0,'mixed');
   saveChartPreferences();syncChartProUI();drawChart();
 }
 function chartFit(kind){
@@ -15511,7 +15667,8 @@ function toggleFibConnector(){chartState.fibConnector=!chartState.fibConnector;s
 function syncChartProUI(){
   document.querySelectorAll('[data-chart-view]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.chartView===chartState.viewMode));});
   document.querySelectorAll('[data-chart-trend]').forEach(function(b){b.value=chartState.trendMode;});
-  document.querySelectorAll('[data-chart-fib-scope]').forEach(function(b){b.value=chartState.fibScope==='recent'?'recent':'major';});
+  document.querySelectorAll('[data-chart-fib-scope]').forEach(function(b){b.value=chartState.fibScope||'major';});
+  document.querySelectorAll('[data-chart-fib-retirement]').forEach(function(b){b.value=chartState.fibRetirement||'extension';});
   document.querySelectorAll('[data-chart-ind]').forEach(function(b){b.setAttribute('aria-pressed',String(!!chartState.indicators[b.dataset.chartInd]));});
   document.querySelectorAll('[data-chart-magnet]').forEach(function(b){b.setAttribute('aria-pressed',String(!!chartState.magnet));});
   document.querySelectorAll('[data-chart-fib-connector]').forEach(function(b){b.setAttribute('aria-pressed',String(!!chartState.fibConnector));});
@@ -15524,26 +15681,39 @@ function installChartProUI(){
     el.innerHTML='<div class="cp-segment" aria-label="Chart view">'+['clean','analysis','plan'].map(function(m){
       return '<button data-chart-view="'+m+'" onclick="setChartView(\''+m+'\')">'+m[0].toUpperCase()+m.slice(1)+'</button>';
     }).join('')+'</div><label class="cp-select-label">Trendlines <select data-chart-trend onchange="setChartTrendMode(this.value)"><option value="auto">Auto</option><option value="manual">Manual</option><option value="both">Both</option><option value="off">Off</option></select></label>'+
-    '<label class="cp-select-label">Fib <select data-chart-fib-scope onchange="setChartFibScope(this.value)" title="Major includes internal pullbacks; Recent measures only the latest local leg. Both use closed candles, independent of zoom."><option value="major">Major swing</option><option value="recent">Recent swing</option></select></label>'+
+    '<label class="cp-select-label">Fib <select data-chart-fib-scope onchange="setChartFibScope(this.value)" title="Major includes internal pullbacks; Recent measures the latest local leg. Manual preserves your chosen anchors."><option value="major">Major swing</option><option value="recent">Recent swing</option><option value="manual">Manual / locked</option></select></label>'+
+    '<details class="cp-ind-menu"><summary>Fib anchors</summary><div><button onclick="editChartFib()">Edit anchors</button><button onclick="lockChartFib()">Lock / unlock Fib</button><label>Retire swing <select data-chart-fib-retirement onchange="setChartFibRetirement(this.value)"><option value="extension">2 closes past 1.618 or origin break</option><option value="origin">Origin break only</option></select></label><small>Retirement is a custom app rule, not a Fibonacci law. Unlocked manual anchors can be dragged. Manual Fib is visual only.</small></div></details>'+
     '<details class="cp-ind-menu"><summary>Indicators</summary><div>'+Object.keys(CHART_VIEWS.clean).map(function(k){
       var names={ema:'EMA 20 / 50',emaLong:'EMA 100 / 200',vol:'Volume',rsi:'RSI',sr:'Support / resistance',analyst:'Trade levels',fib:'Auto Fib',wyckoff:'Wyckoff'};
       return '<button data-chart-ind="'+k+'" onclick="toggleInd(\''+k+'\')">'+names[k]+'</button>';
     }).join('')+'<button data-chart-fib-connector onclick="toggleFibConnector()">Fib anchor connector</button></div></details>'+
-    '<button onclick="chartFit(\'swing\')">Fit selected swing</button><button onclick="chartFit(\'all\')">Fit all</button>'+
+    '<button onclick="chartFit(\'swing\')">Fit selected swing</button><button onclick="chartFit(\'all\')">Fit all</button><button onclick="chartState.offset=Math.max(0,(chartState.klines||[]).length-chartState.zoom);drawChart()">Return to live</button>'+
     '<details class="cp-ind-menu"><summary>Edit lines</summary><div><button onclick="toggleDrawMode()">Draw two anchors</button><button data-chart-magnet onclick="toggleChartMagnet()">Snap to candle</button><button onclick="editSelectedDrawing(\'lock\')">Lock / unlock selected</button><button onclick="editSelectedDrawing(\'extend\')">Extend selected right</button><button onclick="editSelectedDrawing(\'delete\')">Delete selected</button><small>Click a manual line to select. Drag an unlocked anchor. Manual lines are visual only.</small></div></details>';
+    el.innerHTML+='<div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
     if(suffix){var top=document.getElementById('chart-fs-bar');if(top)top.after(el);}
     else{var wrap=document.getElementById('chart-canvas-wrap');if(wrap)wrap.before(el);}
   });syncChartProUI();
 }
 
+function getChartWyckoffContext(sym){
+  if(chartState.sym!==sym||chartState.loading||!chartState.wyckoff)return null;
+  var w=chartState.wyckoff,s=chartState.snapshot||{};
+  if(!s.usable)return {usable:false,source:s.source,timeframe:chartState.tf,reason:s.message};
+  return {usable:true,snapshotId:s.signature,source:s.source,timeframe:chartState.tf,id:w.id,status:w.status,
+    type:w.type,phase:w.phase,rangeLow:w.rangeLow,rangeHigh:w.rangeHigh,priorTrend:w.priorTrend,
+    bullConfirm:w.bullConfirm,bearBlock:w.bearBlock,watchOnly:w.watchOnly,
+    events:w.events.map(function(e){return {code:e.code,time:e.time,confirmedTime:e.confirmedTime,price:e.price};}),
+    rule:'Heuristic pattern interpretation, not a win probability. Preserve historical base and dated events. BACK INSIDE / INVALIDATED / AWAITING NEW BREAK block fresh bullish confirmation.'};
+}
 function getChartTrendContext(sym){
   if(chartState.sym!==sym||chartState.loading||!chartState.trendlines)return null;
   function line(L){if(!L)return null;var k=chartState.klines||[];return {
-    id:chartState.sym+':'+chartState.tf+':'+(k[L.i1]||[])[0]+':'+(k[L.i2]||[])[0],
-    state:L.state,role:L.direction==='down'?(L.retestHeld?'support after retest':'resistance'):(L.retestHeld?'resistance after retest':'support'),
+    id:L.id,
+    state:L.state,role:L.retestHeld?(L.direction==='down'?'support after retest':'resistance after retest'):(L.broken?'former ':'')+(L.direction==='down'?'resistance':'support'),
     priceAtLastClose:L.valueNow,touches:L.touches,breakBarsAgo:L.breakBarsAgo,
     confirmedFrom:(k[L.confirmedAt]||[])[0],retestHeld:L.retestHeld};}
-  return {timeframe:chartState.tf,closedOnly:true,support:line(chartState.trendlines.up),
+  if(chartState.snapshot&&!chartState.snapshot.usable)return {timeframe:chartState.tf,usable:false,reason:chartState.snapshot.message};
+  return {timeframe:chartState.tf,source:chartState.snapshot&&chartState.snapshot.source,snapshotId:chartState.snapshot&&chartState.snapshot.signature,closedOnly:true,support:line(chartState.trendlines.up),
     resistance:line(chartState.trendlines.down),rule:'Candidate is not validated support/resistance. Break alone is not a buy. Manual drawings and Fib connectors are not signals.'};
 }
 
@@ -15599,30 +15769,31 @@ function fetchLivePrice() {
     .then(function(data) {
       // Parse BingX or Bybit ticker response
       if(chartState.sym!==requestedSym||chartState.tf!==requestedTF||chartState.loadRequestId!==requestedLoad||!chartState.klines)return;
-      var t = null;
+      var t = null,quoteSource=null;
       if (data && data.code === 0 && data.data) {
         // BingX format: {code:0, data:{symbol,lastPrice,openPrice,...}}
-        t = Array.isArray(data.data) ? data.data[0] : data.data;
+        quoteSource='BingX';t = Array.isArray(data.data) ? data.data[0] : data.data;
         if (t) {
           t.lastPrice = t.lastPrice || t.last;
           t.prevPrice24h = t.openPrice || t.open || t.lastPrice;
         }
       } else if (data && data.result && data.result.list && data.result.list.length) {
         // Bybit format
-        t = data.result.list[0];
+        quoteSource='Bybit';t = data.result.list[0];
       }
       if (!t) return;
       var price = parseFloat(t.lastPrice);
       var prev  = parseFloat(t.prevPrice24h) || price;
       if (!price || isNaN(price)) return;
 
+      chartState.quoteSource=quoteSource;
       chartState.livePrice = price;
       chartState.liveChange = prev ? ((price - prev) / prev * 100) : 0;
       chartState.lastPriceAt = Date.now();
 
       // Update the LAST kline's close (index 4) with live price
       // so the current candle reflects real-time movement
-      if (chartState.klines.length > 0) {
+      if (chartState.klines.length > 0 && chartState.klines.dataSource===quoteSource) {
         var last = chartState.klines[chartState.klines.length - 1];
         // Only update close — keep open/high/low from kline data
         var lastClose = parseFloat(last[4]);
@@ -15927,6 +16098,27 @@ function _chartCountdown(ts) {
 
 // ONE source of truth for every level drawn or displayed in the chart.
 // Priority: a saved real position → independently verified AI levels → structure.
+function chartSnapshot(rows,sym,tf,now){
+  now=now==null?Date.now():now;rows=rows||[];
+  var source=rows.dataSource||'Unknown',duration=_chartTFDuration(tf),errors=[],valid=true,hash=2166136261;
+  var closed=rows.slice(0,-1),last=rows[rows.length-1],times=[];
+  rows.forEach(function(k,i){
+    var t=Number(k[0]),o=Number(k[1]),h=Number(k[2]),l=Number(k[3]),c=Number(k[4]);
+    if(![t,o,h,l,c].every(isFinite)||!(l>0)||h<l||o<l||o>h||c<l||c>h){valid=false;errors.push('Invalid OHLC');}
+    if(i&&t-Number(rows[i-1][0])!==duration){valid=false;errors.push('Duplicate, unordered or missing candles');}
+    if(i<rows.length-1){
+      if(t+duration>now){valid=false;errors.push('Unclosed candle in confirmed history');}
+      times.push(t);var content=k.join(',');for(var j=0;j<content.length;j++)hash=Math.imul(hash^content.charCodeAt(j),16777619);
+    }
+  });
+  if(closed.length<55)errors.push('Insufficient closed history');
+  if(source==='Unknown')errors.push('Candle source unverified');
+  if(!last||now>=Number(last[0])+duration||Number(last[0])>now)errors.push('Candle feed stale or clock mismatch');
+  var latestClose=closed.length?Number(closed[closed.length-1][0])+duration:null;
+  return {source:source,symbol:sym,timeframe:tf,key:source+':'+sym+':'+tf,signature:source+':'+sym+':'+tf+':'+(hash>>>0),
+    times:times,valid:valid,usable:valid&&!errors.length,lastClosedTime:latestClose,
+    message:Array.from(new Set(errors)).join(' · ')||'Closed-candle snapshot ready',settingsVersion:2};
+}
 function chartMetrics(d){
   return d&&chartState.metrics&&chartState.metrics.sym===d.sym&&chartState.metrics.chartTF===chartState.tf?chartState.metrics:d;
 }
@@ -15934,12 +16126,15 @@ function buildCanonicalChartPlan(d) {
   d=chartMetrics(d);
   var pos = loadPos ? loadPos(d.sym) : null;
   var wx = (chartState.sym===d.sym && chartState.wyckoff) ? chartState.wyckoff : (d.wyckoff || null);
-  var wxBull = !!(wx && wx.bullConfirm), wxBear = !!(wx && wx.bearBlock);
+  var wxBull = !!(wx && wx.bullConfirm), wxBear = !!(wx && (wx.bearBlock||['BACK INSIDE','INVALIDATED','AWAITING NEW BREAK','DATA ERROR'].indexOf(wx.status)>=0));
+  var snapshot=chartState.snapshot,dataOK=!snapshot||snapshot.usable;
   var fib = chartState.sym===d.sym && chartState.autoFib ? chartState.autoFib : null;
   var fibLadder = chartState.sym===d.sym && chartState.fibLadder ? chartState.fibLadder : null;
+  var fibActionable=!(fib&&fib.manual)&&dataOK;
   var ai = (window._aiLevels || {})[d.sym];
   var aiCheck = (window._aiVerify || {})[d.sym];
   var aiOK = !!(ai && aiCheck && aiCheck.total > 0 && aiCheck.unverified === 0 &&
+    (!snapshot||snapshot.usable&&aiCheck.snapshotId===snapshot.signature)&&
     ai.planA && ai.planA.length === 2 && ai.sl && ai.tp1);
   var live = chartState.livePrice || d.price || d.signalPrice || 0;
   var source = 'STRUCTURE';
@@ -15965,7 +16160,7 @@ function buildCanonicalChartPlan(d) {
   // A confirmed Phase D/E SOS/LPS changes the preferred entry LOCATION to the
   // Backup/LPS at the former range high. It does not authorize chasing the SOS.
   if(!pos && !aiOK && wxBull && wx.rangeHigh) {
-    var wxAtrAbs=chartState.sym===d.sym&&chartState.chartAtr>0?chartState.chartAtr:
+    var wxAtrAbs=wx.rangeATR>0?wx.rangeATR:chartState.sym===d.sym&&chartState.chartAtr>0?chartState.chartAtr:
       (d.atrPct||2)/100*Math.max(live,entry);
     zoneLow=wx.rangeHigh-wxAtrAbs*.45;
     zoneHigh=wx.rangeHigh+wxAtrAbs*.25;
@@ -15974,10 +16169,10 @@ function buildCanonicalChartPlan(d) {
     // 20–30% stop and unusable R:R. For an LPS/Backup entry the thesis is the
     // nearby held level. Put the hard stop beyond normal noise (1.3 ATR), not
     // beneath an unrelated distant range boundary.
-    var fibRef=fibLadder&&fibLadder.valid&&fibLadder.usable!==false&&fibLadder.direction==='up'&&fibLadder.active
+    var fibRef=fibActionable&&fibLadder&&fibLadder.valid&&fibLadder.usable!==false&&fibLadder.direction==='up'&&fibLadder.active
       ? fibLadder.active.price : zoneLow;
     sl=Math.min(zoneLow-wxAtrAbs*.35,fibRef-wxAtrAbs*1.30);
-    stopBasis=(fibLadder&&fibLadder.valid&&fibLadder.usable!==false&&fibLadder.active
+    stopBasis=(fibActionable&&fibLadder&&fibLadder.valid&&fibLadder.usable!==false&&fibLadder.active
       ? 'Fib '+String(fibLadder.active.ratio).replace(/^0\./,'.')+' + structure' : 'LPS structure')+' · 1.3 ATR noise buffer';
     source='WYCKOFF '+wx.event;
   }
@@ -15987,7 +16182,7 @@ function buildCanonicalChartPlan(d) {
   if (!(sl > 0 && sl < entry)) sl = thesis * 0.984;
   var risk = Math.max(entry - sl, entry * 0.005);
   var resistance = d.res > entry * 1.002 ? d.res * 0.998 : 0;
-  if(fibLadder&&fibLadder.valid&&fibLadder.usable!==false&&fibLadder.direction==='up'&&fibLadder.next&&fibLadder.next.price>entry*1.002){
+  if(fibActionable&&fibLadder&&fibLadder.valid&&fibLadder.usable!==false&&fibLadder.direction==='up'&&fibLadder.next&&fibLadder.next.price>entry*1.002){
     var fibResistance=fibLadder.next.price;
     resistance=resistance?Math.min(resistance,fibResistance):fibResistance;
   }
@@ -16034,7 +16229,7 @@ function buildCanonicalChartPlan(d) {
   var taOK = d.trendAccumAligned !== false;
   var btcOK = /^BTC/.test(d.sym) || d.btcTrendScore == null || d.btcTrendScore >= CONFIG.BTC_FILTER_THRESHOLD;
   var rrOK = netRR1 >= CONFIG.CHART_MIN_NET_RR;
-  var fibOK = !(fibLadder&&fibLadder.valid&&fibLadder.usable!==false&&fibLadder.direction==='up'&&fibLadder.state==='LOST');
+  var fibOK = !(fibActionable&&fibLadder&&fibLadder.valid&&fibLadder.usable!==false&&fibLadder.direction==='up'&&fibLadder.state==='LOST');
   var closedTrigger = !!(d.buySignal || d.tlRetestHeld || d.breakoutUp);
   var invalidated = live <= sl || (lastClosed && lastClosed < thesis);
   var lateLimit = Math.max(3, Math.min(5, (d.atrPct || 2) * 1.5));
@@ -16049,8 +16244,10 @@ function buildCanonicalChartPlan(d) {
       : tp2Passed?'TP1 and TP2 passed — trail the remainder above locked profit.'
       : tp1Passed?'TP1 passed — scale out and move the stop according to the saved plan.'
       : 'Position is open — manage the hard stop and scale-out targets.';
+  } else if (!dataOK) {
+    status='DATA WAIT';color='#f59e0b';action=snapshot.message+'. New setup confirmation is withheld.';
   } else if (wxBear) {
-    status = 'BLOCKED'; color = '#f23645'; action = 'Wyckoff Phase '+wx.phase+' '+wx.event+' confirms weakness. New spot buys are blocked.';
+    status = 'BLOCKED'; color = '#f23645'; action = 'Wyckoff '+(wx.status||wx.event)+'. New spot setups are on hold; historical events remain visible.';
   } else if (invalidated) {
     status = 'INVALIDATED'; color = '#f23645'; action = 'The setup lost support. Do not enter until a new closed-candle structure forms.';
   } else if (late || tp1Passed) {
@@ -16094,7 +16291,8 @@ function buildCanonicalChartPlan(d) {
       {label:(chartState.tf || TF)+' trend', ok:trendOK, value:trendOK?'Bullish':'Not bullish'},
       {label:'Structure', ok:structureOK, value:d.struct || '—'},
       {label:'Scanner '+TF+' trend + accum.', ok:taOK, value:taOK?'Aligned':'Disagree'},
-      {label:'Wyckoff', ok:!wxBear, value:wx?(wx.phase+' '+wx.event+' '+wx.confidence):'No range'},
+      {label:'Data snapshot',ok:dataOK,value:snapshot?(snapshot.usable?snapshot.source+' · closed':snapshot.message):'No chart snapshot'},
+      {label:'Wyckoff', ok:!!(wx&&wx.bullConfirm)&&!wxBear, value:wx?((wx.status||wx.event)+' · '+wx.confidence+'/100 heuristic'):'No range'},
       {label:'Fib ladder', ok:fibLadder&&fibLadder.usable===false?false:fibOK, value:fibLadder&&fibLadder.valid?
         (fibLadder.usable===false?'STALE · wait new pivot':fibLadder.state+' '+String(fibLadder.active.ratio).replace(/^0\./,'.')):'No confirmed Fib'},
       {label:'Closed trigger', ok:closedTrigger, value:closedTrigger?'Confirmed':'Waiting'},
@@ -16118,15 +16316,28 @@ function populateFSTable(d) {
     return '<button role="tab" aria-selected="'+(tab===t)+'" onclick="setChartTab(\''+t+'\')">'+t[0].toUpperCase()+t.slice(1)+'</button>';
   }).join('')+'</nav>';
   var freshness=p.freshSec==null?'Waiting for live quote':p.freshSec>30?'STALE · '+p.freshSec+'s since quote':'Quote updated '+p.freshSec+'s ago';
+  freshness+=' · candles: '+esc(chartState.snapshot&&chartState.snapshot.source||'Unknown')+' · quote: '+esc(chartState.quoteSource||'awaiting ticker');
   var live=card('Live price · '+esc(chartState.tf||TF),'<div class="cp-pair"><strong class="cp-price">'+fE(p.live)+'</strong><span class="cp-muted">'+(p.liveVsEntry>=0?'+':'')+p.liveVsEntry.toFixed(2)+'% vs entry</span></div><div class="cp-muted">'+freshness+' · live candle unconfirmed</div>');
   var tl=getChartTrendContext(d.sym);
   var trendBody=tl?[tl.support,tl.resistance].filter(Boolean).map(function(L){
     return '<p><strong>'+esc(L.role)+' · '+esc(L.state)+'</strong><br>'+fE(L.priceAtLastClose)+' at last close · '+L.touches+' distinct reactions'+(L.breakBarsAgo!=null?' · break '+L.breakBarsAgo+' bars ago':'')+'</p>';
   }).join(''):'';
+  var retired=chartState.trendlines&&chartState.trendlines.history||[];
+  if(retired.length)trendBody+='<details><summary>Retired trendlines ('+retired.length+')</summary>'+retired.map(function(L){
+    return '<p>'+esc(L.direction==='down'?'Former resistance':'Former support')+' · '+esc(L.state)+'<br>'+fE(L.p1)+' → '+fE(L.p2)+'<br><span class="cp-muted">'+esc(new Date(L.anchorTime1).toISOString().slice(0,16))+' → '+esc(new Date(L.anchorTime2).toISOString().slice(0,16))+' UTC · '+L.touches+' distinct reactions. Historical only.</span></p>';
+  }).join('')+'</details>';
   var trendCard=card('Trendlines · closed candles',trendBody||'<p>No eligible confirmed-pivot line. Do not force a trendline.</p>');
   var wxText=wx?'<p><strong>'+(wx.bullConfirm||wx.bearBlock?'':'Possible ')+esc(wx.type)+' · Phase '+esc(wx.phase)+'</strong><br>'+esc(wx.event)+(wx.bullConfirm||wx.bearBlock?'':' candidate')+'</p><p>'+esc(wx.reason)+'</p><div class="cp-muted">Pattern-match score '+wx.confidence+'/100 — not a win probability</div>':'<p>No Wyckoff pattern available.</p>';
+  if(wx){
+    wxText='<p><strong>'+esc(wx.status||wx.event)+'</strong></p>'+wxText;
+    if(wx.rangeHigh)wxText+='<p class="cp-muted">Historical base '+fE(wx.rangeLow)+' – '+fE(wx.rangeHigh)+'. Prior trend: '+esc(wx.priorTrend||'unknown')+'. Price above this base does not make the base wrong; it does not guarantee continued markup.</p>';
+    var history=(wx.history||[]).reduce(function(a,b){return a.concat(b.events||[]);},[]).concat(wx.events||[]);
+    if(history.length)wxText+='<details><summary>Dated event history ('+history.length+')</summary>'+history.map(function(e){return '<p>'+esc(new Date(e.time).toISOString().slice(0,16).replace('T',' '))+' UTC · '+esc(e.code)+' · '+fE(e.price)+'<br><span class="cp-muted">'+esc(e.label||'')+' · observed on completed candle</span></p>';}).join('')+'</details>';
+    if(wx.rebuilt)wxText+='<p class="cp-muted">Provider correction or history gap: interpretation rebuilt from available candles.</p>';
+    if(wx.revisions&&wx.revisions.length)wxText+='<details><summary>Superseded interpretations ('+wx.revisions.length+')</summary>'+wx.revisions.map(function(r){return '<p>'+esc(r.reason)+' · '+esc(r.state)+' · '+(r.events||[]).length+' prior observations retained for audit, not active signals.</p>';}).join('')+'</details>';
+  }
   var fibBody;
-  if(!fl||!fl.valid)fibBody='<p>No confirmed Fib available.</p>';
+  if(!fl||!fl.valid)fibBody='<p>'+esc(chartState.autoFib&&chartState.autoFib.reason||'No confirmed Fib available.')+'</p>';
   else if(fl.usable===false)fibBody='<p><strong>CONFIRMED FIB STALE · NOT USED BY PLAN</strong></p><p>'+esc(fl.reason)+'</p>'+
     (fl.provisional?'<p class="cp-muted">Dashed P = PROVISIONAL '+(fl.direction==='up'?'high ':'low ')+fE(fl.provisional.endPrice)+'. May move; not an entry or target.</p>':'');
   else fibBody='<div class="cp-levels"><div><span class="cp-muted">ABOVE PRICE</span><br><strong>'+level(fl.above)+'</strong></div><div><span class="cp-muted">BELOW PRICE</span><br><strong>'+level(fl.below)+'</strong></div></div>'+
@@ -16135,7 +16346,7 @@ function populateFSTable(d) {
   var selectedFib=chartState.autoFib;
   if(selectedFib&&selectedFib.valid){
     var anchorDate=function(i){var k=(chartState.klines||[])[i];return k&&isFinite(Number(k[0]))?new Date(Number(k[0])).toISOString().slice(0,16).replace('T',' ')+' UTC':'';};
-    fibBody='<div class="cp-pair"><span>Swing '+(selectedFib.direction==='up'?'LOW':'HIGH')+' · 0</span><strong>'+fE(selectedFib.startPrice)+'</strong></div>'+
+    fibBody=(selectedFib.manual?'<p><strong>MANUAL '+(selectedFib.locked?'LOCKED':'EDITABLE')+' · VISUAL ONLY</strong></p>':'')+'<div class="cp-pair"><span>Swing '+(selectedFib.direction==='up'?'LOW':'HIGH')+' · 0</span><strong>'+fE(selectedFib.startPrice)+'</strong></div>'+
       '<div class="cp-muted">'+anchorDate(selectedFib.startIndex)+'</div>'+
       '<div class="cp-pair"><span>Swing '+(selectedFib.direction==='up'?'HIGH':'LOW')+' · 1</span><strong>'+fE(selectedFib.endPrice)+'</strong></div>'+
       '<div class="cp-muted">'+anchorDate(selectedFib.endIndex)+'</div><p class="cp-muted">'+esc(selectedFib.reason||'Connected confirmed swings. 0 = start; 1 = end.')+'</p>'+fibBody;
@@ -16147,7 +16358,7 @@ function populateFSTable(d) {
       ' Confirmed anchors stay fixed until the new swing is confirmed.</p>';
   }
   if(tab==='evidence'&&fl&&fl.usable!==false&&chartState.autoFib&&chartState.autoFib.valid){
-    fibBody+='<details><summary>All confirmed Fib levels</summary>'+chartState.autoFib.levels.map(function(x){return '<div class="cp-pair"><span>'+String(x.ratio)+'</span><strong>'+fE(x.price)+'</strong></div>';}).join('')+'</details>';
+    fibBody+='<details><summary>'+(chartState.autoFib.manual?'All manual Fib levels':'All confirmed Fib levels')+'</summary>'+chartState.autoFib.levels.map(function(x){return '<div class="cp-pair"><span>'+String(x.ratio)+'</span><strong>'+fE(x.price)+'</strong></div>';}).join('')+'</details>';
   }
   var next=p.nextTarget?p.nextTarget.name+' · '+fE(p.nextTarget.price):'None — all mapped targets passed';
   var invalid=row('Close invalidation',p.thesis,'#f0b90b',(chartState.tf||TF)+' close below = setup failed')+
@@ -16158,6 +16369,7 @@ function populateFSTable(d) {
   if(!p.confirmations.some(function(c){return c.label==='Closed trigger'&&c.ok;}))waiting.push('a bullish closed-candle trigger or held retest');
   var trigger=waiting.length?waiting.join('; '):'Confirmation checks pass; entry still must be within the planned zone.';
   var html=tabs+live;
+  if(chartState.snapshot&&!chartState.snapshot.usable)html+=card('Data health','<p>'+esc(chartState.snapshot.message)+'. New setup confirmation withheld.</p>');
   if(tab==='overview'){
     html+=card('Setup · '+esc(p.source),'<p>'+esc(p.action)+'</p>')+
       card('What must happen',esc(trigger))+
@@ -16187,6 +16399,11 @@ function toggleFSTable() {
   var tbl = document.getElementById('chart-fs-table');
   var btn = document.getElementById('fs-table-toggle');
   if (!tbl) return;
+  if(window.matchMedia&&window.matchMedia('(max-width:820px)').matches){
+    var open=tbl.classList.toggle('cp-mobile-open');
+    if(btn){btn.setAttribute('aria-expanded',String(open));btn.textContent=open?'Close details':'Details';}
+    return;
+  }
   var hidden = tbl.style.display === 'none';
   tbl.style.display = hidden ? 'flex' : 'none';
   if (btn) {
@@ -16253,6 +16470,7 @@ function loadChart(tf) {
   chartState.klines=null;
   chartState.autoFib=null;chartState.fibLadder=null;chartState.wyckoff=null;chartState.chartAtr=null;
   chartState.trendlines=null;chartState.metrics=null;chartState._trendKey=null;
+  chartState.snapshot=null;chartState.sourceNotice=null;chartState.quoteSource=null;chartState.fibHits=[];
   chartState.candleRefreshInFlight=false;chartState.lastKlineSyncAt=0;
   chartState.selectedDrawing=null;chartState.manualDrag=null;chartState.drawPending=null;
   chartState.crosshair=null;
@@ -16517,6 +16735,57 @@ function drawChart() {
   });
 }
 
+function updateChartSummary(){
+  var s=chartState.snapshot||{},f=chartState.autoFib,fl=chartState.fibLadder,w=chartState.wyckoff,tl=chartState.trendlines||{};
+  function esc(x){return String(x==null?'':x).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  var lines=[];
+  if(chartState.indicators.fib){
+    var txt=f&&f.valid?(f.manual?'MANUAL '+(f.locked?'LOCKED':'EDITABLE'):f.scope==='major'?'MAJOR SWING':'RECENT SWING')+' FIB · '+fmtPrice(f.startPrice)+' → '+fmtPrice(f.endPrice):'Fib · '+(f&&f.reason||'No confirmed swing');
+    if(fl&&fl.valid){txt+=' · Closed: '+fl.state;
+      if(f&&f.valid&&chartState.livePrice){var depth=(f.endPrice-chartState.livePrice)/(f.endPrice-f.startPrice)*100;
+        txt+=' · Live: '+(depth<0?'beyond endpoint by '+(-depth).toFixed(1)+'% of swing':depth>100?'beyond origin':depth.toFixed(1)+'% pullback from endpoint');}}
+    lines.push('<span>'+esc(txt)+'</span>');
+  }
+  if(chartState.indicators.wyckoff&&w){lines.push('<span>'+esc('Wyckoff · '+(w.status||w.event)+' · '+(w.rangeHigh?'base '+fmtPrice(w.rangeLow)+'–'+fmtPrice(w.rangeHigh)+' · ':'')+(w.type==='none'?'No established range':w.type+' hypothesis')+(w.phase==='E'?' · markup / markdown outside base':''))+'</span>');}
+  if(chartState.trendMode==='auto'||chartState.trendMode==='both'){
+    [tl.up,tl.down].filter(Boolean).forEach(function(L){var role=L.retestHeld?(L.direction==='down'?'Support after retest':'Resistance after retest'):(L.broken?'Former ':'')+(L.direction==='down'?'resistance':'support');
+      lines.push('<span>'+esc(role+' · '+L.state+' · '+L.touches+' distinct reactions')+'</span>');});
+  }
+  var health=(s.source||'Unknown')+' candles · '+chartState.tf+' · last close '+(s.lastClosedTime?new Date(s.lastClosedTime).toISOString().slice(0,16).replace('T',' ')+' UTC':'unknown');
+  if(chartState.quoteSource)health+=' · quote: '+chartState.quoteSource+(chartState.quoteSource!==s.source?' (separate venue; not merged into candles)':'');
+  if(!s.usable)health+=' · '+s.message;
+  if(chartState.sourceNotice)health+=' · '+chartState.sourceNotice;
+  if(w&&w.rebuilt)health+=' · provider correction / gap: history recalculated';
+  if(chartState.labelsHidden)health+=' · '+chartState.labelsHidden+' crowded labels hidden; full values in Evidence';
+  var html=lines.join('')+'<div class="cp-health">'+esc(health)+'</div>';
+  ['chart-summary','chart-summary-fs'].forEach(function(id){var el=document.getElementById(id);if(el&&el.innerHTML!==html)el.innerHTML=html;});
+}
+function createChartLabelLayer(ctx,bounds){
+  var pending=[],placed=[],hidden=0;
+  function overlap(a,b){return a.x<b.x+b.w+4&&a.x+a.w+4>b.x&&a.y<b.y+b.h+3&&a.y+a.h+3>b.y;}
+  return {add:function(item){pending.push(item);},flush:function(){
+    pending.sort(function(a,b){return (b.priority||0)-(a.priority||0);});ctx.save();ctx.textAlign='left';
+    pending.forEach(function(a){
+      ctx.font='10px -apple-system,sans-serif';var w=Math.max(ctx.measureText(a.text).width,a.detail?ctx.measureText(a.detail).width:0)+10,h=a.detail?30:17;
+      if(w>bounds.width-8){hidden++;return;}
+      var x=Math.max(4,Math.min(bounds.width-w-4,a.x)),y=Math.max(bounds.top+42,Math.min(bounds.bottom-h-2,a.y)),box=null;
+      var bestCost=Infinity;
+      for(var j=0;j<(a.fixed?1:35);j++){
+        var yy=a.fixed?a.y:y+(j%2?1:-1)*Math.ceil(j/2)*17;
+        if(yy<bounds.top+38||yy+h>bounds.bottom-2)continue;
+        (a.fixed?[0]:[0,-.55,.55,-1,1,-1.5,1.5]).forEach(function(dx){
+          var xx=Math.max(4,Math.min(bounds.width-w-4,x+dx*w)),trial={x:xx,y:yy,w:w,h:h};
+          var cost=Math.abs(yy-y)+Math.abs(xx-x)*.6;
+          if(cost<bestCost&&!placed.some(function(p){return overlap(trial,p);})&&!(bounds.candles||[]).some(function(p){return overlap(trial,p);})) {box=trial;bestCost=cost;}
+        });
+      }
+      if(!box){hidden++;return;}box.text=a.text;box.col=a.col;box.detail=a.detail;box.anchor=a.anchor;placed.push(box);
+    });
+    placed.forEach(function(a){if(!a.anchor)return;ctx.strokeStyle=a.col;ctx.globalAlpha=.6;ctx.lineWidth=1;ctx.setLineDash([]);ctx.beginPath();ctx.moveTo(a.anchor.x,a.anchor.y);ctx.lineTo(Math.max(a.x+3,Math.min(a.x+a.w-3,a.anchor.x)),a.anchor.y>a.y+a.h?a.y+a.h:a.y);ctx.stroke();ctx.globalAlpha=1;});
+    placed.forEach(function(a){ctx.fillStyle='#131722';ctx.fillRect(a.x,a.y,a.w,a.h);ctx.fillStyle=a.col;ctx.font='10px -apple-system,sans-serif';ctx.fillText(a.text,a.x+5,a.y+12);if(a.detail){ctx.font='9px -apple-system,sans-serif';ctx.fillText(a.detail,a.x+5,a.y+25);}});ctx.restore();
+    chartState.labelLayout=placed;chartState.labelsHidden=hidden;return placed;
+  }};
+}
 function _drawChartNow() {
   var canvas = document.getElementById(chartState.canvasId || 'chart-canvas');
   if (!canvas || !chartState.klines) return;
@@ -16654,11 +16923,18 @@ function _drawChartNow() {
   chartState.chartAtr=wxAtr;
   var wxE20=calcEMA(wxC,20), wxE50=calcEMA(wxC,50);
   var wxTrend=wxC.length?(wxC[wxC.length-1]>wxE20&&wxE20>wxE50?'up':wxC[wxC.length-1]<wxE20&&wxE20<wxE50?'down':'mixed'):'mixed';
-  var wx = calcWyckoff(wxH,wxL,wxC,wxV,wxAtr,wxTrend);
+  var priorSnapshot=chartState.snapshot;
+  var snapshot=chartSnapshot(klines,chartState.sym,chartState.tf);
+  if(priorSnapshot&&priorSnapshot.symbol===snapshot.symbol&&priorSnapshot.timeframe===snapshot.timeframe&&priorSnapshot.source!==snapshot.source)
+    chartState.sourceNotice='Candle source changed: '+priorSnapshot.source+' → '+snapshot.source+'. Analysis history is source-specific.';
+  chartState.snapshot=snapshot;
+  var analysisContext={key:snapshot.key,times:snapshot.times,persist:snapshot.usable,interval:_chartTFDuration(chartState.tf)};
+  var wx = snapshot.valid?calcWyckoff(wxH,wxL,wxC,wxV,wxAtr,wxTrend,analysisContext):
+    {type:'none',phase:'—',event:'NONE',status:'DATA ERROR',confidence:0,bullConfirm:false,bearBlock:false,watchOnly:true,events:[],reason:snapshot.message};
   chartState.wyckoff = wx;
-  var trendKey=chartState.sym+':'+chartState.tf+':'+wxK.length+':'+(wxK[0]||[])[0]+':'+JSON.stringify(wxK[wxK.length-1]);
+  var trendKey=snapshot.signature;
   if(chartState._trendKey!==trendKey){
-    chartState.trendlines=detectTrendlines(wxH,wxL,wxC);chartState._trendKey=trendKey;
+    chartState.trendlines=snapshot.valid?detectTrendlines(wxH,wxL,wxC,analysisContext):{up:null,down:null};chartState._trendKey=trendKey;
     if(d&&wxC.length>20){
       var localSR=calcSR(wxH,wxL,wxC),localTL=chartState.trendlines;
       var volBase=wxV.slice(-21,-1).reduce(function(a,b){return a+b;},0)/20;
@@ -16667,11 +16943,12 @@ function _drawChartNow() {
         rsi:calcRSI(wxC),volR:volBase>0?wxV[wxV.length-1]/volBase:0,atrPct:wxAtr/wxC[wxC.length-1]*100,
         tlBreakUp:!!(localTL.down&&localTL.down.brokeUpNow),tlBreakDown:!!(localTL.up&&localTL.up.brokeDownNow),
         tlRetestHeld:!!(localTL.down&&localTL.down.retestHeld),
-        buySignal:chartState.tf===TF&&!!d.buySignal,breakoutUp:chartState.tf===TF&&!!d.breakoutUp});
+        buySignal:snapshot.usable&&d.analysisSnapshot&&d.analysisSnapshot.signature===snapshot.signature&&!!d.buySignal,
+        breakoutUp:snapshot.usable&&d.analysisSnapshot&&d.analysisSnapshot.signature===snapshot.signature&&!!d.breakoutUp});
     }
   }
   d=chartMetrics(d);
-  var fib = calcAutoFib(wxH,wxL,wxC,wxAtr,chartState.tf,wxTrend,chartState.fibScope);
+  var fib = resolveChartFib(wxH,wxL,wxC,wxAtr,wxTrend);
   var fibLadder = calcFibLadder(fib,klines,chartState.livePrice,wxAtr);
   fib.ladder = fibLadder;
   chartState.autoFib = fib;
@@ -16707,6 +16984,8 @@ function _drawChartNow() {
   ctx.restore();
 
   var _srLbls = [], _fibLbls = [];
+  var plotLabels=createChartLabelLayer(ctx,{top:TOP_PAD,bottom:TOP_PAD+CANDLE_H,width:chartW,candles:visible.map(function(k,i){
+    return {x:cX(i)-Math.max(2,bodyW/2),y:pY(Math.max(Number(k[1]),Number(k[4]))),w:Math.max(4,bodyW),h:Math.max(3,Math.abs(pY(Number(k[1]))-pY(Number(k[4]))))};})});
 
   // 3a. AUTO FIB — confirmed closed-pivot impulse on the active timeframe.
   // Lines are independent of Wyckoff/SR and can be hidden with the Fib button.
@@ -16765,19 +17044,13 @@ function _drawChartNow() {
       if(chartState.fibConnector){ctx.save();ctx.strokeStyle='#8992a5';ctx.lineWidth=1;ctx.globalAlpha=.3;ctx.setLineDash([2,5]);
       ctx.beginPath();ctx.moveTo(psx,pY(pf.startPrice));ctx.lineTo(pex,pY(pf.endPrice));ctx.stroke();ctx.restore();}
     }
-    ctx.save();ctx.font='bold 9px -apple-system,sans-serif';ctx.textAlign='right';
-    ctx.fillStyle=fibLadder&&fibLadder.valid?fibLadder.color:(fib.direction==='up'?'#26a69a':'#ef5350');
-    var fibHead=(fib.scope==='major'?'MAJOR':'RECENT')+' SWING FIB '+(fib.direction==='up'?'LOW → HIGH':'HIGH → LOW');
-    if(fibLadder&&fibLadder.valid)fibHead+=' · CLOSED: '+fibLadder.state+
-      (fibLadder.usable===false?' · WAIT NEW PIVOT':' '+String(fibLadder.active.ratio).replace(/^0\./,'.')+
-      (fibLadder.next?' → '+String(fibLadder.next.ratio).replace(/^0\./,'.'):''));
-    ctx.fillText(fibHead,chartW-7,TOP_PAD+13);ctx.restore();
+    // Full Fib status lives in the responsive summary outside the plot.
   }
 
   // 3b. WYCKOFF RANGE + PHASE/EVENT OVERLAY
   if(ind.wyckoff && wx && wx.rangeHigh && wx.rangeLow) {
     var wxStartX=cX(wx.rangeStart-offset)-candleW/2;
-    var wxEndIdx=Math.max(wx.rangeEnd,wxC.length-1);
+    var wxEndIdx=wx.rangeEnd;
     var wxEndX=cX(wxEndIdx-offset)+candleW/2;
     var wxLeft=Math.max(0,wxStartX), wxRight=Math.min(chartW,wxEndX);
     var wxTop=pY(wx.rangeHigh), wxBot=pY(wx.rangeLow);
@@ -16785,23 +17058,18 @@ function _drawChartNow() {
     if(wxRight>wxLeft && wxBot>wxTop) {
       ctx.save();
       ctx.fillStyle=wxCol+'08'; ctx.fillRect(wxLeft,wxTop,wxRight-wxLeft,wxBot-wxTop);
-      ctx.strokeStyle=wxCol; ctx.globalAlpha=.75; ctx.lineWidth=1; ctx.setLineDash([5,4]);
+      ctx.strokeStyle=wxCol; ctx.globalAlpha=wx.breakTime?.35:.6; ctx.lineWidth=1; ctx.setLineDash([5,4]);
       ctx.strokeRect(wxLeft,wxTop,wxRight-wxLeft,wxBot-wxTop); ctx.setLineDash([]); ctx.globalAlpha=1;
       ctx.fillStyle=wxCol; ctx.font='bold 10px -apple-system,sans-serif'; ctx.textAlign='left';
-      ctx.fillText((wx.bullConfirm||wx.bearBlock?'':'POSSIBLE ')+'WYCKOFF '+wx.type.toUpperCase()+' · PHASE '+wx.phase+' · MATCH '+wx.confidence+'/100',wxLeft+6,wxTop+13);
+      // Historical base never moves upward with price; summaries identify its state.
+      plotLabels.add({text:'BASE · '+(wx.status||wx.event),col:wxCol,x:wxLeft+6,y:wxTop+8,priority:30});
       ctx.restore();
     }
     (wx.events||[]).forEach(function(ev){
       var vx=cX(ev.index-offset); if(vx<4||vx>chartW-4) return;
-      var vy=pY(ev.price), col=ev.side==='bear'?'#ef5350':'#26a69a';
-      var above=ev.side==='bear', ty=above?vy-22:vy+9;
-      ctx.save(); ctx.font='bold 9px -apple-system,sans-serif';
-      var tw=Math.max(28,ctx.measureText(ev.code).width+10);
-      ctx.fillStyle=col; ctx.globalAlpha=.92;
-      if(ctx.roundRect) ctx.roundRect(vx-tw/2,ty,tw,15,3); else ctx.rect(vx-tw/2,ty,tw,15);
-      ctx.fill(); ctx.globalAlpha=1; ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.fillText(ev.code,vx,ty+11);
-      ctx.strokeStyle=col;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(vx,above?ty+15:ty);ctx.lineTo(vx,vy);ctx.stroke();
-      ctx.restore();
+      var vy=pY(ev.price), col=ev.side==='bear'||ev.code==='FAIL'?'#ef5350':'#26a69a';
+      if(vy<TOP_PAD||vy>TOP_PAD+CANDLE_H)return;
+      plotLabels.add({text:ev.code+(ev.sequence>1?' '+ev.sequence:''),col:col,x:vx-15,y:vy+(ev.side==='bear'?-24:10),priority:60,anchor:{x:vx,y:vy}});
     });
   }
 
@@ -16992,69 +17260,37 @@ function _drawChartNow() {
   }
 
   // The actual wick anchors are visible independently of the optional connector.
-  var fibSwingLabels=[];
+  var fibSwingLabels=[];chartState.fibHits=[];
   if(ind.fib&&fib&&fib.valid){
     var swingMarks=[
-      {i:fib.startIndex,p:fib.startPrice,kind:fib.direction==='up'?'LOW':'HIGH',ratio:'0'},
-      {i:fib.endIndex,p:fib.endPrice,kind:fib.direction==='up'?'HIGH':'LOW',ratio:'1'}
+      {i:fib.startIndex,p:fib.startPrice,kind:fib.direction==='up'?'LOW':'HIGH',ratio:'0',anchor:1},
+      {i:fib.endIndex,p:fib.endPrice,kind:fib.direction==='up'?'HIGH':'LOW',ratio:'1',anchor:2}
     ];
     if(fibLadder&&fibLadder.provisional)swingMarks.push({i:fibLadder.provisional.endIndex,p:fibLadder.provisional.endPrice,
       kind:fib.direction==='up'?'HIGH':'LOW',pending:true});
-    ctx.save();ctx.font='bold 10px -apple-system,sans-serif';ctx.textAlign='left';
+    ctx.save();
     swingMarks.forEach(function(a){
       var ax=cX(a.i-offset),ay=pY(a.p);
       if(a.i<offset||a.i>=offset+visible.length||ax<4||ax>chartW-4||ay<TOP_PAD||ay>TOP_PAD+CANDLE_H)return;
-      var label=(a.pending?'PROVISIONAL ': 'SWING ')+a.kind+(a.pending?'':' · '+a.ratio)+' · '+fmtPrice(a.p);
+      var label=(a.pending?'PROVISIONAL ':fib.manual?'MANUAL ':'SWING ')+a.kind+(a.pending?'':' · '+a.ratio)+' · '+fmtPrice(a.p);
       var pending=fibLadder&&fibLadder.provisional;
-      var detail=a.pending?(pending.forming?'Candle open · ':'')+
-        (pending.pendingBars>0?pending.pendingBars+' more '+chartState.tf+' close'+(pending.pendingBars===1?'':'s')+' needed':'Awaiting valid pivot'):'Confirmed anchor';
+      var detail=a.pending?(pending.forming?'Candle open · ':'')+(pending.pendingBars>0?pending.pendingBars+' more '+chartState.tf+' close'+(pending.pendingBars===1?'':'s')+' needed':'Awaiting valid pivot'):
+        fib.manual?(fib.locked?'Locked · visual only':'Drag anchor · visual only'):'Confirmed anchor';
       var col=a.pending?'#64b5f6':a.kind==='HIGH'?'#ef5350':'#26a69a';
-      ctx.font='bold 10px -apple-system,sans-serif';
-      var width=Math.max(ctx.measureText(label).width,ctx.measureText(detail).width)+10,height=31;
-      var labelReserve=Math.min(chartW*.35,Math.max(115,_fibLbls.reduce(function(w,x){return Math.max(w,ctx.measureText(x.lbl).width+15);},0)));
-      var lx=Math.max(4,Math.min(chartW-width-labelReserve,ax-width/2));
-      var minY=TOP_PAD+30,maxY=TOP_PAD+CANDLE_H-height-1;
-      var ly=Math.max(minY,Math.min(maxY,ay+(a.kind==='HIGH'?-height-8:10)));
-      // Nearby confirmed/developing wicks often clamp to the same top row.
-      // Move only the label boxes; dots and Fib levels keep their exact prices.
-      for(var step=0;step<=Math.ceil(CANDLE_H/18)*2;step++){
-        var trial=Math.max(minY,Math.min(maxY,ly+(step%2?1:-1)*Math.ceil(step/2)*18));
-        if(!fibSwingLabels.some(function(b){return lx<b.x+b.width+4&&lx+width+4>b.x&&trial<b.y+b.height+4&&trial+height+4>b.y;})){
-          ly=trial;break;
-        }
-      }
-      fibSwingLabels.push({i:a.i,p:a.p,x:lx,y:ly,width:width,height:height,ax:ax,ay:ay,label:label,detail:detail,col:col,pending:a.pending});
-    });
-    // Draw all leaders before the boxes so they cannot cross another label's text.
-    fibSwingLabels.forEach(function(a){
-      var ax=a.ax,ay=a.ay,lx=a.x,ly=a.y,width=a.width,col=a.col;
       ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.setLineDash(a.pending?[2,3]:[]);
-      ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(Math.max(lx+5,Math.min(lx+width-5,ax)),ay>ly+a.height?ly+a.height:ly);ctx.stroke();
-      ctx.beginPath();ctx.arc(ax,ay,4,0,Math.PI*2);ctx.fillStyle=C.bg;ctx.fill();ctx.stroke();ctx.setLineDash([]);
-    });
-    fibSwingLabels.forEach(function(a){
-      ctx.fillStyle=C.bg;ctx.fillRect(a.x,a.y,a.width,a.height);ctx.fillStyle=a.col;
-      ctx.font='bold 10px -apple-system,sans-serif';ctx.fillText(a.label,a.x+5,a.y+12);
-      ctx.font='9px -apple-system,sans-serif';ctx.fillText(a.detail,a.x+5,a.y+25);
+      ctx.beginPath();ctx.arc(ax,ay,4,0,Math.PI*2);ctx.fillStyle=C.bg;ctx.fill();ctx.stroke();
+      plotLabels.add({text:label,detail:detail,col:col,x:ax-80,y:ay+(a.kind==='HIGH'?-42:10),priority:a.pending?75:100,anchor:{x:ax,y:ay}});
+      fibSwingLabels.push({i:a.i,p:a.p});
+      if(fib.manual&&!a.pending)chartState.fibHits.push({x:ax,y:ay,anchor:a.anchor});
     });ctx.restore();
   }
-
-  // Fib labels stay at their mathematically exact line inside the plot. They do
-  // not enter the right-axis collision stack, where many S/R and plan labels
-  // could otherwise shift a Fib tag away from its true price.
-  if(_fibLbls.length){
-    ctx.save();ctx.font='11px -apple-system,sans-serif';ctx.textAlign='right';
-    var fibLabelRows=[];
-    _fibLbls.sort(function(a,b){return (b.priority||0)-(a.priority||0);}).forEach(function(L){
-      if(fibLabelRows.some(function(y){return Math.abs(y-L.y)<17;}))return;
-      fibLabelRows.push(L.y);
-      var tw=ctx.measureText(L.lbl).width+7;
-      ctx.fillStyle='rgba(19,23,34,.95)';ctx.fillRect(chartW-tw-3,L.y-13,tw+3,16);
-      ctx.fillStyle=L.col;ctx.fillText(L.lbl,chartW-5,L.y-2);
-    });
-    ctx.restore();
-  }
-
+  // Exact Fib prices never shift vertically to make room. Crowded tags are
+  // suppressed; all values remain available in Evidence and the shared summary.
+  _fibLbls.forEach(function(L){
+    ctx.save();ctx.font='10px -apple-system,sans-serif';
+    var width=ctx.measureText(L.lbl).width+10;ctx.restore();
+    plotLabels.add({text:L.lbl,col:L.col,x:chartW-width-4,y:L.y-14,priority:80+(L.priority||0),fixed:true});
+  });
   // 6.9 LEVEL LABELS — TradingView-style price tags on the right axis with
   // collision avoidance, so AI TP/SL/SUP/RES/PDH labels never overwrite each other.
   (function flushSRLabels(){
@@ -17245,7 +17481,7 @@ function _drawChartNow() {
   // ══════════════════════════════════════════════════════════════════════════
   // Independent trendline layer, separate from trade-level visibility.
   drawChartTrendlines(ctx,{chartW:chartW,top:TOP_PAD,height:CANDLE_H,
-    cX:function(i){return cX(i-offset);},pY:pY});
+    cX:function(i){return cX(i-offset);},pY:pY,labels:plotLabels});
   // ANALYST MARKS — Clean Pro Style (TradingView-inspired)
   // Rule: ALL labels on RIGHT axis only. No text on candles.
   // Drawing order: zones → candles → lines → arrows → labels → panel
@@ -17623,6 +17859,7 @@ function _drawChartNow() {
     }
   }
 
+  plotLabels.flush();updateChartSummary();
   // ── CROSSHAIR — Full TradingView accuracy ─────────────────────────────────────
   // VISIBLE-RANGE HIGH/LOW CALLOUTS — Binance-style: label the highest high and
   // lowest low currently on screen with a small pointer line, so the range reads
