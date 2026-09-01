@@ -18,7 +18,7 @@
   --g:#1D9E75;--gb:rgba(29,158,117,.12);--gt:#27500A;
   --r:#E24B4A;--rb:rgba(226,75,74,.1);--rt:#791F1F;
   --am:#F5A623;--amb:rgba(245,166,35,.12);
-  --bl:#2563EB;--blb:rgba(37,99,235,.1);
+  --bl:#2563EB;--blb:rgba(37,99,235,.1);--acc:#2563EB;
   --rad:8px;--rad-lg:12px;
 }
 @media(prefers-color-scheme:dark){:root{
@@ -15081,7 +15081,12 @@ function showIntel(which){
     if(panel) panel.classList.toggle('active', t===which);
   });
   if(which==='buyzone') renderBuyZone();
-  if(which==='marketread') renderMarketRead();
+  if(which==='marketread'){
+    renderMarketRead();
+    // Market Read can be opened before a full scan finishes. Start (or join)
+    // the independent external refresh so its first render cannot stay stale.
+    try { refreshExternalData(); } catch(e){}
+  }
   if(which==='agent') renderAgent();
   if(which==='beta') renderBetaTab();
   // Make sure body is expanded when a tab is clicked
@@ -20004,23 +20009,28 @@ var NEWS_SOURCES = [
     { n:'Blockscout', u:'https://www.blockscout.com/', d:'FREE — holder lists, token transfers, labels on supported chains' },
     { n:'GeckoTerminal', u:'https://www.geckoterminal.com/', d:'FREE — DEX liquidity, volume, buys/sells, pools' },
     { n:'CoinGecko Public API', u:'https://www.coingecko.com/', d:'FREE keyless — coin/platform metadata and market data' },
-    { n:'blockchain.com charts', u:'https://www.blockchain.com/charts', d:'FREE — BTC active addresses' }
+    { n:'blockchain.com charts', u:'https://www.blockchain.com/charts', d:'FREE primary route — live status above' },
+    { n:'Coin Metrics Community', u:'https://docs.coinmetrics.io/api/v4/', d:'FREE fallback — BTC daily active addresses' }
   ]},
   { layer:'Derivatives', free:true, items:[
-    { n:'CoinGlass', u:'https://www.coinglass.com/', d:'aggregator — basics fetched free below ✓' },
-    { n:'Binance futures data', u:'https://www.binance.com/en/futures/funding-history/perpetual/real-time-funding-rate', d:'FREE primary source' }
+    { n:'CoinGlass', u:'https://www.coinglass.com/', d:'reference aggregator — not automatically read here' },
+    { n:'Binance futures data', u:'https://www.binance.com/en/futures/funding-history/perpetual/real-time-funding-rate', d:'FREE primary route — live status above' }
   ]},
   { layer:'Traditional markets', free:true, items:[
     { n:'TradingView', u:'https://www.tradingview.com/', d:'SPX, DXY, gold, yields' },
-    { n:'Yahoo Finance', u:'https://finance.yahoo.com/', d:'fetched below ✓' },
+    { n:'Yahoo Finance', u:'https://finance.yahoo.com/', d:'FREE primary route — live status above' },
+    { n:'FRED', u:'https://fred.stlouisfed.org/', d:'FREE daily-close fallback — live status above' },
     { n:'CNBC Markets', u:'https://www.cnbc.com/markets/', d:'US market news' }
   ]}
 ];
 
 function buildSourcesPanel(){
-  var h = '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
-  h += '<div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🌐 Live external data</div>';
-  h += '<div style="font-size:11px;color:var(--t2);margin-bottom:.7rem">Real numbers fetched from primary free sources — the same underlying data most paid aggregators repackage.</div>';
+  var h = '<div id="external-data-panel" style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">';
+  h += '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap">'
+    + '<div><div style="font-size:13px;font-weight:700;margin-bottom:.3rem">🌐 Live external data</div>'
+    + '<div style="font-size:11px;color:var(--t2);margin-bottom:.55rem">Independent free sources. A failed source stays unknown; it never becomes zero.</div></div>'
+    + '<button type="button" onclick="retryExternalData()" '+(_externalRefreshPromise?'disabled':'')+' style="padding:6px 11px;border-radius:7px;border:.5px solid var(--bd2);background:var(--card);color:var(--text);font-weight:700;font-size:10px;cursor:'+(_externalRefreshPromise?'wait':'pointer')+';font-family:inherit">'+(_externalRefreshPromise?'↻ Fetching…':'↻ Retry data')+'</button></div>';
+  h += externalHealthMarkup();
 
   // MACRO TAPE
   if(Object.keys(_macro).length){
@@ -20066,13 +20076,13 @@ function buildSourcesPanel(){
     }
     h += '</div>';
   }
-  h += '<button onclick="runDailyBrief()" style="padding:7px 15px;border-radius:7px;border:none;background:var(--acc);color:#fff;font-weight:700;font-size:11px;cursor:pointer;font-family:inherit">🧠 Brief me on all of this</button>';
+  h += '<button onclick="runDailyBrief()" style="padding:7px 15px;border-radius:7px;border:none;background:var(--bl);color:#fff;font-weight:700;font-size:11px;cursor:pointer;font-family:inherit">🧠 Brief me on available data</button>';
   h += '<div id="brief-out" style="margin-top:.7rem"></div>';
 
   // SOURCE LINKS
   h += '<div style="margin-top:1rem;border-top:.5px solid var(--bd);padding-top:.7rem">';
   h += '<div style="font-size:12px;font-weight:700;margin-bottom:.2rem">📰 Sources by layer</div>';
-  h += '<div style="font-size:10px;color:var(--t3);margin-bottom:.5rem">Items marked ✓ are fetched automatically above. The rest need your own eyes — the tool will not pretend to have read them.</div>';
+  h += '<div style="font-size:10px;color:var(--t3);margin-bottom:.5rem">Automatic source health is shown above. Links below are references; the tool will not claim a source loaded when its request failed.</div>';
   NEWS_SOURCES.forEach(function(g){
     h += '<div style="font-size:11px;font-weight:700;color:var(--t2);margin-top:7px">'+g.layer+'</div>';
     g.items.forEach(function(it){
@@ -20095,7 +20105,8 @@ function runDailyBrief(){
   // Build a payload of ONLY things actually retrieved
   var have = [], missing = [];
   if(Object.keys(_macro).length){
-    have.push('MACRO TAPE (Yahoo, live): ' + MACRO_TICKERS.map(function(t){
+    var macroSources={};Object.keys(_macro).forEach(function(k){macroSources[_macro[k].source||'saved source']=true;});
+    have.push('MACRO TAPE ('+Object.keys(macroSources).join(' + ')+'): ' + MACRO_TICKERS.map(function(t){
       var m=_macro[t.key]; return m ? m.label+' '+m.price.toFixed(2)+' ('+(m.chg>=0?'+':'')+m.chg.toFixed(2)+'%)' : null;
     }).filter(Boolean).join(', '));
   } else missing.push('macro tape');
@@ -20106,7 +20117,7 @@ function runDailyBrief(){
   } else missing.push('derivatives');
   if(_stables) have.push('STABLECOIN SUPPLY (DefiLlama): $'+(_stables.total/1e9).toFixed(1)+'B, 7d change '+(_stables.chg7d!=null?_stables.chg7d.toFixed(2)+'%':'n/a'));
   else missing.push('stablecoin supply');
-  if(_onchain.chg7d!=null) have.push('BTC ACTIVE ADDRESSES (blockchain.info): 7d change '+_onchain.chg7d.toFixed(1)+'%');
+  if(_onchain.chg7d!=null) have.push('BTC ACTIVE ADDRESSES ('+(_onchain.source||'daily on-chain source')+'): 7d comparison '+_onchain.chg7d.toFixed(1)+'%');
   else missing.push('on-chain activity');
 
   var reg = _regime || (typeof classifyRegime==='function' ? classifyRegime() : null);
@@ -20679,113 +20690,251 @@ function applyTurnover(data){
 // FT, Glassnode's proprietary metrics) is LINKED, never faked.
 // ═══════════════════════════════════════════════════════════════════════════
 var _macro = {}, _derivs = {}, _stables = null, _onchain = {};
+var _externalRefreshPromise = null;
+var _externalHealth = {
+  macro:   { label:'Macro',        state:'idle', source:'Yahoo Finance', message:'Waiting to fetch', updatedAt:null },
+  derivs:  { label:'Derivatives',  state:'idle', source:'Binance Futures', message:'Waiting to fetch', updatedAt:null },
+  stables: { label:'Stablecoins',  state:'idle', source:'DefiLlama', message:'Waiting to fetch', updatedAt:null },
+  onchain: { label:'BTC on-chain', state:'idle', source:'Blockchain.com / Coin Metrics', message:'Waiting to fetch', updatedAt:null }
+};
+
+function _externalEsc(v){
+  return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function _externalHasData(name){
+  if(name==='macro') return Object.keys(_macro).length > 0;
+  if(name==='derivs') return Object.keys(_derivs).length > 0;
+  if(name==='stables') return !!_stables;
+  if(name==='onchain') return Object.keys(_onchain).length > 0;
+  return false;
+}
+function _externalSet(name,state,info){
+  var row=_externalHealth[name]; if(!row)return;
+  info=info||{};row.state=state;
+  if(info.source)row.source=info.source;
+  row.message=info.message||row.message||'';
+  if(info.updatedAt)row.updatedAt=info.updatedAt;
+  _redrawExternalPanel();
+}
+function _externalFailureLabel(e){
+  if(typeof _ffStatus==='function')return _ffStatus(e);
+  var s=String(e&&e.message||e||'');
+  return /429/.test(s)?'RATE LIMITED':/timeout|abort/i.test(s)?'TIMED OUT':'CONNECTION FAILED';
+}
+function externalHealthMarkup(){
+  var h='<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 .75rem">';
+  ['macro','derivs','stables','onchain'].forEach(function(name){
+    var x=_externalHealth[name]||{},state=x.state||'idle';
+    var col=state==='ready'?'var(--g)':state==='partial'||state==='stale'?'var(--am)':state==='failed'?'var(--r)':state==='loading'?'var(--bl)':'var(--t3)';
+    var label=state==='ready'?'LIVE':state==='partial'?'PARTIAL':state==='stale'?'STALE':state==='failed'?'FAILED':state==='loading'?'LOADING':'WAITING';
+    var when=x.updatedAt?' · '+new Date(x.updatedAt).toLocaleTimeString():'';
+    h+='<span title="'+_externalEsc((x.source||'')+' — '+(x.message||''))+'" style="display:inline-flex;align-items:center;gap:5px;padding:4px 7px;border:.5px solid var(--bd);border-radius:6px;background:var(--card);font-size:9px;color:var(--t2)"><b>'+_externalEsc(x.label)+'</b><span style="font-weight:800;color:'+col+'">'+label+'</span><span style="color:var(--t3)">'+_externalEsc(when)+'</span></span>';
+  });
+  h+='</div>';
+  var problems=[];
+  Object.keys(_externalHealth).forEach(function(k){var x=_externalHealth[k];if(x.state==='failed'||x.state==='partial'||x.state==='stale')problems.push('<b>'+_externalEsc(x.label)+':</b> '+_externalEsc(x.message));});
+  if(problems.length)h+='<div style="font-size:10px;color:var(--t2);line-height:1.55;margin:-.35rem 0 .75rem">'+problems.join('<br>')+'</div>';
+  return h;
+}
+function _redrawExternalPanel(){
+  if(typeof document==='undefined')return;
+  var old=document.getElementById('external-data-panel');if(!old)return;
+  var brief=document.getElementById('brief-out'),saved=brief?brief.innerHTML:'';
+  old.outerHTML=buildSourcesPanel();
+  var next=document.getElementById('brief-out');if(next&&saved)next.innerHTML=saved;
+}
 
 function _pfetch(url, ms){
-  return fetchJ(url, ms||7000).catch(function(){
-    return fetchJ(withProxy(url, _proxyIdx), ms||9000);
+  var timeout=ms||7000,directError=null;
+  return fetchJ(url,timeout).catch(function(e){
+    directError=e;var order=[];
+    for(var i=0;i<CORS_PROXIES.length;i++)order.push((_proxyIdx+i)%CORS_PROXIES.length);
+    function attempt(k){
+      if(k>=order.length)throw directError||new Error('All public routes failed');
+      var idx=order[k];
+      return fetchJ(withProxy(url,idx),timeout+2000).then(function(j){_proxyIdx=idx;return j;}).catch(function(e2){directError=e2;return attempt(k+1);});
+    }
+    return attempt(0);
+  });
+}
+function _fetchTextUrl(url,ms){
+  return new Promise(function(resolve,reject){
+    var ctrl=typeof AbortController!=='undefined'?new AbortController():null,done=false;
+    var timer=setTimeout(function(){if(done)return;done=true;if(ctrl)ctrl.abort();reject(new Error('timeout'));},ms||8000);
+    fetch(url,{cache:'no-cache',credentials:'omit',referrerPolicy:'no-referrer',signal:ctrl?ctrl.signal:undefined}).then(function(r){
+      if(!r.ok){var e=new Error('HTTP '+r.status);e.status=r.status;throw e;}return r.text();
+    }).then(function(txt){if(!done){done=true;clearTimeout(timer);resolve(txt);}},function(e){if(!done){done=true;clearTimeout(timer);reject(e);}});
+  });
+}
+function _pfetchText(url,ms){
+  var timeout=ms||8000,last=null;
+  return _fetchTextUrl(url,timeout).catch(function(e){
+    last=e;var order=[];for(var i=0;i<CORS_PROXIES.length;i++)order.push((_proxyIdx+i)%CORS_PROXIES.length);
+    function attempt(k){
+      if(k>=order.length)throw last||new Error('All text routes failed');
+      var idx=order[k];return _fetchTextUrl(withProxy(url,idx),timeout+2000).then(function(txt){_proxyIdx=idx;return txt;}).catch(function(e2){last=e2;return attempt(k+1);});
+    }
+    return attempt(0);
   });
 }
 
 // ── MACRO TAPE — BTC trades as a liquidity asset, so this is the layer that
 //    most often explains a move the crypto charts cannot.
 var MACRO_TICKERS = [
-  { sym:'^GSPC', label:'S&P 500',  key:'spx' },
-  { sym:'^IXIC', label:'Nasdaq',   key:'ndx' },
-  { sym:'DX-Y.NYB', label:'DXY',   key:'dxy', inverse:true },
-  { sym:'^VIX',  label:'VIX',      key:'vix', inverse:true },
+  { sym:'^GSPC', label:'S&P 500',  key:'spx', fred:'SP500' },
+  { sym:'^IXIC', label:'Nasdaq',   key:'ndx', fred:'NASDAQCOM' },
+  { sym:'DX-Y.NYB', label:'DXY',   key:'dxy', inverse:true, fred:'DTWEXBGS', fredLabel:'Broad USD' },
+  { sym:'^VIX',  label:'VIX',      key:'vix', inverse:true, fred:'VIXCLS' },
   { sym:'GC=F',  label:'Gold',     key:'gold' },
-  { sym:'^TNX',  label:'US 10Y',   key:'tnx', inverse:true },
-  { sym:'USDJPY=X', label:'USD/JPY', key:'usdjpy' }
+  { sym:'^TNX',  label:'US 10Y',   key:'tnx', inverse:true, fred:'DGS10' },
+  { sym:'USDJPY=X', label:'USD/JPY', key:'usdjpy', fred:'DEXJPUS' }
 ];
-function fetchMacro(){
+function _parseMacroTicker(j,t){
+  var r=j&&j.chart&&j.chart.result&&j.chart.result[0];
+  var cl=r&&r.indicators&&r.indicators.quote&&r.indicators.quote[0].close;
+  if(!Array.isArray(cl))throw new Error('Yahoo response has no closing prices');
+  var vals=cl.filter(function(x){return x!=null&&isFinite(Number(x));}).map(Number);
+  if(vals.length<2)throw new Error('Yahoo response has insufficient history');
+  var last=vals[vals.length-1],prev=vals[vals.length-2];
+  return {key:t.key,label:t.label,price:last,chg:(last-prev)/prev*100,inverse:!!t.inverse,source:'Yahoo Finance'};
+}
+function _parseFredTicker(text,t){
+  var rows=String(text||'').trim().split(/\r?\n/),vals=[];
+  rows.slice(1).forEach(function(row){
+    var parts=row.split(','),raw=String(parts[parts.length-1]||'').replace(/"/g,'').trim(),v=Number(raw);
+    if(raw&&raw!=='.'&&isFinite(v))vals.push(v);
+  });
+  if(vals.length<2)throw new Error('FRED response has insufficient history');
+  var last=vals[vals.length-1],prev=vals[vals.length-2];
+  return {key:t.key,label:t.fredLabel||t.label,price:last,chg:(last-prev)/prev*100,inverse:!!t.inverse,source:'FRED daily close'};
+}
+function _fetchFredTicker(t){
+  if(!t.fred)return Promise.reject(new Error('No FRED fallback for '+t.label));
+  var end=new Date(),start=new Date(Date.now()-21*86400000);
+  function ymd(d){return d.toISOString().slice(0,10);}
+  var url='https://fred.stlouisfed.org/graph/fredgraph.csv?id='+encodeURIComponent(t.fred)+'&cosd='+ymd(start)+'&coed='+ymd(end);
+  return _pfetchText(url,9000).then(function(txt){return _parseFredTicker(txt,t);});
+}
+function _fetchMacroTicker(t){
+  var paths=['https://query1.finance.yahoo.com/v8/finance/chart/','https://query2.finance.yahoo.com/v8/finance/chart/'];
+  function attempt(i,last){
+    if(i>=paths.length)return _fetchFredTicker(t).catch(function(){throw last||new Error('Yahoo and FRED routes failed');});
+    var url=paths[i]+encodeURIComponent(t.sym)+'?range=5d&interval=1d';
+    return _pfetch(url,7000).then(function(j){return _parseMacroTicker(j,t);}).catch(function(e){return attempt(i+1,e);});
+  }
+  return attempt(0);
+}
+function fetchMacro(force){
   var cached = null;
   try { cached = JSON.parse(localStorage.getItem('macro_tape')||'null'); } catch(e){}
-  if(cached && (Date.now()-cached.ts) < 900000){ _macro = cached.d; return Promise.resolve(); }
+  if(!force&&cached&&(Date.now()-cached.ts)<900000&&cached.d&&Object.keys(cached.d).length){
+    _macro=cached.d;
+    return Promise.resolve({state:Object.keys(_macro).length===MACRO_TICKERS.length?'ready':'partial',source:'Yahoo Finance · saved',message:Object.keys(_macro).length+'/'+MACRO_TICKERS.length+' markets from recent cache',updatedAt:cached.ts});
+  }
   return Promise.all(MACRO_TICKERS.map(function(t){
-    return _pfetch('https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(t.sym)+'?range=5d&interval=1d')
-      .then(function(j){
-        var r = j && j.chart && j.chart.result && j.chart.result[0];
-        var cl = r && r.indicators && r.indicators.quote && r.indicators.quote[0].close;
-        if(!cl) return null;
-        var vals = cl.filter(function(x){ return x != null; });
-        if(vals.length < 2) return null;
-        var last = vals[vals.length-1], prev = vals[vals.length-2];
-        return { key:t.key, label:t.label, price:last,
-                 chg: ((last-prev)/prev*100), inverse: !!t.inverse };
-      }).catch(function(){ return null; });
+    return _fetchMacroTicker(t).then(function(v){return {value:v};},function(e){return {error:e};});
   })).then(function(arr){
-    var d = {};
-    arr.forEach(function(x){ if(x) d[x.key] = x; });
+    var d={},errors=[],sources={};
+    arr.forEach(function(x){if(x.value)d[x.value.key]=x.value;else if(x.error)errors.push(x.error);});
+    if(!Object.keys(d).length)throw errors[0]||new Error('Yahoo Finance returned no usable markets');
     // keep the live rate for USD-normalizing JPY volumes
     if(d.usdjpy && d.usdjpy.price > 50) window._jpyRate = d.usdjpy.price;
-    if(Object.keys(d).length){
-      _macro = d;
-      try { localStorage.setItem('macro_tape', JSON.stringify({ts:Date.now(), d:d})); } catch(e){}
-    }
+    Object.keys(d).forEach(function(k){sources[d[k].source||'Unknown']=true;});
+    _macro=d;var now=Date.now();
+    try { localStorage.setItem('macro_tape',JSON.stringify({ts:now,d:d})); } catch(e){}
+    var count=Object.keys(d).length;
+    var source=Object.keys(sources).join(' + ');
+    return {state:count===MACRO_TICKERS.length?'ready':'partial',source:source,message:count+'/'+MACRO_TICKERS.length+' markets loaded'+(sources['FRED daily close']?'; FRED values are daily closes':'')+(count<MACRO_TICKERS.length?'; remaining routes failed':''),updatedAt:now};
   });
 }
 
 // ── DERIVATIVES — free from Binance's public futures endpoints. This is the
 //    core of what CoinGlass sells. For a SPOT trader these read as CROWDING:
 //    extreme funding means leveraged longs are packed in and squeeze risk is up.
-function fetchDerivs(){
+function fetchDerivs(force){
   var cached = null;
   try { cached = JSON.parse(localStorage.getItem('derivs')||'null'); } catch(e){}
-  if(cached && (Date.now()-cached.ts) < 900000){ _derivs = cached.d; return Promise.resolve(); }
+  if(!force&&cached&&(Date.now()-cached.ts)<900000&&cached.d&&Object.keys(cached.d).length){
+    _derivs=cached.d;
+    return Promise.resolve({state:Object.keys(_derivs).length===3?'ready':'partial',source:'Binance Futures · saved',message:Object.keys(_derivs).length+'/3 metrics from recent cache',updatedAt:cached.ts});
+  }
   var out = {};
   return Promise.all([
     _pfetch('https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT').then(function(j){
-      if(j && j.lastFundingRate != null) out.funding = parseFloat(j.lastFundingRate)*100;
-    }).catch(function(){}),
+      var n=parseFloat(j&&j.lastFundingRate);if(isFinite(n))out.funding=n*100;else throw new Error('Funding response invalid');
+    }).then(function(){return true;},function(){return false;}),
     _pfetch('https://fapi.binance.com/fapi/v1/openInterest?symbol=BTCUSDT').then(function(j){
-      if(j && j.openInterest) out.oi = parseFloat(j.openInterest);
-    }).catch(function(){}),
+      var n=parseFloat(j&&j.openInterest);if(isFinite(n)&&n>=0)out.oi=n;else throw new Error('Open-interest response invalid');
+    }).then(function(){return true;},function(){return false;}),
     _pfetch('https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=BTCUSDT&period=1h&limit=1').then(function(j){
-      if(Array.isArray(j) && j[0]) out.lsRatio = parseFloat(j[0].longShortRatio);
-    }).catch(function(){})
+      var n=parseFloat(Array.isArray(j)&&j[0]&&j[0].longShortRatio);if(isFinite(n)&&n>=0)out.lsRatio=n;else throw new Error('Long/short response invalid');
+    }).then(function(){return true;},function(){return false;})
   ]).then(function(){
-    if(Object.keys(out).length){
-      _derivs = out;
-      try { localStorage.setItem('derivs', JSON.stringify({ts:Date.now(), d:out})); } catch(e){}
-    }
+    var count=Object.keys(out).length;if(!count)throw new Error('All Binance Futures routes failed');
+    _derivs=out;var now=Date.now();
+    try { localStorage.setItem('derivs',JSON.stringify({ts:now,d:out})); } catch(e){}
+    return {state:count===3?'ready':'partial',source:'Binance Futures',message:count+'/3 metrics loaded',updatedAt:now};
   });
 }
 
 // ── STABLECOIN SUPPLY — free from DefiLlama. Genuinely useful: growing supply
 //    means fiat is entering crypto (dry powder), shrinking means it is leaving.
 //    A real complement to USDT.D, which only measures share, not absolute size.
-function fetchStables(){
+function fetchStables(force){
   var cached = null;
   try { cached = JSON.parse(localStorage.getItem('stables')||'null'); } catch(e){}
-  if(cached && (Date.now()-cached.ts) < 3600000){ _stables = cached.d; return Promise.resolve(); }
+  if(!force&&cached&&(Date.now()-cached.ts)<3600000&&cached.d){
+    _stables=cached.d;return Promise.resolve({state:'ready',source:'DefiLlama · saved',message:'Recent cache',updatedAt:cached.ts});
+  }
   return _pfetch('https://stablecoins.llama.fi/stablecoincharts/all').then(function(j){
-    if(!Array.isArray(j) || j.length < 8) return;
+    if(!Array.isArray(j)||j.length<8)throw new Error('DefiLlama history is incomplete');
     function tot(x){ var v=0; var p=x.totalCirculating||x.totalCirculatingUSD||{};
       Object.keys(p).forEach(function(k){ v += (p[k]||0); }); return v; }
     var last = tot(j[j.length-1]), wk = tot(j[Math.max(0,j.length-8)]);
-    if(!last) return;
+    if(!isFinite(last)||last<=0)throw new Error('DefiLlama total is invalid');
     var d = { total:last, chg7d: wk>0 ? (last-wk)/wk*100 : null };
-    _stables = d;
-    try { localStorage.setItem('stables', JSON.stringify({ts:Date.now(), d:d})); } catch(e){}
-  }).catch(function(){});
+    _stables=d;var now=Date.now();
+    try { localStorage.setItem('stables',JSON.stringify({ts:now,d:d})); } catch(e){}
+    return {state:'ready',source:'DefiLlama',message:'Global stablecoin supply loaded',updatedAt:now};
+  });
 }
 
 // ── BTC ON-CHAIN — free from blockchain.info. Not Glassnode's proprietary
 //    metrics, but active addresses is the input behind Liebi's validated
 //    network-usage value factor, so it is the one worth having.
-function fetchOnchain(){
+function _btcAddressData(rows,source){
+  if(!Array.isArray(rows))throw new Error(source+' returned no history');
+  var day=86400000,byDay={};
+  rows.forEach(function(r){
+    var time=Date.parse(r&&r.time||''),value=Number(r&&r.AdrActCnt);
+    if(!isFinite(time)||!isFinite(value)||value<0)return;
+    byDay[Math.floor(time/day)*day]=value;
+  });
+  var dates=Object.keys(byDay).map(Number).sort(function(a,b){return a-b;});
+  if(dates.length<8)throw new Error(source+' returned insufficient daily history');
+  var lastDay=dates[dates.length-1],last=byDay[lastDay],wk=byDay[lastDay-7*day];
+  return {addresses:last,chg7d:wk>0?(last-wk)/wk*100:null,source:source,asOf:lastDay};
+}
+function _blockchainAddressData(j){
+  var v=j&&j.values;if(!Array.isArray(v))throw new Error('Blockchain.com returned no history');
+  return _btcAddressData(v.map(function(r){var ms=Number(r&&r.x)*1000;return {time:isFinite(ms)?new Date(ms).toISOString():'',AdrActCnt:r&&r.y};}),'Blockchain.com');
+}
+function fetchOnchain(force){
   var cached = null;
   try { cached = JSON.parse(localStorage.getItem('onchain')||'null'); } catch(e){}
-  if(cached && (Date.now()-cached.ts) < 21600000){ _onchain = cached.d; return Promise.resolve(); }
+  if(!force&&cached&&(Date.now()-cached.ts)<21600000&&cached.d&&Object.keys(cached.d).length){
+    _onchain=cached.d;return Promise.resolve({state:'ready',source:(_onchain.source||'BTC on-chain')+' · saved',message:'Recent daily cache',updatedAt:cached.ts});
+  }
   return _pfetch('https://api.blockchain.info/charts/n-unique-addresses?timespan=30days&format=json')
-    .then(function(j){
-      var v = j && j.values;
-      if(!Array.isArray(v) || v.length < 8) return;
-      var last = v[v.length-1].y, wk = v[Math.max(0,v.length-8)].y;
-      var d = { addresses:last, chg7d: wk>0 ? (last-wk)/wk*100 : null };
-      _onchain = d;
-      try { localStorage.setItem('onchain', JSON.stringify({ts:Date.now(), d:d})); } catch(e){}
-    }).catch(function(){});
+    .then(_blockchainAddressData)
+    .catch(function(primaryError){
+      var url='https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=AdrActCnt&frequency=1d&page_size=20';
+      return _pfetch(url,10000).then(function(j){return _btcAddressData(j&&j.data,'Coin Metrics Community');}).catch(function(fallbackError){fallbackError.primary=primaryError;throw fallbackError;});
+    }).then(function(d){
+      _onchain=d;var now=Date.now();
+      try { localStorage.setItem('onchain',JSON.stringify({ts:now,d:d})); } catch(e){}
+      return {state:'ready',source:d.source,message:'Daily active-address series loaded',updatedAt:now};
+    });
 }
 
 // Per-coin funding/OI. BTC's funding says little about an individual alt, and
@@ -20844,12 +20993,29 @@ function readDerivs(d){
     meaning: 'For a SPOT trader this is CROWDING, not direction. Crowded longs mean a flush can come from nowhere and stops get hit on noise; it does NOT mean price falls. Funding explains only ~12.5% of weekly price variation and decays fast, so never treat it as a timing signal.' };
 }
 
-function refreshExternalData(){
-  try { fetchMacro(); } catch(e){}
-  try { fetchDerivs(); } catch(e){}
-  try { fetchStables(); } catch(e){}
-  try { fetchOnchain(); } catch(e){}
+function _runExternalSource(name,fn,force){
+  _externalSet(name,'loading',{message:'Fetching…'});
+  return Promise.resolve().then(function(){return fn(force);}).then(function(meta){
+    meta=meta||{};_externalSet(name,meta.state||'ready',meta);return {name:name,ok:true};
+  }).catch(function(e){
+    var label=_externalFailureLabel(e),has=_externalHasData(name);
+    _externalSet(name,has?'stale':'failed',{message:(has?'Refresh failed; showing saved values · ':'')+label});
+    return {name:name,ok:false,error:e};
+  });
 }
+function refreshExternalData(force){
+  if(_externalRefreshPromise)return _externalRefreshPromise;
+  var jobs=[
+    _runExternalSource('macro',fetchMacro,!!force),
+    _runExternalSource('derivs',fetchDerivs,!!force),
+    _runExternalSource('stables',fetchStables,!!force),
+    _runExternalSource('onchain',fetchOnchain,!!force)
+  ];
+  _externalRefreshPromise=Promise.all(jobs).then(function(results){return results;});
+  _redrawExternalPanel();
+  return _externalRefreshPromise.then(function(results){_externalRefreshPromise=null;_redrawExternalPanel();return results;},function(e){_externalRefreshPromise=null;_redrawExternalPanel();throw e;});
+}
+function retryExternalData(){return refreshExternalData(true);}
 
 function computeEarlyWatch(data){
   // Only coins that are genuinely BASING are eligible. This is the v2 fix: a
