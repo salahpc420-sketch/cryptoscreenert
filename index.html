@@ -20018,6 +20018,7 @@ var NEWS_SOURCES = [
   ]},
   { layer:'Traditional markets', free:true, items:[
     { n:'TradingView', u:'https://www.tradingview.com/', d:'SPX, DXY, gold, yields' },
+    { n:'Twelve Data', u:'https://twelvedata.com/pricing', d:'Optional FREE key — preferred live US/FX macro route' },
     { n:'Yahoo Finance', u:'https://finance.yahoo.com/', d:'FREE primary route — live status above' },
     { n:'FRED', u:'https://fred.stlouisfed.org/', d:'FREE daily-close fallback — live status above' },
     { n:'CNBC Markets', u:'https://www.cnbc.com/markets/', d:'US market news' }
@@ -20031,6 +20032,7 @@ function buildSourcesPanel(){
     + '<div style="font-size:11px;color:var(--t2);margin-bottom:.55rem">Independent free sources. A failed source stays unknown; it never becomes zero.</div></div>'
     + '<button type="button" onclick="retryExternalData()" '+(_externalRefreshPromise?'disabled':'')+' style="padding:6px 11px;border-radius:7px;border:.5px solid var(--bd2);background:var(--card);color:var(--text);font-weight:700;font-size:10px;cursor:'+(_externalRefreshPromise?'wait':'pointer')+';font-family:inherit">'+(_externalRefreshPromise?'↻ Fetching…':'↻ Retry data')+'</button></div>';
   h += externalHealthMarkup();
+  h += macroSourceControlMarkup();
 
   // MACRO TAPE
   if(Object.keys(_macro).length){
@@ -20690,13 +20692,38 @@ function applyTurnover(data){
 // FT, Glassnode's proprietary metrics) is LINKED, never faked.
 // ═══════════════════════════════════════════════════════════════════════════
 var _macro = {}, _derivs = {}, _stables = null, _onchain = {};
-var _externalRefreshPromise = null;
+var _externalRefreshPromise = null, _macroRefreshPromise = null;
 var _externalHealth = {
   macro:   { label:'Macro',        state:'idle', source:'Yahoo Finance', message:'Waiting to fetch', updatedAt:null },
   derivs:  { label:'Derivatives',  state:'idle', source:'Binance Futures', message:'Waiting to fetch', updatedAt:null },
   stables: { label:'Stablecoins',  state:'idle', source:'DefiLlama', message:'Waiting to fetch', updatedAt:null },
   onchain: { label:'BTC on-chain', state:'idle', source:'Blockchain.com / Coin Metrics', message:'Waiting to fetch', updatedAt:null }
 };
+
+function _macroApiKey(){try{return (localStorage.getItem('twelvedata_macro_api_key')||'').trim();}catch(e){return '';}}
+function macroSourceControlMarkup(){
+  var saved=!!_macroApiKey();
+  var h='<details style="margin:-.25rem 0 .75rem;padding:7px 9px;border:.5px solid var(--bd);border-radius:7px;background:var(--card)" '+(!saved&&_externalHealth.macro.state==='failed'?'open':'')+'>';
+  h+='<summary style="font-size:10px;cursor:pointer;color:'+(saved?'var(--g)':'var(--t2)')+'"><b>Live macro source:</b> '+(saved?'Twelve Data key configured':'Yahoo can be rate-limited · add a free Twelve Data key')+'</summary>';
+  h+='<div style="font-size:9px;color:var(--t3);line-height:1.5;margin-top:7px">The key restores live US/FX readings using clearly labelled SPY, QQQ, UUP, VIXY, GLD and TLT market proxies plus USD/JPY. FRED remains daily fallback only. The key stays in this browser and is never sent through a public proxy.</div>';
+  h+='<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:7px"><input id="macro-twelve-key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste Twelve Data API key" style="width:245px;max-width:100%;padding:6px 8px;border:.5px solid var(--bd2);border-radius:6px;background:var(--card2);color:var(--text);font-size:10px">'
+    +'<button type="button" onclick="saveMacroApiKey()" style="padding:6px 10px;border:none;border-radius:6px;background:var(--bl);color:#fff;font-size:10px;font-weight:700;cursor:pointer">Save &amp; test</button>'
+    +(saved?'<button type="button" onclick="removeMacroApiKey()" style="padding:6px 10px;border:.5px solid var(--bd);border-radius:6px;background:transparent;color:var(--t2);font-size:10px;cursor:pointer">Remove key</button>':'')
+    +'<a href="https://twelvedata.com/pricing" target="_blank" rel="noopener noreferrer" style="font-size:9px;color:var(--bl)">Get free key</a><span id="macro-key-status" style="font-size:9px;color:var(--t3)"></span></div></details>';
+  return h;
+}
+function saveMacroApiKey(){
+  var input=document.getElementById('macro-twelve-key'),status=document.getElementById('macro-key-status');
+  var key=String(input&&input.value||'').trim();
+  if(!/^[A-Za-z0-9_-]{16,160}$/.test(key)){if(status){status.textContent='Paste a valid key.';status.style.color='var(--r)';}return;}
+  try{localStorage.setItem('twelvedata_macro_api_key',key);localStorage.removeItem('macro_tape');}catch(e){if(status){status.textContent='Browser storage is blocked.';status.style.color='var(--r)';}return;}
+  _macro={};if(input)input.value='';if(status){status.textContent='Saved. Testing live data…';status.style.color='var(--bl)';}
+  refreshMacroData(true);
+}
+function removeMacroApiKey(){
+  try{localStorage.removeItem('twelvedata_macro_api_key');localStorage.removeItem('macro_tape');}catch(e){}
+  _macro={};refreshMacroData(true);
+}
 
 function _externalEsc(v){
   return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -20781,13 +20808,13 @@ function _pfetchText(url,ms){
 // ── MACRO TAPE — BTC trades as a liquidity asset, so this is the layer that
 //    most often explains a move the crypto charts cannot.
 var MACRO_TICKERS = [
-  { sym:'^GSPC', label:'S&P 500',  key:'spx', fred:'SP500' },
-  { sym:'^IXIC', label:'Nasdaq',   key:'ndx', fred:'NASDAQCOM' },
-  { sym:'DX-Y.NYB', label:'DXY',   key:'dxy', inverse:true, fred:'DTWEXBGS', fredLabel:'Broad USD' },
-  { sym:'^VIX',  label:'VIX',      key:'vix', inverse:true, fred:'VIXCLS' },
-  { sym:'GC=F',  label:'Gold',     key:'gold' },
-  { sym:'^TNX',  label:'US 10Y',   key:'tnx', inverse:true, fred:'DGS10' },
-  { sym:'USDJPY=X', label:'USD/JPY', key:'usdjpy', fred:'DEXJPUS' }
+  { sym:'^GSPC', label:'S&P 500',  key:'spx', fred:'SP500', twelve:'SPY', twelveLabel:'SPY · S&P proxy' },
+  { sym:'^IXIC', label:'Nasdaq',   key:'ndx', fred:'NASDAQCOM', twelve:'QQQ', twelveLabel:'QQQ · Nasdaq proxy' },
+  { sym:'DX-Y.NYB', label:'DXY',   key:'dxy', inverse:true, fred:'DTWEXBGS', fredLabel:'Broad USD', twelve:'UUP', twelveLabel:'UUP · USD proxy' },
+  { sym:'^VIX',  label:'VIX',      key:'vix', inverse:true, fred:'VIXCLS', twelve:'VIXY', twelveLabel:'VIXY · volatility proxy' },
+  { sym:'GC=F',  label:'Gold',     key:'gold', twelve:'GLD', twelveLabel:'GLD · gold proxy' },
+  { sym:'^TNX',  label:'US 10Y',   key:'tnx', inverse:true, fred:'DGS10', twelve:'TLT', twelveLabel:'TLT · bond proxy', twelveInverse:false },
+  { sym:'USDJPY=X', label:'USD/JPY', key:'usdjpy', fred:'DEXJPUS', twelve:'USD/JPY', twelveLabel:'USD/JPY' }
 ];
 function _parseMacroTicker(j,t){
   var r=j&&j.chart&&j.chart.result&&j.chart.result[0];
@@ -20797,6 +20824,19 @@ function _parseMacroTicker(j,t){
   if(vals.length<2)throw new Error('Yahoo response has insufficient history');
   var last=vals[vals.length-1],prev=vals[vals.length-2];
   return {key:t.key,label:t.label,price:last,chg:(last-prev)/prev*100,inverse:!!t.inverse,source:'Yahoo Finance'};
+}
+function _parseTwelveQuote(j,t){
+  if(!j||j.status==='error')throw new Error('Twelve Data '+String(j&&j.code||'response error'));
+  var price=Number(j.close!=null?j.close:j.price),prev=Number(j.previous_close),chg=Number(j.percent_change);
+  if(!isFinite(price)||price<=0)throw new Error('Twelve Data quote has no valid price');
+  if(!isFinite(chg)){if(isFinite(prev)&&prev>0)chg=(price-prev)/prev*100;else throw new Error('Twelve Data quote has no daily comparison');}
+  return {key:t.key,label:t.twelveLabel||t.label,price:price,chg:chg,inverse:t.twelveInverse!=null?!!t.twelveInverse:!!t.inverse,source:'Twelve Data live',proxyInstrument:t.twelve||null};
+}
+function _fetchTwelveTicker(t,key){
+  if(!key||!t.twelve)return Promise.reject(new Error('Twelve Data key or symbol unavailable'));
+  var url='https://api.twelvedata.com/quote?symbol='+encodeURIComponent(t.twelve)+'&apikey='+encodeURIComponent(key);
+  var cacheId='twelve:macro:'+_ffKeyTag(key)+':'+t.twelve;
+  return _ffAuthRequest(cacheId,url,10000).then(function(j){return _parseTwelveQuote(j,t);});
 }
 function _parseFredTicker(text,t){
   var rows=String(text||'').trim().split(/\r?\n/),vals=[];
@@ -20828,23 +20868,25 @@ function fetchMacro(force){
   var cached = null;
   try { cached = JSON.parse(localStorage.getItem('macro_tape')||'null'); } catch(e){}
   if(!force&&cached&&(Date.now()-cached.ts)<900000&&cached.d&&Object.keys(cached.d).length){
-    _macro=cached.d;
-    return Promise.resolve({state:Object.keys(_macro).length===MACRO_TICKERS.length?'ready':'partial',source:'Yahoo Finance · saved',message:Object.keys(_macro).length+'/'+MACRO_TICKERS.length+' markets from recent cache',updatedAt:cached.ts});
+    _macro=cached.d;var cachedSources={},cachedFallbacks=0;Object.keys(_macro).forEach(function(k){cachedSources[_macro[k].source||'Saved macro']=true;if(_macro[k].liveRouteFailed)cachedFallbacks++;});
+    return Promise.resolve({state:Object.keys(_macro).length===MACRO_TICKERS.length&&!cachedFallbacks?'ready':'partial',source:Object.keys(cachedSources).join(' + ')+' · saved',message:Object.keys(_macro).length+'/'+MACRO_TICKERS.length+' markets from recent cache'+(cachedFallbacks?'; live route failed for '+cachedFallbacks+' and fallbacks are shown':''),updatedAt:cached.ts});
   }
+  var liveKey=_macroApiKey();
   return Promise.all(MACRO_TICKERS.map(function(t){
-    return _fetchMacroTicker(t).then(function(v){return {value:v};},function(e){return {error:e};});
+    var request=liveKey?_fetchTwelveTicker(t,liveKey).catch(function(liveError){return _fetchMacroTicker(t).then(function(v){v.liveRouteFailed=true;v.liveRouteStatus=_externalFailureLabel(liveError);return v;});}):_fetchMacroTicker(t);
+    return request.then(function(v){return {value:v};},function(e){return {error:e};});
   })).then(function(arr){
-    var d={},errors=[],sources={};
+    var d={},errors=[],sources={},liveFallbacks=0;
     arr.forEach(function(x){if(x.value)d[x.value.key]=x.value;else if(x.error)errors.push(x.error);});
     if(!Object.keys(d).length)throw errors[0]||new Error('Yahoo Finance returned no usable markets');
     // keep the live rate for USD-normalizing JPY volumes
     if(d.usdjpy && d.usdjpy.price > 50) window._jpyRate = d.usdjpy.price;
-    Object.keys(d).forEach(function(k){sources[d[k].source||'Unknown']=true;});
+    Object.keys(d).forEach(function(k){sources[d[k].source||'Unknown']=true;if(d[k].liveRouteFailed)liveFallbacks++;});
     _macro=d;var now=Date.now();
     try { localStorage.setItem('macro_tape',JSON.stringify({ts:now,d:d})); } catch(e){}
     var count=Object.keys(d).length;
     var source=Object.keys(sources).join(' + ');
-    return {state:count===MACRO_TICKERS.length?'ready':'partial',source:source,message:count+'/'+MACRO_TICKERS.length+' markets loaded'+(sources['FRED daily close']?'; FRED values are daily closes':'')+(count<MACRO_TICKERS.length?'; remaining routes failed':''),updatedAt:now};
+    return {state:count===MACRO_TICKERS.length&&!liveFallbacks?'ready':'partial',source:source,message:count+'/'+MACRO_TICKERS.length+' markets loaded'+(sources['Twelve Data live']?'; live proxy instruments are labelled':'')+(liveFallbacks?'; live route failed for '+liveFallbacks+' and fallbacks are shown':'')+(sources['FRED daily close']?'; FRED values are daily closes':'')+(count<MACRO_TICKERS.length?'; remaining routes failed':''),updatedAt:now};
   });
 }
 
@@ -20999,6 +21041,7 @@ function _runExternalSource(name,fn,force){
     meta=meta||{};_externalSet(name,meta.state||'ready',meta);return {name:name,ok:true};
   }).catch(function(e){
     var label=_externalFailureLabel(e),has=_externalHasData(name);
+    if(name==='macro'&&!_macroApiKey())label+=' · Yahoo is rate-limited; add a free live macro key above';
     _externalSet(name,has?'stale':'failed',{message:(has?'Refresh failed; showing saved values · ':'')+label});
     return {name:name,ok:false,error:e};
   });
@@ -21016,6 +21059,11 @@ function refreshExternalData(force){
   return _externalRefreshPromise.then(function(results){_externalRefreshPromise=null;_redrawExternalPanel();return results;},function(e){_externalRefreshPromise=null;_redrawExternalPanel();throw e;});
 }
 function retryExternalData(){return refreshExternalData(true);}
+function refreshMacroData(force){
+  if(_macroRefreshPromise)return _macroRefreshPromise;
+  _macroRefreshPromise=_runExternalSource('macro',fetchMacro,!!force).then(function(r){_macroRefreshPromise=null;return r;},function(e){_macroRefreshPromise=null;throw e;});
+  return _macroRefreshPromise;
+}
 
 function computeEarlyWatch(data){
   // Only coins that are genuinely BASING are eligible. This is the v2 fix: a
