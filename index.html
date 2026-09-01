@@ -3424,7 +3424,7 @@ function calcAccumulation(h, l, c, v, rs, e20, e50) {
 // a trend-following spot entry. Confirmed SOW/LPSY blocks new spot buys.
 // ═══════════════════════════════════════════════════════════════════════════
 function calcWyckoff(h, l, c, v, atr, trend, context) {
-  // v2: replay CLOSED observations in order. Range prices and event timestamps
+  // v3 rules: replay CLOSED observations in order. Range prices and event timestamps
   // survive new bars; interpretation may change, observations are never moved.
   context=context||{};
   var n=c.length,times=context.times||c.map(function(_,i){return i;}),key=context.key;
@@ -3464,7 +3464,7 @@ function calcWyckoff(h, l, c, v, atr, trend, context) {
   }
   var books=calcWyckoff._books||(calcWyckoff._books={}),book=key&&books[key];
   if(!book&&key&&context.persist&&typeof localStorage!=='undefined'){
-    try{var saved=JSON.parse(localStorage.getItem('wx_state_v2:'+key)||'null');if(saved&&saved.version===2)book=saved;}catch(e){}
+    try{var saved=JSON.parse(localStorage.getItem('wx_state_v2:'+key)||'null');if(saved&&saved.version===2&&saved.rulesVersion===3)book=saved;}catch(e){}
   }
   var fingerprints={},revised=false;
   for(var f=0;f<n;f++){
@@ -3473,17 +3473,23 @@ function calcWyckoff(h, l, c, v, atr, trend, context) {
     if(book&&book.fingerprints&&book.fingerprints[times[f]]!=null&&book.fingerprints[times[f]]!==fp)revised=true;
   }
   // A revision/reload rebuild is explicit; never carry observations across sources.
-  var reset=!!(book&&(revised||book.lastTime>times[n-1]||context.interval&&times[0]>book.lastTime+context.interval));
+  var reset=!!(book&&(book.rulesVersion!==3||revised||book.lastTime>times[n-1]||context.interval&&times[0]>book.lastTime+context.interval));
   if(!book||reset){
     var revisions=book?(book.revisions||[]).concat([{id:book.id,events:book.events,range:book.range,state:book.state,reason:revised?'Provider corrected closed candles':'History gap or replay rewind'}]).slice(-3):[];
-    book={version:2,revision:book?(book.revision||0)+1:0,revisions:revisions,range:null,events:[],history:[],lastTime:null,bias:'neutral',state:'NO RANGE'};
+    book={version:2,rulesVersion:3,revision:book?(book.revision||0)+1:0,revisions:revisions,range:null,events:[],history:[],lastTime:null,bias:'neutral',state:'NO RANGE'};
   }
   var previousTime=book.lastTime;
   function add(code,i,price,side,label){
-    if(book.events.some(function(e){return e.code===code&&e.time===times[i];}))return;
+    if(book.events.some(function(e){return e.code===code&&e.time===times[i];}))return false;
     var sequence=book.events.filter(function(e){return e.code===code;}).length+1;
     book.events.push({id:book.id+':'+code+':'+times[i],code:code,time:times[i],confirmedTime:times[i]+(context.interval||0),
       price:price,side:side,label:label,sequence:sequence,volumeRatio:volAt(i)});
+    return true;
+  }
+  function addDistinct(code,i,price,side,label,minBars){
+    var prior=book.events.filter(function(e){return e.code===code;}).slice(-1)[0];
+    if(prior&&i-times.indexOf(prior.time)<minBars)return false;
+    return add(code,i,price,side,label);
   }
   function adopt(r,i){
     if(book.range)book.history.push({id:book.id,range:book.range,events:book.events,state:book.state});
@@ -3494,10 +3500,16 @@ function calcWyckoff(h, l, c, v, atr, trend, context) {
   }
   function signals(r,i){
     var A=r.atr,spread=(h[i]-l[i])/A,loc=h[i]>l[i]?(c[i]-l[i])/(h[i]-l[i]):.5,vr=volAt(i);
+    // A true UTAD needs a meaningful sweep above the established range and a
+    // bearish close back inside. A simple touch or marginal wick is only an
+    // upper-range test; it must not create a bearish Wyckoff conclusion.
+    var sweepMargin=Math.max(A*.15,r.tol*.35);
+    var utad=h[i]>r.hi+sweepMargin&&h[i]<r.hi+A*1.25&&c[i]<r.hi-A*.03&&c[i]>r.lo&&loc<.45&&spread>=.75;
+    var upperTest=!utad&&h[i]>=r.hi-r.tol&&c[i]<=r.hi+A*.08&&c[i]>r.lo&&loc<.68;
     return {sos:c[i]>r.hi+A*.15&&spread>=.8&&vr>=1.2&&loc>.6,
       sow:c[i]<r.lo-A*.15&&spread>=.8&&vr>=1.2&&loc<.4,
       spring:l[i]<r.lo-A*.05&&l[i]>r.lo-A*1.25&&c[i]>r.lo&&c[i]<r.hi&&loc>.45,
-      utad:h[i]>r.hi+A*.05&&h[i]<r.hi+A*1.25&&c[i]<r.hi&&c[i]>r.lo&&loc<.55,vr:vr,spread:spread};
+      utad:utad,upperTest:upperTest,vr:vr,spread:spread};
   }
   var candidate=null;
   for(var i=54;i<n;i++){
@@ -3505,6 +3517,8 @@ function calcWyckoff(h, l, c, v, atr, trend, context) {
     candidate=rangeAt(i-1);
     if(!book.range&&candidate){
       var initial=signals(candidate,i);
+      // A routine boundary test is not strong enough to freeze a Wyckoff base.
+      // The base is adopted only after a sweep/reclaim or confirmed expansion.
       if(initial.sos||initial.sow||initial.spring||initial.utad)adopt(candidate,i);
     }else if(book.range&&candidate&&book.breakTime!=null&&candidate.startTime>book.breakTime&&
       (candidate.lo>book.range.hi+book.range.tol||candidate.hi<book.range.lo-book.range.tol)){
@@ -3524,7 +3538,13 @@ function calcWyckoff(h, l, c, v, atr, trend, context) {
       }
       if(!book.direction){
         if(s.spring){add('SPRING',i,l[i],'bull','Spring candidate');book.bias='bullish';book.state='SPRING WATCH';}
-        if(s.utad){add('UTAD',i,h[i],'bear','Upthrust candidate');book.bias='bearish';book.state='UTAD WATCH';}
+        if(s.utad){
+          if(addDistinct('UTAD',i,h[i],'bear','Confirmed range-high sweep and close back inside',6)){
+            book.bias='bearish';book.state='UTAD WATCH';
+          }
+        }else if(s.upperTest&&!book.events.some(function(e){return e.code==='UTAD';})){
+          if(addDistinct('UPPER_TEST',i,h[i],'neutral','Upper-range test; no confirmed upthrust',4))book.state='UPPER-RANGE TEST';
+        }
         var springs=book.events.filter(function(e){return e.code==='SPRING';}),lastSpring=springs[springs.length-1];
         if(lastSpring&&times[i]>lastSpring.time&&i-times.indexOf(lastSpring.time)<=8&&l[i]>lastSpring.price&&
           l[i]<=r.lo+r.tol&&c[i]>=r.lo&&s.spread<1.15&&s.vr>0&&s.vr<1){
@@ -3594,7 +3614,7 @@ function calcWyckoff(h, l, c, v, atr, trend, context) {
     bearBlock:bearBlock,watchOnly:watchOnly,reason:reason,breakTime:book.breakTime,retestTime:book.retestTime,
     breakBarsAgo:book.breakTime!=null?(context.interval?Math.round((times[n-1]-book.breakTime)/context.interval):n-1-times.indexOf(book.breakTime)):null,rebuilt:reset,
     topTouches:r.topTouches,bottomTouches:r.bottomTouches,heightATR:(r.hi-r.lo)/r.atr,rangeATR:r.atr,tolerance:r.atr*.15,
-    currentDistance:(c[n-1]-(direction==='down'?r.lo:r.hi))/r.atr,settingsVersion:2};
+    currentDistance:(c[n-1]-(direction==='down'?r.lo:r.hi))/r.atr,settingsVersion:3};
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -16750,6 +16770,11 @@ function populateFSTable(d) {
     return '<p>'+esc(L.direction==='down'?'Former resistance':'Former support')+' · '+esc(L.state)+'<br>'+fE(L.p1)+' → '+fE(L.p2)+'<br><span class="cp-muted">'+esc(new Date(L.anchorTime1).toISOString().slice(0,16))+' → '+esc(new Date(L.anchorTime2).toISOString().slice(0,16))+' UTC · '+L.touches+' distinct reactions. Historical only.</span></p>';
   }).join('')+'</details>';
   var trendCard=card('Trendlines · closed candles',trendBody||'<p>No eligible confirmed-pivot line. Do not force a trendline.</p>');
+  var referenceLevels=(chartState.referenceLevels||[]).filter(function(x){return x&&isFinite(Number(x.price));});
+  var referenceCard=referenceLevels.length?card('Secondary reference levels',referenceLevels.map(function(x){
+    return '<div class="cp-pair"><span>'+esc(x.label)+'</span><strong>'+fE(x.price)+'</strong></div>'+(x.note?'<div class="cp-muted">'+esc(x.note)+'</div>':'');
+  }).join('')+'<p class="cp-muted">Kept in Evidence to protect candle space. These are context, not entry signals.</p>'):
+    card('Secondary reference levels','<p>No complete prior-period or nearby swing references are available.</p>');
   var wxText=wx?'<p><strong>'+(wx.bullConfirm||wx.bearBlock?'':'Possible ')+esc(wx.type)+' · Phase '+esc(wx.phase)+'</strong><br>'+esc(wx.event)+(wx.bullConfirm||wx.bearBlock?'':' candidate')+'</p><p>'+esc(wx.reason)+'</p><div class="cp-muted">Pattern-match score '+wx.confidence+'/100 — not a win probability</div>':'<p>No Wyckoff pattern available.</p>';
   if(wx){
     wxText='<p><strong>'+esc(wx.status||wx.event)+'</strong></p>'+wxText;
@@ -16809,7 +16834,7 @@ function populateFSTable(d) {
       }).join('')+'<p>Next unreached plan target: <strong>'+next+'</strong></p>')+
       card('Position sizing','Allocation cap <strong>'+p.allocation.toFixed(1)+'%</strong> · portfolio risk <strong>'+p.actualRisk.toFixed(2)+'%</strong><p class="cp-muted">Saved orders and fills are unchanged. Calculated levels are not placed orders.</p>');
   }else{
-    html+=trendCard+card('Wyckoff · evidence',wxText)+card('Auto Fib · '+esc(chartState.tf||TF),fibBody)+
+    html+=trendCard+card('Wyckoff · evidence',wxText)+card('Auto Fib · '+esc(chartState.tf||TF),fibBody)+referenceCard+
       card('Confirmation checklist',p.confirmations.map(function(c){return '<div class="cp-check"><span>'+(c.ok?'✓ ':'○ ')+esc(c.label)+'</span><strong style="color:'+(c.ok?'#26a69a':'#f0b90b')+'">'+esc(c.value)+'</strong></div>';}).join(''))+
       card('Closed-candle metrics','<div class="cp-pair"><span>Trend / structure</span><strong>'+esc(d.trend)+' / '+esc(d.struct)+'</strong></div><div class="cp-pair"><span>RSI</span><strong>'+Number(d.rsi).toFixed(1)+'</strong></div><div class="cp-pair"><span>Volume / prior 20 bars</span><strong>'+Number(d.volR).toFixed(2)+'×</strong></div><p class="cp-muted">Current '+esc(chartState.tf||TF)+' chart calculations. Developing candle closes in '+_chartCountdown(p.candleClosesAt)+'.</p>');
   }
@@ -17455,6 +17480,16 @@ function _drawChartNow() {
       }
     }
     var fibCols={'.236':'#64b5f6','.382':'#d1d4dc','.5':'#26a69a','.618':'#f0b90b','.786':'#f0b90b','0':'#787b86','1':'#d1d4dc','1.272':'#2962ff','1.618':'#7c4dff'};
+    // Keep every exact Fib line, but label only the nearest mapped level above
+    // and below price (plus an exact active level). The complete ladder remains
+    // in Evidence, so removing plot clutter never removes information.
+    var fibLabelRatios={};
+    if(fibUsable&&fibLadder&&fibLadder.valid){
+      [fibLadder.above,fibLadder.below,fibLadder.at].forEach(function(x){if(x)fibLabelRatios[String(x.ratio)]=true;});
+    }else if(fibUsable){
+      var fibReference=isFinite(Number(chartState.livePrice))?Number(chartState.livePrice):Number(c[c.length-1]);
+      fib.levels.slice().sort(function(a,b){return Math.abs(a.price-fibReference)-Math.abs(b.price-fibReference);}).slice(0,2).forEach(function(x){fibLabelRatios[String(x.ratio)]=true;});
+    }
     fib.levels.forEach(function(fl){
       if(fl.price<pMin||fl.price>pMax) return;
       var fy=snapY(pY(fl.price)), key=String(fl.ratio).replace(/^0\./,'.');
@@ -17464,7 +17499,7 @@ function _drawChartNow() {
       ctx.save();ctx.strokeStyle=fc;ctx.lineWidth=isActive?2:(fl.ratio===.5||fl.ratio===.618?1.35:1);
       ctx.globalAlpha=fibUsable?(isActive?.8:.22):.12;ctx.setLineDash(fl.ratio===0||fl.ratio===1?[]:[4,4]);
       ctx.beginPath();ctx.moveTo(fibLineStart,fy);ctx.lineTo(fibLineEnd,fy);ctx.stroke();ctx.restore();
-      if(fibUsable)_fibLbls.push({y:fy,col:isActive?fc:'#8992a5',priority:isActive?1:0,lbl:(isActive?'▶ ':'')+key+' ('+fmtPrice(fl.price)+')'});
+      if(fibUsable&&fibLabelRatios[String(fl.ratio)])_fibLbls.push({y:fy,col:isActive?fc:'#8992a5',priority:isActive?1:0,lbl:(isActive?'▶ ':'')+key+' ('+fmtPrice(fl.price)+')'});
     });
     var fsx=cX(fib.startIndex-offset), fex=cX(fib.endIndex-offset);
     if(chartState.fibConnector&&((fsx>=0&&fsx<=chartW)||(fex>=0&&fex<=chartW))) {
@@ -17481,12 +17516,14 @@ function _drawChartNow() {
     // no plan, stop, target or AI recommendation may use it.
     if(!fibUsable&&fibLadder.provisional){
       var pf=fibLadder.provisional,pStart=Math.max(0,cX(Math.min(pf.startIndex,pf.endIndex)-offset)-candleW/2);
+      var provisionalReference=isFinite(Number(chartState.livePrice))?Number(chartState.livePrice):Number(c[c.length-1]),provisionalLabels={};
+      pf.levels.slice().sort(function(a,b){return Math.abs(a.price-provisionalReference)-Math.abs(b.price-provisionalReference);}).slice(0,2).forEach(function(x){provisionalLabels[String(x.ratio)]=true;});
       pf.levels.forEach(function(pl){
         if(pl.price<pMin||pl.price>pMax)return;
         var py=snapY(pY(pl.price)),pk=String(pl.ratio).replace(/^0\./,'.');
         ctx.save();ctx.strokeStyle='#64b5f6';ctx.lineWidth=1;ctx.globalAlpha=.48;ctx.setLineDash([2,5]);
         ctx.beginPath();ctx.moveTo(pStart,py);ctx.lineTo(chartW,py);ctx.stroke();ctx.restore();
-        _fibLbls.push({y:py,col:'#64b5f6',lbl:'P '+pk+' ('+fmtPrice(pl.price)+')'});
+        if(provisionalLabels[String(pl.ratio)])_fibLbls.push({y:py,col:'#64b5f6',lbl:'P '+pk+' ('+fmtPrice(pl.price)+')'});
       });
       var psx=cX(pf.startIndex-offset),pex=cX(pf.endIndex-offset);
       if(chartState.fibConnector){ctx.save();ctx.strokeStyle='#8992a5';ctx.lineWidth=1;ctx.globalAlpha=.3;ctx.setLineDash([2,5]);
@@ -17513,15 +17550,30 @@ function _drawChartNow() {
       plotLabels.add({text:'BASE · '+(wx.status||wx.event),col:wxCol,x:wxLeft+6,y:wxTop+8,priority:30});
       ctx.restore();
     }
-    (wx.events||[]).forEach(function(ev){
+    // The plot shows only the latest event from each useful evidence family.
+    // The full dated event history remains in the Evidence panel.
+    var wxPlotEvents=[],wxFamilies={};
+    (wx.events||[]).slice().reverse().forEach(function(ev){
+      var family=['SOS','SOW','FAIL'].indexOf(ev.code)>=0?'break':
+        ['LPS','LPSY','TEST'].indexOf(ev.code)>=0?'retest':
+        ['SPRING','UTAD','UPPER_TEST'].indexOf(ev.code)>=0?'range-test':ev.code;
+      if(!wxFamilies[family]&&wxPlotEvents.length<3){wxFamilies[family]=true;wxPlotEvents.push(ev);}
+    });
+    wxPlotEvents.reverse().forEach(function(ev){
       var vx=cX(ev.index-offset); if(vx<4||vx>chartW-4) return;
-      var vy=pY(ev.price), col=ev.side==='bear'||ev.code==='FAIL'?'#ef5350':'#26a69a';
+      var vy=pY(ev.price), col=ev.side==='bear'||ev.code==='FAIL'?'#ef5350':ev.side==='neutral'?'#f0b90b':'#26a69a';
       if(vy<TOP_PAD||vy>TOP_PAD+CANDLE_H)return;
-      plotLabels.add({text:ev.code+(ev.sequence>1?' '+ev.sequence:''),col:col,x:vx-15,y:vy+(ev.side==='bear'?-24:10),priority:60,anchor:{x:vx,y:vy}});
+      plotLabels.add({text:ev.code==='UPPER_TEST'?'UPPER TEST':ev.code,col:col,x:vx-15,y:vy+(ev.side==='bear'?-24:10),priority:60,anchor:{x:vx,y:vy}});
     });
   }
 
-  // 4. S/R horizontal levels
+  // 4. S/R horizontal levels. Prior-period and swing-reference values are kept
+  // in Evidence instead of competing with Fib/trend/plan labels on the plot.
+  chartState.referenceLevels=[];
+  function rememberReference(label,price,note){
+    price=Number(price);if(!isFinite(price))return;
+    if(!chartState.referenceLevels.some(function(x){return x.label===label;}))chartState.referenceLevels.push({label:label,price:price,note:note||''});
+  }
   if (ind.sr && d) {
     function drawSRLine(price, col, lbl) {
       if (!price || price < pMin || price > pMax) return;
@@ -17549,20 +17601,8 @@ function _drawChartNow() {
       var ydSlice = klines.slice(ydStart, ydEnd);
       var pdh = Math.max.apply(null, ydSlice.map(function(k){return parseFloat(k[2]);}));
       var pdl = Math.min.apply(null, ydSlice.map(function(k){return parseFloat(k[3]);}));
-      if (pdh >= pMin && pdh <= pMax) {
-        var pdhY = pY(pdh);
-        ctx.save(); ctx.strokeStyle='rgba(245,166,35,.7)'; ctx.lineWidth=1; ctx.setLineDash([4,5]);
-        ctx.beginPath(); ctx.moveTo(0,pdhY); ctx.lineTo(chartW,pdhY); ctx.stroke();
-        ctx.setLineDash([]); ctx.fillStyle='#F5A623'; ctx.font='bold 9px -apple-system,sans-serif'; ctx.textAlign='left';
-        _srLbls.push({ y: pdhY, col: '#f0b90b', lbl: 'PDH '+fmtPrice(pdh) }); ctx.restore();
-      }
-      if (pdl >= pMin && pdl <= pMax) {
-        var pdlY = pY(pdl);
-        ctx.save(); ctx.strokeStyle='rgba(155,108,216,.7)'; ctx.lineWidth=1; ctx.setLineDash([4,5]);
-        ctx.beginPath(); ctx.moveTo(0,pdlY); ctx.lineTo(chartW,pdlY); ctx.stroke();
-        ctx.setLineDash([]); ctx.fillStyle='#9B6CD8'; ctx.font='bold 9px -apple-system,sans-serif'; ctx.textAlign='left';
-        _srLbls.push({ y: pdlY, col: '#f0b90b', lbl: 'PDL '+fmtPrice(pdl) }); ctx.restore();
-      }
+      rememberReference('PDH',pdh,'Previous completed UTC day high');
+      rememberReference('PDL',pdl,'Previous completed UTC day low');
     }
 
     // PWH/PWL + PMH/PML — previous COMPLETED week (Mon 00:00 UTC) and calendar
@@ -17584,11 +17624,7 @@ function _drawChartNow() {
         return seen ? {hi:hi, lo:lo} : null;
       }
       function levelTag(price, lbl){
-        if(price < pMin || price > pMax) return;
-        var y = pY(price);
-        ctx.save(); ctx.strokeStyle='rgba(240,185,11,.5)'; ctx.lineWidth=1; ctx.setLineDash([2,6]);
-        ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(chartW,y); ctx.stroke(); ctx.restore();
-        _srLbls.push({ y:y, col:'#f0b90b', lbl: lbl+' '+fmtPrice(price) });
+        rememberReference(lbl,price,lbl[1]==='W'?'Previous completed UTC week':'Previous completed UTC month');
       }
       if(chartState.viewMode!=='analysis')return;
       var nowMs = Date.now();
@@ -18339,12 +18375,9 @@ function _drawChartNow() {
     ctx.restore();
   }
 
-  // ── LIQUIDATION ZONES (by TA) ────────────────────────────────────────────────
-  // Real liquidation heatmaps need paid position data. This is the honest TA proxy:
-  // liquidation cascades cluster at obvious STOP-LOSS POOLS — recent swing highs
-  // (shorts' stops / breakout-buy stops sit just above) and swing lows (longs'
-  // stops sit just below). Price often "hunts" these. We mark the nearest cluster
-  // above and below current price as shaded zones. Estimated levels, NOT real data.
+  // ── NEARBY SWING REFERENCES ────────────────────────────────────────────────
+  // Swing highs/lows are not liquidation data. Keep their values in Evidence;
+  // do not draw pseudo-liquidation zones or labels over the price chart.
   if (chartState.viewMode==='analysis' && visible.length > 12) {
     var curPx = parseFloat(visible[visible.length-1][4]);
     // Find swing pivots (a high/low with 2 lower/higher neighbors each side)
@@ -18369,31 +18402,8 @@ function _drawChartNow() {
       var vl = visible.map(function(k){return parseFloat(k[3]);}).filter(function(x){return x < curPx*0.998;});
       if (vl.length) lowerLiq = Math.min.apply(null, vl);
     }
-    ctx.save();
-    function liqZone(price, isUpper) {
-      if (!price || price < pMin || price > pMax) return;
-      var y = pY(price);
-      // shaded band (~0.4% thick) at the pool
-      var band = Math.abs(pY(price*0.996) - pY(price*1.004)) / 2;
-      ctx.fillStyle = isUpper ? 'rgba(239,83,80,.12)' : 'rgba(38,166,154,.12)';
-      ctx.fillRect(0, y - band, chartW, band*2);
-      ctx.strokeStyle = isUpper ? 'rgba(239,83,80,.55)' : 'rgba(38,166,154,.55)';
-      ctx.lineWidth = 1; ctx.setLineDash([2,4]);
-      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(chartW,y); ctx.stroke();
-      ctx.setLineDash([]);
-      // label directly (the _srLbls collision-flush already ran earlier in draw)
-      var lblTxt = '💧LIQ '+fmtPrice(price);
-      ctx.font = 'bold 9px -apple-system,sans-serif'; ctx.textAlign = 'left';
-      var w = ctx.measureText(lblTxt).width + 8;
-      ctx.fillStyle = isUpper ? '#ef5350' : '#26a69a';
-      if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(chartW - w - 2, y - 9, w, 13, 3); ctx.fill(); }
-      else ctx.fillRect(chartW - w - 2, y - 9, w, 13);
-      ctx.fillStyle = '#fff';
-      ctx.fillText(lblTxt, chartW - w + 2, y + 1);
-    }
-    liqZone(upperLiq, true);
-    liqZone(lowerLiq, false);
-    ctx.restore();
+    if(upperLiq)rememberReference('Nearest swing high',upperLiq,'Price-action reference only; not liquidation-position data');
+    if(lowerLiq)rememberReference('Nearest swing low',lowerLiq,'Price-action reference only; not liquidation-position data');
   }
 
   if (chartState.crosshair) {
