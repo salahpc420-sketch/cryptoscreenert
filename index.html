@@ -5193,6 +5193,8 @@ function monitorOnchain(sym){
     if(x.stealthEX) h+='<div style="margin-top:6px"><b>🔁 StealthEX</b><div style="font-size:9px;color:var(--t3)">Available swap routes: '+x.stealthEX.pairsCount+'</div></div>';
     if(x.moralis) h+='<div style="margin-top:6px"><b>🟠 Moralis — primary holder intelligence</b><div style="font-size:9px;color:var(--t3)">Holders: '+(x.moralis.totalHolders!=null?Number(x.moralis.totalHolders).toLocaleString():'—')+' · Top 10: '+(x.moralis.top10Pct!=null?Number(x.moralis.top10Pct).toFixed(2)+'%':'—')+' · 24h holder change: '+(x.moralis.holderChange&&x.moralis.holderChange['24h']&&x.moralis.holderChange['24h'].changePercent!=null?Number(x.moralis.holderChange['24h'].changePercent).toFixed(2)+'%':'—')+'</div></div>';
     if(x.alchemy) h+='<div style="margin-top:6px"><b>🔷 Alchemy — raw EVM verification</b><div style="font-size:9px;color:var(--t3)">Block '+(x.alchemy.blockNumber!=null?x.alchemy.blockNumber.toLocaleString():'—')+' · ERC-20 transfers: '+(x.alchemy.transfers!=null?x.alchemy.transfers:'—')+' · large transfers: '+(x.alchemy.largeTransfers!=null?x.alchemy.largeTransfers:'—')+'</div></div>';
+    if(x.etherscan){var ew=x.etherscan.windows&&x.etherscan.windows['7d']||{};h+='<div style="margin-top:6px"><b>🔵 Etherscan V2 — raw transfer context</b><div style="font-size:9px;color:var(--t3)">'+esc(x.etherscan.coverage)+' · 7D returned sample: '+(ew.observedTransfers!=null?ew.observedTransfers:'—')+' transfers · '+(ew.mintCount||0)+' mint / '+(ew.burnCount||0)+' burn zero-address movements</div><div style="font-size:9px;color:var(--am)">'+esc(x.etherscan.note)+'</div></div>';}
+    if(x.helius) h+='<div style="margin-top:6px"><b>🟣 Helius — Solana token context</b><div style="font-size:9px;color:var(--t3)">Current supply: '+esc(x.helius.supplyRaw||'—')+' raw units · '+(x.helius.largestTokenAccounts||[]).length+' largest token accounts returned</div><div style="font-size:9px;color:var(--am)">'+esc(x.helius.note)+'</div></div>';
     if(x.anomalies&&x.anomalies.length) h+='<div style="margin-top:6px;color:var(--am)"><b>🚨 On-chain anomalies</b><br>'+x.anomalies.map(function(a){return '• '+esc(a.text);}).join('<br>')+'</div>';
     var bias=x.bias||'UNKNOWN';
     h+='<div style="margin-top:7px;padding-top:6px;border-top:.5px solid var(--bd)"><b>On-chain bias:</b> <span style="font-weight:800;color:'+(bias==='BULLISH'?'var(--g)':bias==='BEARISH'?'var(--r)':'var(--t2)')+'">'+esc(bias)+'</span>'+(x.biasReason?'<div style="font-size:9px;color:var(--t3);margin-top:2px">'+esc(x.biasReason)+'</div>':'')+'</div>';
@@ -6000,7 +6002,7 @@ function _cuSimilarity(a,b){var x=_cuTokens(a),y=_cuTokens(b),set={};x.forEach(f
 function _cuHost(url){try{return new URL(url).hostname.replace(/^www\./,'');}catch(e){return '';}}
 function _cuPrompt(c){
   return {
-    system:'You find time-bounded crypto project events using web search. Search, do not answer from memory. Resolve ticker ambiguity before including anything. Use primary project, exchange, governance or regulator sources when available. A publication date is not an execution date. Do not include price moves, forecasts, general market news, evergreen background, rumors without a dated source, or events outside the exact windows. Return JSON only. Maximum 3 important items per period and one short sentence for why each matters. Never invent a URL. Schema: {"events":[{"period":"past|next","date":"YYYY-MM-DD","title":"short factual title","category":"Upgrade|Listing|Unlock|Governance|Security|Integration|Regulation|Other","status":"Completed|Confirmed|Scheduled|Tentative|Unverified","why":"one short factual sentence","sources":["exact retrieved URL"]}],"coverage":"one short limitation"}.',
+    system:'You find time-bounded crypto project events using web search. Search, do not answer from memory. Resolve ticker ambiguity before including anything. Use primary project, exchange, governance or regulator sources when available. A publication date is not an execution date. Do not include price moves, forecasts, general market news, evergreen background, rumors without a dated source, or events outside the exact windows. Return JSON only. Maximum 3 important items per period and one short sentence for why each matters. Never invent a URL. For onchain_expected choose only execution_tx, unlock, burn, mint, treasury, exchange_flow, dex_liquidity, wallet_balance, security_activity, network_activity, or not_applicable. It describes what direct on-chain fact would verify the event; do not claim it was observed. Schema: {"events":[{"period":"past|next","date":"YYYY-MM-DD","title":"short factual title","category":"Upgrade|Listing|Unlock|Governance|Security|Integration|Regulation|Other","status":"Completed|Confirmed|Scheduled|Tentative|Unverified","why":"one short factual sentence","onchain_expected":"allowed value","onchain_check":"one short factual check","sources":["exact retrieved URL"]}],"coverage":"one short limitation"}.',
     user:'Coin/project: '+c.query+'. Identity ticker: '+(c.coin||'not supplied')+'. Today: '+c.today+'. PAST window: '+c.pastStart+' through '+c.pastEnd+'. NEXT window: '+c.nextStart+' through '+c.nextEnd+'. Find only material updates announced/completed in the past window and scheduled events in the next window. For future items, keep tentative status and exact date uncertainty. If no source-backed item exists for a period, return an empty list for that period.'
   };
 }
@@ -6018,6 +6020,31 @@ function _cuSourcesForEvent(v,result){
   if(!urls.length)(result.grounding||[]).forEach(function(g){if(_cuSimilarity(v.title+' '+(v.why||''),g.text)<0.34)return;(g.sources||[]).forEach(function(u){u=_catURL(u);if(u&&valid[u]&&urls.indexOf(u)<0)urls.push(u);});});
   return urls.slice(0,3).map(function(u){return meta[u];}).filter(Boolean);
 }
+function _cuExpected(v){
+  var title=String(v&&v.title||''),cat=String(v&&v.category||'');
+  if(/\b(burn|destroy(?:ed|ing)? tokens?)\b/i.test(title))return 'burn';
+  if(/\b(mint|issuance|new supply)\b/i.test(title))return 'mint';
+  if(/\b(buyback|treasury)\b/i.test(title))return 'treasury';
+  if(/\b(liquidity migration|pool migration|new pool)\b/i.test(title))return 'dex_liquidity';
+  if(/\b(whale|accumulation|wallet balance)\b/i.test(title))return 'wallet_balance';
+  if(cat==='Unlock')return 'unlock';if(cat==='Security')return 'security_activity';
+  if(cat==='Upgrade'||cat==='Governance'||cat==='Integration')return 'execution_tx';
+  if(cat==='Listing'||cat==='Regulation')return 'not_applicable';
+  return 'network_activity';
+}
+function _cuCheckCopy(expected){return {
+  execution_tx:'Match the announced activation block, execution transaction or deployed contract.',
+  unlock:'Match the unlocked amount, recipient addresses and later transfers; exchange deposits are not sales.',
+  burn:'Match a zero-address or documented burn transaction and the supply change.',
+  mint:'Match a mint transaction, supply change and recipient address.',
+  treasury:'Match documented treasury addresses and buyback or distribution transactions.',
+  exchange_flow:'Check verified exchange-wallet deposits and withdrawals; deposits are not sales.',
+  dex_liquidity:'Compare the same old and new pools; USD reserve changes are not automatically LP deposits.',
+  wallet_balance:'Compare the same verified wallets over time, excluding exchanges, bridges, pools and treasury.',
+  security_activity:'Check affected contracts, abnormal outflows, paused state and same-pool liquidity changes.',
+  network_activity:'Check a matching dated transaction or protocol metric; general activity cannot prove causation.',
+  not_applicable:'This event is verified by its primary announcement, not by generic on-chain activity.'
+}[expected]||'No reliable on-chain test is defined for this claim.';}
 function _cuPacket(result,provider,c){
   if(!result||!result.searched||!(result.sources||[]).length)throw Error('No web-search source evidence returned.');
   var j=_cuJSON(result.text);if(!j||!Array.isArray(j.events))throw Error('Provider did not return usable structured updates.');
@@ -6028,7 +6055,9 @@ function _cuPacket(result,provider,c){
     if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!title)return;
     var period=date>=c.pastStart&&date<=c.pastEnd?'past':date>=c.nextStart&&date<=c.nextEnd?'next':'';if(!period)return;
     var sources=_cuSourcesForEvent(v,result);if(!sources.length)return;
-    rows.push({period:period,date:date,title:title,category:allowedCat.indexOf(v.category)>=0?v.category:'Other',status:allowedStatus.indexOf(v.status)>=0?v.status:(period==='next'?'Tentative':'Unverified'),why:why||'Read the linked source for the material details.',sources:sources,providers:[provider]});
+    var category=allowedCat.indexOf(v.category)>=0?v.category:'Other',allowedExpected=['execution_tx','unlock','burn','mint','treasury','exchange_flow','dex_liquidity','wallet_balance','security_activity','network_activity','not_applicable'];
+    var expected=allowedExpected.indexOf(v.onchain_expected)>=0?v.onchain_expected:_cuExpected({title:title,category:category});
+    rows.push({period:period,date:date,title:title,category:category,status:allowedStatus.indexOf(v.status)>=0?v.status:(period==='next'?'Tentative':'Unverified'),why:why||'Read the linked source for the material details.',onchainExpected:expected,onchainCheck:_crText(v.onchain_check,180)||_cuCheckCopy(expected),sources:sources,providers:[provider]});
   });
   return {provider:provider,events:rows,coverage:_crText(j.coverage,180),sourceCount:(result.sources||[]).length,searchEntryPoint:provider==='gemini'?_crText(result.searchEntryPoint,30000):''};
 }
@@ -6076,15 +6105,50 @@ async function _cuRun(job){
     var providers=e.providers||[],view=_coinUpdatesViews[job.sym]||{config:job.config};view.error=e.name==='AbortError'?'Update cancelled.':_catError(e);if(providers.length)view.providers=providers;_coinUpdatesViews[job.sym]=view;return null;
   }finally{delete _coinUpdatesJobs[job.sym];_cuPaint(job.sym);}
 }
+function _cuClassifyOnchain(event,out,now){
+  now=now||Date.now();var expected=event.onchainExpected||_cuExpected(event),today=new Date(now).toISOString().slice(0,10),metrics=[];
+  if(event.period==='next'||event.date>today)return {status:'NOT YET CHECKABLE',reason:'The event is scheduled for the future. Recheck after its execution window.',metrics:[],checkedAt:now};
+  if(expected==='not_applicable')return {status:'NOT APPLICABLE',reason:_cuCheckCopy(expected),metrics:[],checkedAt:now};
+  if(!out||out.status==='error')return {status:'UNKNOWN',reason:'On-chain providers did not return a usable asset snapshot.',metrics:[],checkedAt:now};
+  var exact=(out.eventProofs||[]).find(function(p){return p&&p.verified===true&&p.eventDate===event.date&&p.expected===expected&&p.txHash;});
+  if(exact)return {status:'CONFIRMED ON-CHAIN',reason:'A provider returned a matching verified transaction or activation proof.',metrics:['Transaction '+String(exact.txHash).slice(0,18)+'…'],checkedAt:now,source:exact.source||'On-chain proof'};
+  var es=out.etherscan&&out.etherscan.windows&&out.etherscan.windows['7d'];
+  if(es){metrics.push('Etherscan 7D sample: '+es.observedTransfers+' raw transfers');if(es.mintCount)metrics.push(es.mintCount+' zero-address mint transfer'+(es.mintCount===1?'':'s'));if(es.burnCount)metrics.push(es.burnCount+' zero-address burn transfer'+(es.burnCount===1?'':'s'));}
+  var net=out.networkActivity;if(net&&net.performance)metrics.push('Network sample: '+net.performance.transactions.toLocaleString()+' transactions including votes');
+  else if(net&&Array.isArray(net.metrics)&&net.metrics.length)metrics.push(net.metrics.slice(0,2).map(function(m){return m.label+': '+Number(m.value).toLocaleString();}).join(' · '));
+  var anomalies=(out.anomalies||[]),liq=out.onchainEvidence&&out.onchainEvidence.liquidity&&out.onchainEvidence.liquidity.previous;
+  if(expected==='burn'&&es&&es.burnCount>0)return {status:'SUPPORTED',reason:'A zero-address burn appears in the recent raw transfer sample. Match its transaction and amount to the announcement before calling the event confirmed.',metrics:metrics,checkedAt:now,source:'Etherscan V2'};
+  if(expected==='mint'&&es&&es.mintCount>0)return {status:'SUPPORTED',reason:'A zero-address mint appears in the recent raw transfer sample. Match its transaction, amount and recipient to the announcement before confirmation.',metrics:metrics,checkedAt:now,source:'Etherscan V2'};
+  if(expected==='security_activity'){
+    var risk=anomalies.filter(function(a){return ['liquidity_value_drop','large_transfers'].indexOf(a.type)>=0;});
+    if(risk.length)return {status:'SUPPORTED',reason:'A relevant sampled anomaly is present, but the affected contract and transaction still need exact matching.',metrics:metrics.concat(risk.slice(0,2).map(function(a){return a.text;})),checkedAt:now,source:'On-chain anomaly checks'};
+  }
+  if(expected==='dex_liquidity'&&liq&&liq.status==='OBSERVED'&&liq.changePct!=null&&Math.abs(liq.changePct)>=5)return {status:'SUPPORTED',reason:'The same selected pool changed materially in USD reserve value. This does not prove LP deposits, withdrawals or a migration by itself.',metrics:metrics.concat(['Same-pool reserve value '+(liq.changePct>0?'+':'')+liq.changePct.toFixed(1)+'%']),checkedAt:now,source:out.market&&out.market.source};
+  if(expected==='wallet_balance'){
+    var h=out.onchainEvidence&&out.onchainEvidence.holders&&out.onchainEvidence.holders.previous;
+    if(h&&h.status==='PARTIAL'&&h.deltaRaw!=null&&BigInt(h.deltaRaw)>BigInt(0))return {status:'SUPPORTED',reason:'The same sampled unlabelled addresses increased their aggregate token balance. This is not proof of purchases, unique whales or common ownership.',metrics:metrics.concat([h.matched+' matching sampled addresses']),checkedAt:now,source:out.onchainEvidence.holders.current&&out.onchainEvidence.holders.current.source};
+  }
+  var reason=expected==='unlock'?'Raw transfers cannot identify an unlock without the lock contract, amount and recipient addresses.':expected==='execution_tx'?'No matching activation block, execution transaction or deployed contract was provided by the event sources.':expected==='treasury'?'No verified treasury address and matching transaction were available.':expected==='exchange_flow'?'No complete verified exchange-wallet label set was available. Generic transfers are not exchange flow.':_cuCheckCopy(expected);
+  return {status:'UNKNOWN',reason:reason,metrics:metrics.slice(0,3),checkedAt:now,source:(out.sources||[]).slice(0,3).join(' · ')};
+}
+function _cuCheckOnchain(sym){
+  var view=_coinUpdatesViews[sym]||{},r=view.result;if(!r||view.onchainBusy)return Promise.resolve(null);
+  view.onchainBusy=true;view.error='';_coinUpdatesViews[sym]=view;_cuPaint(sym);
+  return _agentOnchain({sym:sym,force:true}).then(function(out){
+    r.past.concat(r.next).forEach(function(e){e.onchain=_cuClassifyOnchain(e,out,Date.now());});r.onchainCheckedAt=Date.now();_cuSave(r);return out;
+  }).catch(function(e){view.error='On-chain check failed: '+_catError(e);return null;}).finally(function(){view.onchainBusy=false;_coinUpdatesViews[sym]=view;_cuPaint(sym);});
+}
 function _cuResultHTML(r){
   if(!r)return '<div style="margin-top:12px;color:var(--t3)">Press <b>Get updates</b> to search. Nothing runs automatically.</div>';
   var esc=_catEsc;
   function list(label,range,rows){
     var h='<section style="min-width:0"><div style="font-weight:800;font-size:13px">'+label+'</div><div style="color:var(--t3);margin-bottom:7px">'+esc(range)+'</div>';
     if(!rows.length)return h+'<div style="padding:10px;border:1px dashed var(--bd);border-radius:8px;color:var(--t2)">No source-backed key update found in this window. Coverage is limited.</div></section>';
-    rows.forEach(function(e){var dates=e.dateOptions&&e.dateOptions.length?e.dateOptions.sort().join(' / '):e.date;
+    rows.forEach(function(e){var dates=e.dateOptions&&e.dateOptions.length?e.dateOptions.sort().join(' / '):e.date,oc=e.onchain||null,ocColor=oc&&oc.status==='CONFIRMED ON-CHAIN'?'var(--g)':oc&&oc.status==='SUPPORTED'?'var(--acc)':oc&&oc.status==='CONTRADICTED'?'var(--r)':'var(--t3)';
       h+='<article style="padding:9px 0;border-top:1px solid var(--bd)"><div style="display:flex;gap:7px;align-items:baseline;flex-wrap:wrap"><b>'+esc(dates)+'</b><span style="color:var(--acc)">'+esc(e.category)+'</span><span style="color:var(--t3)">'+esc(e.status)+'</span></div>'
-        +'<div style="font-weight:700">'+esc(e.title)+'</div><div>'+esc(e.why)+'</div><div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:4px"><span style="color:'+(e.confidence==='Cross-checked'?'var(--g)':'var(--t3)')+'">'+esc(e.confidence)+'</span><span style="color:var(--t3)">'+e.providers.map(function(p){return p==='groq'?'Groq':'Gemini';}).join(' + ')+'</span>'
+        +'<div style="font-weight:700">'+esc(e.title)+'</div><div>'+esc(e.why)+'</div><div style="color:var(--t3);margin-top:3px"><b>On-chain test:</b> '+esc(e.onchainCheck||_cuCheckCopy(e.onchainExpected))+'</div>'
+        +(oc?'<div style="margin-top:5px;padding:6px 8px;border-left:3px solid '+ocColor+';background:var(--card2)"><b style="color:'+ocColor+'">'+esc(oc.status)+'</b> · '+esc(oc.reason)+(oc.metrics&&oc.metrics.length?'<div style="color:var(--t3)">'+oc.metrics.map(esc).join(' · ')+'</div>':'')+'</div>':'')
+        +'<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:4px"><span style="color:'+(e.confidence==='Cross-checked'?'var(--g)':'var(--t3)')+'">'+esc(e.confidence)+'</span><span style="color:var(--t3)">'+e.providers.map(function(p){return p==='groq'?'Groq':'Gemini';}).join(' + ')+'</span>'
         +e.sources.slice(0,2).map(function(s,i){return '<a href="'+esc(s.url)+'" target="_blank" rel="noopener noreferrer" title="'+esc(s.title)+'">Source '+(i+1)+'</a>';}).join('')+'</div></article>';
     });return h+'</section>';
   }
@@ -6100,7 +6164,7 @@ function _cuPanelHTML(sym,view){
   var h='<section style="margin-top:10px;padding:14px;border:1px solid var(--bd);border-radius:10px;background:var(--card);font-size:11px;line-height:1.55;overflow-wrap:anywhere">'
     +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><div><b style="font-size:15px">Coin Updates</b><div style="color:var(--t2)">Only key events from the previous week and coming week. Maximum 3 per side.</div></div><button data-cu-close style="'+style+'cursor:pointer">Hide</button></div>'
     +'<div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-top:10px"><label style="flex:1;min-width:220px">Coin or project<br><input data-cu-query maxlength="100" value="'+esc(base.query)+'" placeholder="Bitcoin (BTC), Celestia (TIA), etc." style="'+style+'width:100%;box-sizing:border-box" '+(busy?'disabled':'')+'></label>'
-    +'<button data-cu-start style="'+style+'cursor:pointer;background:var(--acc);color:#fff;font-weight:800" '+(busy?'disabled':'')+'>'+(r?'Refresh · uses API':'Get updates')+'</button>'+(busy?'<button data-cu-cancel style="'+style+'cursor:pointer">Cancel</button>':'')+'</div>'
+    +'<button data-cu-start style="'+style+'cursor:pointer;background:var(--acc);color:#fff;font-weight:800" '+(busy?'disabled':'')+'>'+(r?'Refresh · uses API':'Get updates')+'</button>'+(r?'<button data-cu-onchain style="'+style+'cursor:pointer" '+(view.onchainBusy?'disabled':'')+'>'+(view.onchainBusy?'Checking on-chain…':'Check on-chain context')+'</button>':'')+(busy?'<button data-cu-cancel style="'+style+'cursor:pointer">Cancel</button>':'')+'</div>'
     +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;color:var(--t2)"><span>Groq · '+esc(state('groq'))+'</span><span>Gemini · '+esc(state('gemini'))+'</span><span>Normally 1 request each · merged locally</span><span>No Deep Research</span></div>';
   if(busy)h+='<div role="status" aria-live="polite" style="margin-top:8px;color:var(--acc)">'+esc(_coinUpdatesJobs[sym].stage)+' · '+_coinUpdatesJobs[sym].attempts+' request attempt'+(_coinUpdatesJobs[sym].attempts===1?'':'s')+'</div>';
   if(view&&view.error)h+='<div style="margin-top:8px;color:var(--am)">'+esc(view.error)+'</div>';
@@ -6123,6 +6187,7 @@ function _cuPaint(sym){
   function on(sel,fn){var el=out.querySelector(sel);if(el)el.onclick=fn;}
   on('[data-cu-close]',function(){_coinUpdatesOpen[sym]=false;out.innerHTML='';});
   on('[data-cu-start]',function(){startCoinUpdates(sym,true);});
+  on('[data-cu-onchain]',function(){_cuCheckOnchain(sym);});
   on('[data-cu-cancel]',function(){var j=_coinUpdatesJobs[sym];if(j)j.controller.abort();});
   on('[data-cu-save]',function(){
     try{var remember=!!out.querySelector('[data-cu-remember]').checked,g=out.querySelector('[data-cu-groq]').value,m=out.querySelector('[data-cu-gemini]').value;if(!g.trim()&&!m.trim())throw Error('Paste at least one new key.');if(g.trim())_cuAddKeys('groq',g,remember);if(m.trim())_cuAddKeys('gemini',m,remember);view.error='Keys saved. Get updates when ready.';}catch(e){view.error=_catError(e);}_coinUpdatesViews[sym]=view;_cuPaint(sym);
@@ -6856,12 +6921,16 @@ function renderAgent(){
   // ── ON-CHAIN API / AI KEYS ── kept here so they are visible in the Agent Monitor itself.
   var ocKey = _onchainAIKey();
   var mKey = _provKey('moralis'), aKey = _provKey('alchemy'), cqKey = _provKey('cryptoquant'), csKey = _provKey('coinstats');
+  var esKey=_provKey('etherscan'),heKey=_provKey('helius'),cgKey=_provKey('coingecko');
   var ocSaved = _onchainSavedStatus();
   var lastTest=null; try{lastTest=JSON.parse(localStorage.getItem('onchain_provider_test')||'null');}catch(e){}
   h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:9px 10px;margin-bottom:8px">';
   h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">🔑 On-chain provider keys</b><span style="font-size:9px;color:var(--t3)">save once · reused for every coin</span></div>';
   h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:7px;margin-top:8px">';
   h += '<label style="font-size:9px;color:var(--t2)">Blockscout Pro key (optional free tier)<input id="onchain-blockscout-key" type="password" value="'+_escProviderHtml(_provKey('blockscout'))+'" placeholder="proapi_… — optional EVM holder data" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"><a href="https://dev.blockscout.com" target="_blank" rel="noopener noreferrer">Get a free key</a></label>';
+  h += '<label style="font-size:9px;color:var(--t2)">Etherscan V2 key <span style="color:'+(ocSaved.etherscan?'var(--g)':'var(--t3)')+'">'+(ocSaved.etherscan?'● saved':'○ not saved')+'</span><input id="onchain-etherscan-key" type="password" value="'+_escProviderHtml(esKey)+'" placeholder="Raw EVM transfers · up to latest 1,000" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"><a href="https://etherscan.io/myapikey" target="_blank" rel="noopener noreferrer">Get a key</a></label>';
+  h += '<label style="font-size:9px;color:var(--t2)">Helius key <span style="color:'+(ocSaved.helius?'var(--g)':'var(--t3)')+'">'+(ocSaved.helius?'● saved':'○ not saved')+'</span><input id="onchain-helius-key" type="password" value="'+_escProviderHtml(heKey)+'" placeholder="Solana RPC and token context" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"><a href="https://dashboard.helius.dev" target="_blank" rel="noopener noreferrer">Get a free key</a></label>';
+  h += '<label style="font-size:9px;color:var(--t2)">CoinGecko Demo key <span style="color:'+(ocSaved.coingecko?'var(--g)':'var(--t3)')+'">'+(ocSaved.coingecko?'● saved':'○ not saved')+'</span><input id="onchain-coingecko-key" type="password" value="'+_escProviderHtml(cgKey)+'" placeholder="Higher-rate metadata and DEX routes" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"><a href="https://www.coingecko.com/en/developers/dashboard" target="_blank" rel="noopener noreferrer">Get a Demo key</a></label>';
   h += '<label style="font-size:9px;color:var(--t2)">🟠 Moralis API key <span style="color:'+(ocSaved.moralis?'var(--g)':'var(--t3)')+'">'+(ocSaved.moralis?'● saved':'○ not saved')+'</span><input id="onchain-moralis-key" type="password" value="'+_escProviderHtml(mKey)+'" placeholder="Enter Moralis API key" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"></label>';
   h += '<label style="font-size:9px;color:var(--t2)">🔷 Alchemy API key <span style="color:'+(ocSaved.alchemy?'var(--g)':'var(--t3)')+'">'+(ocSaved.alchemy?'● saved':'○ not saved')+'</span><input id="onchain-alchemy-key" type="password" value="'+_escProviderHtml(aKey)+'" placeholder="Enter Alchemy API key" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"></label>';
   h += '<label style="font-size:9px;color:var(--t2)">📊 CryptoQuant API key <span style="color:'+(ocSaved.cryptoquant?'var(--g)':'var(--t3)')+'">'+(ocSaved.cryptoquant?'● saved':'○ not saved')+'</span><input id="onchain-cryptoquant-key" type="password" value="'+_escProviderHtml(cqKey)+'" placeholder="Enter CryptoQuant API key" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"></label>';
@@ -6875,11 +6944,11 @@ function renderAgent(){
   h += '<button onclick="saveOnchainProviderKeys()" style="padding:7px 12px;border-radius:7px;border:none;background:var(--acc);color:#fff;font-weight:700;cursor:pointer;font-size:10px">💾 Save all keys</button>';
   h += '<button onclick="testOnchainAll()" style="padding:7px 12px;border-radius:7px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-weight:700;cursor:pointer;font-size:10px">🧪 Test all providers</button>';
   h += '<button onclick="testFreeOnchain()" style="padding:7px 12px;border-radius:7px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-weight:700;cursor:pointer;font-size:10px">Test free sources (no AI)</button>';
-  h += '<span id="onchain-save-status" style="font-size:9px;color:var(--t3)">'+(ocSaved.moralis||ocSaved.alchemy||ocSaved.cryptoquant||ocSaved.coinstats||ocSaved.gemini?'Saved locally in this browser':'Not saved yet')+'</span>';
+  h += '<span id="onchain-save-status" style="font-size:9px;color:var(--t3)">'+(ocSaved.etherscan||ocSaved.helius||ocSaved.coingecko||ocSaved.moralis||ocSaved.alchemy||ocSaved.cryptoquant||ocSaved.coinstats||ocSaved.gemini?'Saved locally in this browser':'Not saved yet')+'</span>';
   h += '</div>';
   h += '<div id="onchain-test-out"></div>';
   if(lastTest&&lastTest.ts) h += '<div style="font-size:8px;color:var(--t3);margin-top:5px">Last provider test: '+new Date(lastTest.ts).toLocaleString()+' · '+_escProviderHtml(lastTest.coin||'')+'</div>';
-  h += '<div style="font-size:8px;color:var(--am);margin-top:6px;line-height:1.45">Direct browser mode. Optional keys are saved in this browser, never embedded in your HTML or sent to a public proxy. CryptoQuant uses its authorization header; Blockscout uses its documented Pro API key parameter. Some providers restrict browser access or free-tier endpoints. The dedicated Gemini key only interprets evidence and remains separate from Catalyst Verification and Research AI.</div>';
+  h += '<div style="font-size:8px;color:var(--am);margin-top:6px;line-height:1.45">Direct browser mode. Optional keys are saved in this browser, never embedded in your HTML or sent to a public proxy. Etherscan and Helius keys are URL credentials required by those providers; CoinGecko Demo uses its request header. Keys are excluded from displayed errors and result caches. Raw transfers are not exchange flow or whale proof. The dedicated Gemini key only interprets evidence and remains separate from Coin Updates.</div>';
   h += '</div>';
   var _ocaOn = _onchainCatalystAlertsEnabled();
   h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:9px 10px;margin-bottom:8px">';
@@ -9541,6 +9610,30 @@ function _freeSym(raw){
   return s.replace(/(FDUSD|USDT|USDC|BUSD|TUSD|USD|JPY|EUR|TRY|BRL|BTC|ETH)$/,'');
 }
 function _freeJson(url,ms){ return _ffRequest(url,ms||9000); }
+// CoinGecko Demo stays keyless-compatible. When a Demo key is saved it is
+// carried in the documented request header, never in a URL, error, or cache.
+function _ffKeyTag(key){var h=2166136261,s=String(key||'');for(var i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return (h>>>0).toString(36);}
+function _ffAuthRequest(cacheId,url,ms,options){
+  var host=new URL(url).host,now=Date.now(),c=_ffRequests[cacheId],ttl=60000;
+  if(c&&c.promise)return c.promise;if(c&&now-c.at<ttl)return Promise.resolve(c.value);
+  if(_ffCooldown[host]&&_ffCooldown[host].until>now)return Promise.reject(Error(_ffCooldown[host].reason+'; cooling down'));
+  var entry={at:now};_ffRequests[cacheId]=entry;
+  entry.promise=_ffDirect(url,ms||9000,options).then(function(j){entry.at=Date.now();entry.value=j;delete entry.promise;return j;}).catch(function(e){
+    delete _ffRequests[cacheId];if([401,402,403,429].indexOf(e.status)>=0)_ffCooldown[host]={until:Date.now()+Math.min(900000,Math.max(60000,e.retryMs||0)),reason:'HTTP '+e.status};throw e;
+  });return entry.promise;
+}
+function _cgJson(url,ms){
+  var key=typeof _provKey==='function'?_provKey('coingecko'):'';
+  if(!key)return _freeJson(url,ms);
+  return _ffAuthRequest('cg:'+_ffKeyTag(key)+':'+url,url,ms||9000,{headers:{'Accept':'application/json','x-cg-demo-api-key':key}});
+}
+function _gtJson(url,ms){
+  var key=typeof _provKey==='function'?_provKey('coingecko'):'';
+  if(!key)return _freeJson(url,ms);
+  var prefix='https://api.geckoterminal.com/api/v2/';
+  if(url.indexOf(prefix)!==0)return _cgJson(url,ms);
+  return _cgJson('https://api.coingecko.com/api/v3/onchain/'+url.slice(prefix.length),ms);
+}
 function _freeNum(v){ if(v==null||(typeof v==='string'&&!v.trim())||typeof v==='boolean')return null;var n=Number(v);return isFinite(n)?n:null; }
 
 // FREE_FIRST_V1_BEGIN — public requests only; no proxy, account or paid plan required.
@@ -9662,7 +9755,7 @@ function _ffNetworkActivity(sym){
     });
   }).catch(function(e){return _ffNetworkEmpty(sym,_ffStatus(e),String(e.message||e));});
 }
-function _ffSolanaSamples(rows){
+function _ffSolanaSamples(rows,source){
   if(!Array.isArray(rows)||!rows.length)throw Error('No Solana performance samples');
   var seen={},seconds=0,transactions=0,nonVotes=0,nonVoteKnown=true,invalid=0,count=0;
   rows.slice(0,60).forEach(function(r){
@@ -9671,17 +9764,22 @@ function _ffSolanaSamples(rows){
     if(Number.isSafeInteger(r.numNonVoteTransactions)&&r.numNonVoteTransactions>=0&&r.numNonVoteTransactions<=r.numTransactions)nonVotes+=r.numNonVoteTransactions;else nonVoteKnown=false;
   });
   if(!count)throw Error('Solana sample validation failed');
-  return {version:1,symbol:'SOL',source:'Solana mainnet public RPC',status:'SAMPLED',metrics:[],eligible:false,asOf:Date.now(),
+  return {version:1,symbol:'SOL',source:source||'Solana mainnet public RPC',status:'SAMPLED',metrics:[],eligible:false,asOf:Date.now(),
     performance:{samples:count,seconds:seconds,transactions:transactions,nonVoteTransactions:nonVoteKnown?nonVotes:null,invalid:invalid},
     reason:'Recent performance samples, not exact rolling 1H/4H/1D windows. Total transactions include validator votes; non-vote transactions are still not buy/sell trades.'};
 }
 function _ffSolanaActivity(){
-  var c=_freeOnchainCache.solPerformance,now=Date.now();if(c&&now-c.ts<300000)return Promise.resolve(c.d);
+  var helius=typeof _provKey==='function'?_provKey('helius'):'',cacheName='solPerformance'+(helius?':helius:'+_ffKeyTag(helius):':public');
+  var c=_freeOnchainCache[cacheName],now=Date.now();if(c&&now-c.ts<300000)return Promise.resolve(c.d);
   if(c&&c.promise)return c.promise;
-  var entry={ts:now};_freeOnchainCache.solPerformance=entry;
-  entry.promise=_ffDirect('https://api.mainnet-beta.solana.com',9000,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'getRecentPerformanceSamples',params:[60]})}).then(function(j){
-    if(j&&j.error)throw Error('RPC method unavailable');return _ffSolanaSamples(j&&j.result);
-  }).catch(function(e){return Object.assign(_ffNetworkEmpty('SOL',_ffStatus(e),String(e.message||e)),{source:'Solana mainnet public RPC'});}).then(function(n){entry.d=n;delete entry.promise;return n;});
+  var entry={ts:now};_freeOnchainCache[cacheName]=entry;
+  var endpoint=helius?'https://mainnet.helius-rpc.com/?api-key='+encodeURIComponent(helius):'https://api.mainnet-beta.solana.com';
+  var options={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'getRecentPerformanceSamples',params:[60]})};
+  var source=helius?'Helius Solana RPC':'Solana mainnet public RPC';
+  var request=helius?_ffAuthRequest('helius:'+_ffKeyTag(helius)+':performance',endpoint,9000,options):_ffDirect(endpoint,9000,options);
+  entry.promise=request.then(function(j){
+    if(j&&j.error)throw Error('RPC method unavailable');return _ffSolanaSamples(j&&j.result,source);
+  }).catch(function(e){return Object.assign(_ffNetworkEmpty('SOL',_ffStatus(e),String(e.message||e)),{source:source});}).then(function(n){entry.d=n;delete entry.promise;return n;});
   return entry.promise;
 }
 function _ffCoverage(out){
@@ -9734,7 +9832,8 @@ function _freeFindCoin(sym){
   // Known IDs skip the search request. Persist only verified identities, never live prices.
   var stored=null;try{stored=JSON.parse(localStorage.getItem(key)||'null');}catch(e){}
   if(stored&&stored.d&&stored.d.symbol===sym&&stored.ts<=now&&now-stored.ts<86400000){_freeOnchainCache[key]=stored;return Promise.resolve(stored.d);}
-  var discovery=FF_COIN_IDS[sym]?Promise.resolve({coins:[{id:FF_COIN_IDS[sym],symbol:sym}]}):_freeJson('https://api.coingecko.com/api/v3/search?query='+encodeURIComponent(sym),8000);
+  var cg=typeof _cgJson==='function'?_cgJson:_freeJson;
+  var discovery=FF_COIN_IDS[sym]?Promise.resolve({coins:[{id:FF_COIN_IDS[sym],symbol:sym}]}):cg('https://api.coingecko.com/api/v3/search?query='+encodeURIComponent(sym),8000);
   return discovery.then(function(j){
     var arr=((j&&j.coins)||[]).filter(function(c){return String(c.symbol||'').toUpperCase()===sym;});
     var known={BTC:'bitcoin',ETH:'ethereum',BNB:'binancecoin',AVAX:'avalanche-2',LINK:'chainlink',
@@ -9743,7 +9842,7 @@ function _freeFindCoin(sym){
     var c=known[sym]?arr.find(function(v){return v.id===known[sym];}):arr.length===1?arr[0]:null;
     if(!c&&arr.length>1)throw Error('Ambiguous token symbol '+sym+'; no contract was selected by market rank.');
     if(!c) throw Error('CoinGecko could not identify '+sym);
-    return _freeJson('https://api.coingecko.com/api/v3/coins/'+encodeURIComponent(c.id)+'?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false&sparkline=false',9000).then(function(meta){
+    return cg('https://api.coingecko.com/api/v3/coins/'+encodeURIComponent(c.id)+'?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false&sparkline=false',9000).then(function(meta){
       if(!meta||meta.id!==c.id||String(meta.symbol||'').toUpperCase()!==sym)throw Error('Coin metadata identity mismatch for '+sym);
       var d={id:c.id,name:meta.name||c.name,symbol:sym,platforms:meta.platforms||{},detailPlatforms:meta.detail_platforms||{},identitySource:'CoinGecko coin ID and token addresses'};
       _freeOnchainCache[key]={ts:now,d:d};try{localStorage.setItem(key,JSON.stringify({ts:now,d:d}));}catch(e){}return d;
@@ -9771,7 +9870,7 @@ function _freeDiscoverNetworks(platforms){
   var cached=_freeOnchainCache.gtNetworksV4,now=Date.now();
   if(cached&&now-cached.ts<3600000)return cached.promise;
   var seen={};
-  function page(n){return _freeJson('https://api.geckoterminal.com/api/v2/networks?page='+n,8000).then(function(j){
+  function page(n){var gt=typeof _gtJson==='function'?_gtJson:_freeJson;return gt('https://api.geckoterminal.com/api/v2/networks?page='+n,8000).then(function(j){
     if(!j||!Array.isArray(j.data))throw Error('Network registry unavailable');
     var added=0;
     j.data.forEach(function(r){
@@ -9794,7 +9893,8 @@ function _freeDexMeta(meta){
   var w=wraps[meta.symbol];if(!w)return Promise.resolve(meta);
   var key='wrappedMetaV4_'+w.id,c=_freeOnchainCache[key];
   if(c&&Date.now()-c.ts<86400000)return Promise.resolve(c.d);
-  return _freeJson('https://api.coingecko.com/api/v3/coins/'+w.id+'?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false',9000).then(function(j){
+  var cg=typeof _cgJson==='function'?_cgJson:_freeJson;
+  return cg('https://api.coingecko.com/api/v3/coins/'+w.id+'?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false',9000).then(function(j){
     var addr=j&&j.platforms&&j.platforms[w.platform];
     if(!j||j.id!==w.id||String(j.symbol).toUpperCase()!==w.symbol||!addr)throw Error('Verified '+w.symbol+' address unavailable');
     var d=Object.assign({},meta,{platforms:{},representation:w.symbol+' on '+w.platform+' (wrapped '+meta.symbol+' DEX proxy)',wrappedProxy:true});
@@ -10196,7 +10296,8 @@ function _freeDexTradesWindows(network,poolId,target,summary){
   var gt=FREE_GT_NETWORK[network];
   if(!gt||!poolId||!target)return Promise.resolve({windows:_dexEmptyWindows('Verified network, pool and token address are required.'),tradesReturned:0});
   var url='https://api.geckoterminal.com/api/v2/networks/'+gt+'/pools/'+encodeURIComponent(poolId)+'/trades?token='+encodeURIComponent(target);
-  return _freeJson(url,10000).then(function(j){
+  var gtJson=typeof _gtJson==='function'?_gtJson:_freeJson;
+  return gtJson(url,10000).then(function(j){
     if(!j||!Array.isArray(j.data))throw Error('Trade response has no data array.');
     return _dexBuildWindows(j.data,{network:network,target:target,summary:summary,
       identityVerified:true,fetched:true,hasNext:!!(j.links&&j.links.next),asOf:Date.now()});
@@ -10209,7 +10310,8 @@ function _freeDexGecko(network,contract,sym){
   var gt=FREE_GT_NETWORK[network];
   if(!gt||!contract)return Promise.resolve(_dexUnavailable('No verified network/token address. Symbol-only pool matches are not used.'));
   var url='https://api.geckoterminal.com/api/v2/networks/'+gt+'/tokens/'+encodeURIComponent(contract)+'/pools?include=base_token,quote_token,dex';
-  return _freeJson(url,10000).then(function(j){
+  var gtJson=typeof _gtJson==='function'?_gtJson:_freeJson;
+  return gtJson(url,10000).then(function(j){
     var candidates=((j&&j.data)||[]).map(function(p){return _dexPoolIdentity(p,j.included,network,contract);}).filter(Boolean);
     if(!candidates.length)return _dexUnavailable('No returned pool has matching network and token-address identity.');
     // Prefer recognized counterpart assets, then real activity, then liquidity.
@@ -10435,6 +10537,9 @@ function _freeOnchainBias(x){
 // GoldRush is on-chain holder data, and StealthEX is swap-route availability.
 var FREE_MULTI_PROVIDERS = {
   blockscout:{key:'blockscout_pro_api_key',label:'Blockscout Pro (free tier)'},
+  etherscan: {key:'etherscan_v2_api_key', label:'Etherscan V2 API'},
+  helius:    {key:'helius_api_key', label:'Helius Solana API'},
+  coingecko: {key:'coingecko_demo_api_key', label:'CoinGecko Demo API'},
   coinstats: {key:'coinstats_api_key', label:'CoinStats API'},
   messari:   {key:'messari_api_key',   label:'Messari API'},
   goldrush:  {key:'goldrush_api_key',  label:'Covalent / GoldRush API'},
@@ -10446,6 +10551,60 @@ var FREE_MULTI_PROVIDERS = {
 function _escProviderHtml(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/\"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function _provKey(name){ try{return localStorage.getItem(FREE_MULTI_PROVIDERS[name].key)||'';}catch(e){return '';} }
 function _setProvKey(name,val){ try{ if(val) localStorage.setItem(FREE_MULTI_PROVIDERS[name].key,val.trim()); else localStorage.removeItem(FREE_MULTI_PROVIDERS[name].key); }catch(e){} }
+
+// Raw EVM transfer context from Etherscan V2. Free responses are capped and
+// carry no reliable exchange/owner labels, so these rows never become exchange
+// netflow or whale claims. Mint/burn counts are protocol-level facts only.
+function _etherscanRequest(network,params){
+  var key=_provKey('etherscan'),chain=FF_BLOCKSCOUT_CHAINS[network];
+  if(!key)return Promise.reject(Error('Needs Etherscan V2 API key'));
+  if(!chain)return Promise.reject(Error('Unsupported Etherscan chain'));
+  var q={chainid:chain};Object.keys(params||{}).forEach(function(k){q[k]=params[k];});
+  q.apikey=key;var url='https://api.etherscan.io/v2/api?'+Object.keys(q).map(function(k){return encodeURIComponent(k)+'='+encodeURIComponent(q[k]);}).join('&');
+  var safe=Object.keys(q).filter(function(k){return k!=='apikey';}).map(function(k){return k+'='+q[k];}).join('&');
+  return _ffAuthRequest('etherscan:'+_ffKeyTag(key)+':'+safe,url,11000);
+}
+function _etherscanTransferSample(rows,network,contract,asOf){
+  if(!Array.isArray(rows))throw Error('Etherscan transfer response has no result array');
+  var now=asOf||Date.now(),zero='0x0000000000000000000000000000000000000000',seen={},events=[],invalid=0;
+  rows.slice(0,1000).forEach(function(r){
+    var ts=Number(r&&r.timeStamp)*1000,id=String(r&&r.hash||'')+':'+String(r&&r.logIndex),addr=r&&r.contractAddress;
+    if(!r||!r.hash||r.logIndex==null||!isFinite(ts)||ts<=0||ts>now||!_dexSameAddress(addr,contract)||seen[id]){invalid++;return;}seen[id]=1;
+    var raw=_ocRaw(r.value),dec=_freeNum(r.tokenDecimal);if(raw==null||dec==null||dec<0||dec>36){invalid++;return;}
+    var from=_dexAddress(r.from),to=_dexAddress(r.to);if(!from||!to){invalid++;return;}
+    events.push({id:id,ts:ts,from:from,to:to,raw:raw,decimals:dec,mint:from===zero,burn:to===zero});
+  });
+  events.sort(function(a,b){return b.ts-a.ts;});
+  function sum(list){var n=BigInt(0);list.forEach(function(e){n+=BigInt(e.raw);});return n.toString();}
+  var windows={};[['1d',86400000],['7d',604800000]].forEach(function(k){var ev=events.filter(function(e){return e.ts>now-k[1]&&e.ts<=now;}),m=ev.filter(function(e){return e.mint;}),b=ev.filter(function(e){return e.burn;}),dec=ev.length?ev[0].decimals:null;
+    windows[k[0]]={status:events.length?'PARTIAL':'UNAVAILABLE',observedTransfers:ev.length,mintCount:m.length,burnCount:b.length,mintedTokens:m.length?_ocUnits(sum(m),dec):null,burnedTokens:b.length?_ocUnits(sum(b),dec):null,eligible:false,
+      note:'Most recent Etherscan V2 rows only; raw addresses are unlabelled. Mint/burn means zero-address movement, not event attribution.'};
+  });
+  var oldest=events.length?events[events.length-1].ts:null;
+  return {version:1,source:'Etherscan V2',network:network,contract:contract,asOf:now,returned:rows.length,valid:events.length,invalid:invalid,capReached:rows.length>=1000,oldestTs:oldest,windows:windows,
+    coverage:rows.length>=1000?'PARTIAL · latest 1,000 records only':'PARTIAL · returned history only',eligible:false,note:'Raw token transfers are not trades, exchange flows, unique wallets, or proof of a catalyst without a matching transaction/address.'};
+}
+function _etherscanEnrich(network,contract){
+  if(!_provKey('etherscan')||!network||!contract||!FF_BLOCKSCOUT_CHAINS[network])return Promise.resolve(null);
+  return _etherscanRequest(network,{module:'account',action:'tokentx',contractaddress:contract,page:1,offset:1000,sort:'desc'}).then(function(j){
+    if(!j||!Array.isArray(j.result)){if(j&&String(j.message||'').toLowerCase().indexOf('no transactions')>=0)return _etherscanTransferSample([],network,contract,Date.now());throw Error('Etherscan transfer response unavailable');}
+    return _etherscanTransferSample(j.result,network,contract,Date.now());
+  });
+}
+function _heliusRpc(method,params,ms){
+  var key=_provKey('helius');if(!key)return Promise.reject(Error('Needs Helius API key'));
+  var url='https://mainnet.helius-rpc.com/?api-key='+encodeURIComponent(key),body={jsonrpc:'2.0',id:1,method:method,params:params||[]};
+  return _ffAuthRequest('helius:'+_ffKeyTag(key)+':'+method+':'+_ffKeyTag(JSON.stringify(params||[])),url,ms||10000,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(j){if(j&&j.error)throw Error('Helius RPC method failed');return j;});
+}
+function _heliusEnrich(sym,network,contract){
+  if(!_provKey('helius')||network!=='solana'||!contract||sym==='SOL')return Promise.resolve(null);
+  return Promise.all([_heliusRpc('getTokenSupply',[contract]),_heliusRpc('getTokenLargestAccounts',[contract])]).then(function(r){
+    var supply=r[0]&&r[0].result&&r[0].result.value,accounts=r[1]&&r[1].result&&r[1].result.value;
+    if(!supply||!Array.isArray(accounts))throw Error('Helius token response identity unavailable');
+    return {version:1,source:'Helius Solana RPC',mint:contract,asOf:Date.now(),supplyRaw:String(supply.amount),decimals:_freeNum(supply.decimals),largestTokenAccounts:accounts.slice(0,20).map(function(a){return {address:a.address,amountRaw:a.amount,decimals:a.decimals};}),eligible:false,
+      note:'Largest token accounts are token accounts, not verified owners or whales. Current supply is not a historical supply change.'};
+  });
+}
 
 // ── DEDICATED ON-CHAIN AI ──────────────────────────────────────────────────
 // Separate from Catalyst Verification and separate from the main Research/Analyst AI.
@@ -10460,12 +10619,18 @@ function _setOnchainAIModel(val){ try{ localStorage.setItem('onchain_ai_model',S
 function saveOnchainProviderKeys(){
   try{
     var bs=document.getElementById('onchain-blockscout-key');if(bs)_setProvKey('blockscout',bs.value);
+    var es=document.getElementById('onchain-etherscan-key');
+    var he=document.getElementById('onchain-helius-key');
+    var cg=document.getElementById('onchain-coingecko-key');
     var m=document.getElementById('onchain-moralis-key');
     var a=document.getElementById('onchain-alchemy-key');
     var cq=document.getElementById('onchain-cryptoquant-key');
     var cs=document.getElementById('onchain-coinstats-key');
     var g=document.getElementById('onchain-gemini-key');
     var model=document.getElementById('onchain-gemini-model');
+    _setProvKey('etherscan',es?es.value:'');
+    _setProvKey('helius',he?he.value:'');
+    _setProvKey('coingecko',cg?cg.value:'');
     _setProvKey('moralis',m?m.value:'');
     _setProvKey('alchemy',a?a.value:'');
     _setProvKey('cryptoquant',cq?cq.value:'');
@@ -10482,8 +10647,9 @@ function saveOnchainProviderKeys(){
 }
 
 function _onchainSavedStatus(){
+  var es=!!_provKey('etherscan'),he=!!_provKey('helius'),cg=!!_provKey('coingecko');
   var m=!!_provKey('moralis'), a=!!_provKey('alchemy'), cq=!!_provKey('cryptoquant'), cs=!!_provKey('coinstats'), g=!!_onchainAIKey();
-  return {moralis:m,alchemy:a,cryptoquant:cq,coinstats:cs,gemini:g};
+  return {etherscan:es,helius:he,coingecko:cg,moralis:m,alchemy:a,cryptoquant:cq,coinstats:cs,gemini:g};
 }
 
 // Real connection test. It uses a small known EVM token when the current coin
@@ -10508,6 +10674,24 @@ function testOnchainAll(){
     if(_provKey('blockscout'))jobs.push(_ffBlockscoutJson('ethereum','tokens/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2').then(function(j){
       if(!j||!_dexSameAddress(j.address_hash,'0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'))throw Error('Token response identity mismatch');add('Blockscout Pro',true,'Ethereum WETH test response; not proof of coverage for every coin');
     }).catch(function(e){add('Blockscout Pro',false,e.message);}));else add('Blockscout Pro',null,'optional free key not configured');
+
+    if(st.etherscan){
+      jobs.push(_etherscanRequest('ethereum',{module:'proxy',action:'eth_blockNumber'}).then(function(j){
+        if(!j||!/^0x[0-9a-f]+$/i.test(j.result||''))throw Error('Unexpected Etherscan block response');add('Etherscan V2',true,'authenticated · Ethereum block '+parseInt(j.result,16).toLocaleString());
+      }).catch(function(e){add('Etherscan V2',false,e.message||'request failed');}));
+    } else add('Etherscan V2',null,'not configured');
+
+    if(st.helius){
+      jobs.push(_heliusRpc('getLatestBlockhash',[{commitment:'finalized'}]).then(function(j){
+        var hash=j&&j.result&&j.result.value&&j.result.value.blockhash;if(!hash)throw Error('Unexpected Helius RPC response');add('Helius',true,'authenticated · finalized Solana blockhash received');
+      }).catch(function(e){add('Helius',false,e.message||'request failed');}));
+    } else add('Helius',null,'not configured');
+
+    if(st.coingecko){
+      jobs.push(_cgJson('https://api.coingecko.com/api/v3/ping',8000).then(function(j){
+        if(!j||!j.gecko_says)throw Error('Unexpected CoinGecko response');add('CoinGecko Demo',true,'authenticated header · metadata/DEX routes ready');
+      }).catch(function(e){add('CoinGecko Demo',false,e.message||'request failed');}));
+    } else add('CoinGecko Demo',null,'not configured');
 
     if(st.moralis){
       jobs.push(_headerFetch('https://deep-index.moralis.io/api/v2.2/erc20/'+encodeURIComponent(contract)+'/holders?chain='+encodeURIComponent(chain),{'X-API-Key':_provKey('moralis')},10000)
@@ -10756,6 +10940,8 @@ function _freeProviderEnrichment(sym,baseOut){
     _stealthExEnrich(sym).then(function(v){if(v){baseOut.stealthEX=v;baseOut.sources.push('StealthEX');}}).catch(function(e){baseOut.providerErrors.push('StealthEX: '+e.message);}),
     _moralisEnrich(sym,baseOut.network,baseOut.contract,baseOut.tokenDecimals).then(function(v){if(v){baseOut.moralis=v;baseOut.sources.push('Moralis');(v.diagnostics||[]).forEach(function(d){baseOut.providerErrors.push('Moralis '+d);});}}).catch(function(e){baseOut.providerErrors.push('Moralis: '+e.message);}),
     _alchemyEnrich(sym,baseOut.network,baseOut.contract,null).then(function(v){if(v){baseOut.alchemy=v;baseOut.sources.push('Alchemy');}}).catch(function(e){baseOut.providerErrors.push('Alchemy: '+e.message);}),
+    _etherscanEnrich(baseOut.network,baseOut.contract).then(function(v){if(v){baseOut.etherscan=v;baseOut.sources.push('Etherscan V2 raw transfers');}}).catch(function(e){baseOut.providerErrors.push('Etherscan: '+e.message);}),
+    _heliusEnrich(sym,baseOut.network,baseOut.contract).then(function(v){if(v){baseOut.helius=v;baseOut.sources.push('Helius Solana RPC');}}).catch(function(e){baseOut.providerErrors.push('Helius: '+e.message);}),
     _cryptoQuantEnrich(sym).then(function(v){if(v){baseOut.cryptoquant=v;baseOut.sources.push('CryptoQuant');}}).catch(function(e){baseOut.providerErrors.push('CryptoQuant: '+e.message);})
   ];
   if(baseOut.network&&baseOut.contract) jobs.push(_goldRushEnrich(sym,baseOut.network,baseOut.contract).then(function(v){if(v){baseOut.goldRush=v;baseOut.sources.push('Covalent / GoldRush');}}).catch(function(e){baseOut.providerErrors.push('GoldRush: '+e.message);}));
