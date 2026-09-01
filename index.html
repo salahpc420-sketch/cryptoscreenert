@@ -1962,6 +1962,13 @@ function installManualChartEvents(canvas){
   },{capture:true,passive:false});
   canvas.addEventListener('touchend',function(){chartState.manualDrag=null;});
 }
+function trendlineBreakLabel(L){
+  if(!L||L.breakIdx==null)return null;
+  if(L.failedAt!=null||L.state==='FAILED BREAK')return {text:'FAILED BREAK',index:L.failedAt!=null?L.failedAt:L.breakIdx};
+  if(L.retestHeld||L.state==='RETEST HELD')return {text:'RETEST HELD',index:L.retestAt!=null?L.retestAt:L.breakIdx};
+  if((L.breakBarsAgo||0)>0)return {text:'BREAK HOLDING',index:L.lastClosedAt!=null?L.lastClosedAt:L.breakIdx};
+  return {text:L.direction==='down'?'↑ CLOSE BREAK':'↓ CLOSE BREAK',index:L.breakIdx};
+}
 function drawChartTrendlines(ctx,g){
   var mode=chartState.trendMode||'auto',tl=chartState.trendlines||{},k=chartState.klines||[];
   chartState.manualHits=[];if(mode==='off')return;
@@ -1999,10 +2006,11 @@ function drawChartTrendlines(ctx,g){
       ctx.save();ctx.fillStyle=col;
       (L.touchIndices||[]).forEach(function(i){var x=g.cX(i),y=g.pY(L.p1+L.slope*(i-L.i1));
         if(x>=0&&x<g.chartW&&y>=g.top&&y<=g.top+g.height){ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill();}});
-      if(L.breakIdx!=null&&k[L.breakIdx]){var bx=g.cX(L.breakIdx),by=g.pY(Number(k[L.breakIdx][4]));
-        if(bx>10&&bx<g.chartW-10&&by>g.top+15&&by<g.top+g.height-15){var text=L.direction==='down'?'↑ CLOSE BREAK':'↓ CLOSE BREAK';
-          if(g.labels)g.labels.add({text:text,col:col,x:bx+5,y:by-28,priority:55,anchor:{x:bx,y:by}});
-          else{ctx.font='10px -apple-system,sans-serif';ctx.fillText(text,bx+5,by-12);}}}
+      var breakLabel=trendlineBreakLabel(L),breakIndex=breakLabel&&breakLabel.index;
+      if(breakLabel&&breakIndex!=null&&k[breakIndex]){var bx=g.cX(breakIndex),by=g.pY(Number(k[breakIndex][4]));
+        if(bx>10&&bx<g.chartW-10&&by>g.top+15&&by<g.top+g.height-15){
+          if(g.labels)g.labels.add({text:breakLabel.text,col:col,x:bx+5,y:by-28,priority:55,anchor:{x:bx,y:by}});
+          else{ctx.font='10px -apple-system,sans-serif';ctx.fillText(breakLabel.text,bx+5,by-12);}}}
       ctx.restore();
     });
   }
@@ -17299,7 +17307,7 @@ function _drawChartNow() {
   var W = wrap ? wrap.clientWidth : 700;
   var showVol = ind.vol;
   var showRSI = ind.rsi;
-  var RIGHT_PAD = 96;   // reserve readable price labels, separate from plot
+  var RIGHT_PAD = W < 600 ? 110 : 126; // room for "TP · R · %" without clipping
   var LEFT_PAD  = 0;    // no left pad — candles go edge to edge
   var TOP_PAD   = 4;
   var BOTTOM_PAD = 28;  // time labels
@@ -17947,13 +17955,14 @@ function _drawChartNow() {
   ctx.fillStyle = C.text2;
   ctx.font = '10px -apple-system,sans-serif';
   ctx.textAlign = 'center';
-  var tStep = Math.max(1, Math.round(zoom / 7));
+  var tStep = Math.max(1, Math.round(zoom / 7)),lastAxisDay=null;
   for (var i = 0; i < visible.length; i += tStep) {
     var ts = parseInt(visible[i][0]);
     var dt = new Date(ts);
-    var tl = (chartState.tf === '1d' || chartState.tf === '1w')
-      ? (dt.getMonth()+1) + '/' + dt.getDate()
-      : dt.getHours().toString().padStart(2,'0') + ':' + dt.getMinutes().toString().padStart(2,'0');
+    var dayKey=dt.getFullYear()+'-'+dt.getMonth()+'-'+dt.getDate(),intraday=chartState.tf!=='1d'&&chartState.tf!=='1w';
+    var clock=dt.getHours().toString().padStart(2,'0')+':'+dt.getMinutes().toString().padStart(2,'0');
+    var tl=intraday?(dayKey!==lastAxisDay?(dt.getMonth()+1)+'/'+dt.getDate()+' '+clock:clock):(dt.getMonth()+1)+'/'+dt.getDate();
+    lastAxisDay=dayKey;
     var tx = cX(i);
     if (tx > 20 && tx < chartW - 20) ctx.fillText(tl, tx, timeY);
   }
@@ -17970,6 +17979,7 @@ function _drawChartNow() {
   // Rule: ALL labels on RIGHT axis only. No text on candles.
   // Drawing order: zones → candles → lines → arrows → labels → panel
   // ══════════════════════════════════════════════════════════════════════════
+  chartState.planAxisLabels=[];
   if (ind.analyst && d) {
     var aPlan  = buildCanonicalChartPlan(d);
     var aEntry = aPlan.entry;
@@ -18194,9 +18204,9 @@ function _drawChartNow() {
 
     // LAYER C: Horizontal lines + right-axis pills (TV style, guaranteed no overlap)
     var tvLevels = [
-      {price: aTP3,   col:aPlan.tp3Passed?'#787b86':'#089981', name:aPlan.tp3Passed?'TP3 PASSED':'TP3 +'  + ((aTP3-aEntry)/aEntry*100).toFixed(1)+'%', dash:aPlan.tp3Passed?[2,4]:[3,3], lw:1},
-      {price: aTP2,   col:aPlan.tp2Passed?'#787b86':'#26a69a', name:aPlan.tp2Passed?'TP2 PASSED':'TP2 +'  + ((aTP2-aEntry)/aEntry*100).toFixed(1)+'%', dash:aPlan.tp2Passed?[2,4]:null,  lw:aPlan.tp2Passed?1:1.5},
-      {price: aTP1,   col:aPlan.tp1Passed?'#787b86':'#2ecc71', name:aPlan.tp1Passed?'TP1 PASSED':'TP1 '+aTp1R+'R', dash:aPlan.tp1Passed?[2,4]:null, lw:aPlan.tp1Passed?1:2},
+      {price: aTP3,   col:aPlan.tp3Passed?'#787b86':'#089981', name:aPlan.tp3Passed?'TP3 PASSED':'TP3 '+aTp3R+'R · +'+((aTP3-aEntry)/aEntry*100).toFixed(1)+'%', dash:aPlan.tp3Passed?[2,4]:[3,3], lw:1},
+      {price: aTP2,   col:aPlan.tp2Passed?'#787b86':'#26a69a', name:aPlan.tp2Passed?'TP2 PASSED':'TP2 '+aTp2R+'R · +'+((aTP2-aEntry)/aEntry*100).toFixed(1)+'%', dash:aPlan.tp2Passed?[2,4]:null,  lw:aPlan.tp2Passed?1:1.5},
+      {price: aTP1,   col:aPlan.tp1Passed?'#787b86':'#2ecc71', name:aPlan.tp1Passed?'TP1 PASSED':'TP1 '+aTp1R+'R · +'+((aTP1-aEntry)/aEntry*100).toFixed(1)+'%', dash:aPlan.tp1Passed?[2,4]:null, lw:aPlan.tp1Passed?1:2},
       {price: aEntry, col:'#f59e0b', name:'PLAN '+fmtPrice(aEntry), dash:null, lw:2.5},
       {price: aThesis,col:'#f59e0b', name:'CLOSE FAIL', dash:[2,4], lw:1},
       {price: aSL,    col:'#f23645', name:'STOP '+fmtPrice(aSL), dash:[5,4], lw:1.5},
@@ -18242,6 +18252,10 @@ function _drawChartNow() {
     // without moving their horizontal lines; connectors preserve exact prices.
     var occupiedY=[];
     if(chartState.livePrice>=pMin&&chartState.livePrice<=pMax)occupiedY.push(pY(chartState.livePrice));
+    if(chartState.crosshair){
+      var reservedCrosshairY=chartState.crosshair.y*(TOTAL_H/(chartState.crosshair.cssH||TOTAL_H));
+      if(reservedCrosshairY>=cT3&&reservedCrosshairY<=cB3)occupiedY.push(reservedCrosshairY);
+    }
     labelData.forEach(function(ld){
       var chosen=null;
       for(var delta=0;delta<CANDLE_H&&chosen==null;delta+=2){
@@ -18253,6 +18267,7 @@ function _drawChartNow() {
       ld.hidden=chosen==null;if(!ld.hidden){ld.y=chosen;occupiedY.push(chosen);}
     });
     labelData=labelData.filter(function(ld){return !ld.hidden;});
+    chartState.planAxisLabels=labelData.map(function(ld){return {text:ld.lv.name,price:ld.lv.price,y:ld.y,actualY:ld.origY};});
     // Step 3: Draw connector dots + shifted connector + pill labels
     labelData.forEach(function(ld) {
       var lv = ld.lv, y = ld.y, origY = ld.origY;
