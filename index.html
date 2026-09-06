@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="chart-build" content="2026.09.06-r1">
+<meta name="chart-build" content="2026.09.06-r2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -467,6 +467,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 .cp-muted{color:#9caac0;font-size:11px}.cp-pair{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:5px 0}.cp-badge{padding:2px 6px;border-radius:4px;font-size:10px;background:#2c3548}
 .cp-chart-summary{flex-basis:100%;font-size:11px;line-height:1.6;color:#bdcce0;min-width:0}.cp-chart-summary span{margin-right:14px}.cp-chart-summary .cp-health{color:#b5c4d9}
 .cp-status-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;max-width:100%}
+.cp-fib-anchor-strip{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:4px;color:#bedbff;font-variant-numeric:tabular-nums}.cp-fib-anchor-strip strong{color:#ffd18a}.cp-fib-anchor-strip button{padding:2px 7px!important;font-size:11px!important}
 .cp-summary-details{position:relative}.cp-summary-details>summary{padding:2px 7px!important;font-size:11px;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .cp-summary-details>div{position:absolute;top:27px;left:0;right:0;max-height:230px;overflow:auto;background:#202738;padding:12px;border:1px solid #60728d;border-radius:6px;z-index:45;box-shadow:0 8px 20px #0008;white-space:normal}
 .cp-summary-details>div>span{display:block;margin:5px 0}.cp-build{color:#b4c7e2;font-size:10px;margin-left:auto;white-space:nowrap}
@@ -1976,8 +1977,16 @@ function trendlineBreakLabel(L){
   if(L.failedAt!=null||L.state==='FAILED BREAK')return {text:'FAILED BREAK',index:L.failedAt!=null?L.failedAt:L.breakIdx};
   if(L.retestHeld||L.state==='RETEST HELD')return {text:'RETEST HELD',index:L.retestAt!=null?L.retestAt:L.breakIdx};
   if(L.reclaimAt!=null)return {text:'RECLAIMED',index:L.reclaimAt};
-  if((L.breakBarsAgo||0)>0)return {text:'BREAK HOLDING',index:L.lastClosedAt!=null?L.lastClosedAt:L.breakIdx};
+  if((L.breakBarsAgo||0)>0)return {text:L.direction==='down'?'Above broken resistance':'Below broken support',index:L.lastClosedAt!=null?L.lastClosedAt:L.breakIdx};
   return {text:L.direction==='down'?'↑ CLOSE BREAK':'↓ CLOSE BREAK',index:L.breakIdx};
+}
+function chartTrendIsHistorical(L){
+  if(!L||!L.broken)return false;
+  var k=chartState.klines||[],last=k[k.length-2],price=last?Number(last[4]):NaN;
+  var recent=Math.max.apply(null,[L.breakIdx,L.retestAt,L.failedAt,L.reclaimAt].filter(function(i){return i!=null;}));
+  var age=L.lastClosedAt!=null?L.lastClosedAt-recent:L.breakBarsAgo;
+  var distance=Math.max(price*.02,(Number(chartState.chartAtr)||0)*2);
+  return isFinite(price)&&price>0&&age>8&&Math.abs(L.valueNow-price)>distance;
 }
 function drawChartTrendlines(ctx,g){
   var mode=chartState.trendMode||'auto',tl=chartState.trendlines||{},k=chartState.klines||[];
@@ -2004,6 +2013,7 @@ function drawChartTrendlines(ctx,g){
   if(mode==='auto'||mode==='both'){
     [tl.up,tl.down].forEach(function(L){
       if(!L)return;
+      if(chartTrendIsHistorical(L)&&!(chartState.indicators&&chartState.indicators.history))return;
       var col=L.broken?'#8992a5':L.direction==='up'?'#26a69a':'#ef5350';
       var name=L.direction==='up'?'Support':'Resistance';
       if(L.broken)name='Former '+name.toLowerCase();
@@ -16251,13 +16261,13 @@ function installChartProUI(){
     '<label class="cp-select-label">Fib <select data-chart-fib-scope onchange="setChartFibScope(this.value)" title="Major includes internal pullbacks; Recent measures the latest local leg. Manual preserves your chosen anchors."><option value="major">Major swing</option><option value="recent">Recent swing</option><option value="manual">Manual / locked</option></select></label>'+
     '<details class="cp-ind-menu"><summary>Fib anchors</summary><div><button onclick="editChartFib()">Edit anchors</button><button onclick="lockChartFib()">Lock / unlock Fib</button><label>Retire swing <select data-chart-fib-retirement onchange="setChartFibRetirement(this.value)"><option value="extension">2 closes past 1.618 or origin break</option><option value="origin">Origin break only</option></select></label><small>Retirement is a custom app rule, not a Fibonacci law. Unlocked manual anchors can be dragged. Manual Fib is visual only.</small></div></details>'+
     '<details class="cp-ind-menu"><summary>Layers</summary><div>'+Object.keys(CHART_VIEWS.clean).map(function(k){
-      var names={ema:'EMA 20 / 50',emaLong:'EMA 100 / 200',vol:'Volume bars',rsi:'RSI',sr:'Horizontal levels',analyst:'Trade levels',fib:'Confirmed Fib',wyckoff:'Historical Wyckoff base',profile:'Estimated volume profile',preview:'Developing Fib preview',history:'Past Wyckoff events',avwap:'Anchored VWAP estimate'};
+      var names={ema:'EMA 20 / 50',emaLong:'EMA 100 / 200',vol:'Volume bars',rsi:'RSI',sr:'Horizontal levels',analyst:'Trade levels',fib:'Confirmed Fib',wyckoff:'Historical Wyckoff base',profile:'Estimated volume profile',preview:'Developing Fib preview',history:'Past events / lines',avwap:'Anchored VWAP estimate'};
       return '<button data-chart-ind="'+k+'" onclick="toggleInd(\''+k+'\')">'+names[k]+'</button>';
     }).join('')+'<button data-chart-fib-connector onclick="toggleFibConnector()">Fib anchor connector</button></div></details>'+
     '<details class="cp-ind-menu"><summary>View</summary><div><button onclick="chartFit(\'swing\')">Fit selected swing</button><button onclick="chartFit(\'all\')">Fit all</button><button onclick="chartState.offset=Math.max(0,(chartState.klines||[]).length-chartState.zoom);drawChart()">Return to live</button></div></details>'+
     '<button onclick="editChartExecution()">Execution</button><button onclick="recordChartDecision()" title="Save the current data, settings and decision for later review">Record decision</button>'+
     '<details class="cp-ind-menu"><summary>Edit lines</summary><div><button onclick="toggleDrawMode()">Draw two anchors</button><button data-chart-magnet onclick="toggleChartMagnet()">Snap to candle</button><button onclick="editSelectedDrawing(\'lock\')">Lock / unlock selected</button><button onclick="editSelectedDrawing(\'extend\')">Extend selected right</button><button onclick="editSelectedDrawing(\'delete\')">Delete selected</button><small>Click a manual line to select. Drag an unlocked anchor. Manual lines are visual only.</small></div></details>';
-    el.innerHTML+='<span class="cp-build" title="Release 2026-09-06 · verify this label after uploading">Chart 2026.09.06-r1</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
+    el.innerHTML+='<span class="cp-build" title="Release 2026-09-06 · verify this label after uploading">Chart 2026.09.06-r2</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
     if(suffix){var top=document.getElementById('chart-fs-bar');if(top)top.after(el);}
     else{var wrap=document.getElementById('chart-canvas-wrap');if(wrap)wrap.before(el);}
   });syncChartProUI();
@@ -16279,7 +16289,7 @@ function getChartTrendContext(sym){
     id:L.id,
     state:L.state,role:L.retestHeld?(L.direction==='down'?'support after retest':'resistance after retest'):(L.broken?'former ':'')+(L.direction==='down'?'resistance':'support'),
     priceAtLastClose:L.valueNow,touches:L.touches,breakBarsAgo:L.breakBarsAgo,
-    confirmedFrom:L.confirmedTime+_chartTFDuration(chartState.tf),events:(L.events||[]).map(function(e){return Object.assign({},e);}),retestHeld:L.retestHeld};}
+    historical:chartTrendIsHistorical(L),confirmedFrom:L.confirmedTime+_chartTFDuration(chartState.tf),events:(L.events||[]).map(function(e){return Object.assign({},e);}),retestHeld:L.retestHeld};}
   if(!chartState.snapshot||!chartState.snapshot.usable)return {timeframe:chartState.tf,usable:false,reason:chartState.snapshot&&chartState.snapshot.message||'No chart snapshot'};
   return {timeframe:chartState.tf,source:chartState.snapshot&&chartState.snapshot.source,snapshotId:chartState.snapshot&&chartState.snapshot.signature,closedOnly:true,support:line(chartState.trendlines.up),
     resistance:line(chartState.trendlines.down),rule:'Candidate is not validated support/resistance. Break alone is not a buy. Manual drawings and Fib connectors are not signals.'};
@@ -16818,7 +16828,7 @@ function calculateAnchoredVWAP(rows,start){
 
 function recordChartDecision(){
   if(!chartState.d||!chartState.snapshot||!chartState.snapshot.usable){window.alert('Wait for a usable closed-candle snapshot before recording a decision.');return;}
-  var record={version:'2026.09.06-r1',recordedAt:new Date().toISOString(),snapshot:chartState.snapshot,
+  var record={version:'2026.09.06-r2',recordedAt:new Date().toISOString(),snapshot:chartState.snapshot,
     symbol:chartState.sym,timeframe:chartState.tf,quote:{price:chartState.livePrice,source:chartState.quoteSource,time:chartState.lastPriceAt},
     plan:buildCanonicalChartPlan(chartState.d),metrics:chartMetrics(chartState.d),
     fib:chartState.autoFib,trendlines:chartState.trendlines,wyckoff:chartState.wyckoff,
@@ -17025,7 +17035,7 @@ function buildCanonicalChartPlan(d) {
   var score100 = Math.max(0, Math.min(100, Math.round((d.score || 0) / 97 * 100)));
   var freshSec = chartState.lastPriceAt ? Math.round((Date.now()-chartState.lastPriceAt)/1000) : null;
 
-  return {version:'2026.09.06-r1',source:source, entry:entry, zoneLow:zoneLow, zoneHigh:zoneHigh,
+  return {version:'2026.09.06-r2',source:source, entry:entry, zoneLow:zoneLow, zoneHigh:zoneHigh,
     thesis:thesis, sl:sl, tp1:tp1, tp2:tp2, tp3:tp3, live:live,
     slPct:slPct, tp1Pct:tp1Pct, tp2Pct:tp2Pct, tp3Pct:tp3Pct,
     rr1:rr1, rr2:rr2, rr3:rr3, netRR1:netRR1, liveVsEntry:liveVsEntry,
@@ -17072,10 +17082,14 @@ function populateFSTable(d) {
   freshness+=' · candles: '+esc(chartState.snapshot&&chartState.snapshot.source||'Unknown')+' · quote: '+esc(chartState.quoteSource||'awaiting ticker');
   var live=card('Live price · '+esc(chartState.tf||TF),'<div class="cp-pair"><strong class="cp-price">'+fE(p.live)+'</strong><span class="cp-muted">'+(p.liveVsEntry>=0?'+':'')+p.liveVsEntry.toFixed(2)+'% vs entry</span></div><div class="cp-muted">'+freshness+' · live candle unconfirmed</div>');
   var tl=getChartTrendContext(d.sym);
-  var trendBody=tl?[tl.support,tl.resistance].filter(Boolean).map(function(L){
+  var contextLines=tl?[tl.support,tl.resistance].filter(Boolean):[];
+  function describeTrend(L){
     return '<p><strong>'+esc(L.role)+' · '+esc(L.state)+'</strong><br>'+fE(L.priceAtLastClose)+' at last close · '+L.touches+' distinct reactions'+(L.breakBarsAgo!=null?' · break '+L.breakBarsAgo+' bars ago':'')+'</p>'+
       ((L.events||[]).length?'<details data-chart-detail="'+esc(L.id)+'"><summary>Break / retest history</summary>'+L.events.map(function(e){return '<p>'+esc(e.type)+' · '+(e.confirmedTime?esc(new Date(e.confirmedTime).toISOString().slice(0,16).replace('T',' '))+' UTC close':'Legacy observation')+'</p>';}).join('')+'</details>':'');
-  }).join(''):'';
+  }
+  var trendBody=contextLines.filter(function(L){return !L.historical;}).map(describeTrend).join('');
+  var distant=contextLines.filter(function(L){return L.historical;});
+  if(distant.length)trendBody+='<details data-chart-detail="distant-lines"><summary>Historical trendlines ('+distant.length+')</summary>'+distant.map(describeTrend).join('')+'<p class="cp-muted">Last event over 8 closed bars ago and projected price more than 2 ATR or 2% away (whichever is larger). Available on chart under Layers → Past events / lines. This display filter does not change analysis.</p></details>';
   var retired=chartState.trendlines&&chartState.trendlines.history||[];
   if(retired.length)trendBody+='<details><summary>Retired trendlines ('+retired.length+')</summary>'+retired.map(function(L){
     return '<p>'+esc(L.direction==='down'?'Former resistance':'Former support')+' · '+esc(L.state)+'<br>'+fE(L.p1)+' → '+fE(L.p2)+'<br><span class="cp-muted">'+esc(new Date(L.anchorTime1).toISOString().slice(0,16))+' → '+esc(new Date(L.anchorTime2).toISOString().slice(0,16))+' UTC · '+L.touches+' distinct reactions. Historical only.</span></p>';
@@ -17326,10 +17340,8 @@ function zoomAtCursor(canvas, clientX, newZoom) {
   drawChart();
 }
 
-// DOM cursor tags are intentionally separate from the canvas. The canvas is
-// repainted on every live tick; keeping these tags above it guarantees that the
-// hovered price and candle time remain readable while the live price continues
-// updating underneath.
+// Legacy DOM cursor elements remain hidden. Canvas owns cursor readouts so
+// their coordinates, date, and price use exactly the same mapping as candles.
 function _cursorReadoutEls(canvas) {
   var fs = canvas && canvas.id === 'chart-canvas-fs';
   return {
@@ -17345,40 +17357,9 @@ function hideChartCursorReadout(canvas) {
 }
 
 function updateChartCursorReadout(canvas, x, y) {
-  var m = chartState._map, els = _cursorReadoutEls(canvas);
-  if (!canvas || !m || !chartState.klines || !els.price || !els.time) return;
-  var rect = canvas.getBoundingClientRect();
-  var chartW = Math.max(1, rect.width - 96);
-
-  // Price under the horizontal crosshair. Blue means cursor value; the live
-  // market-price label keeps its bullish/bearish colour and remains separate.
-  if (y >= m.TOP_PAD && y <= m.TOP_PAD + m.CANDLE_H) {
-    var price = m.pMin + m.pRange * (1 - (y - m.TOP_PAD) / m.CANDLE_H);
-    els.price.textContent = fmtPrice(price);
-    els.price.style.top = Math.round(y) + 'px';
-    els.price.style.display = 'block';
-  } else {
-    els.price.style.display = 'none';
-  }
-
-  // Candle time under the vertical crosshair. Do not invent a future candle in
-  // the right-edge whitespace reserved after the live bar.
-  var localIndex = Math.floor(x / Math.max(1, m.candleW));
-  var dataIndex = m.offset + localIndex;
-  if (x >= 0 && x <= chartW && localIndex >= 0 && localIndex < (m.visibleCount||0) && dataIndex < chartState.klines.length) {
-    var bar = chartState.klines[dataIndex];
-    var dt = new Date(parseInt(bar[0]));
-    var label = (chartState.tf === '1d' || chartState.tf === '1w')
-      ? dt.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'2-digit'})
-      : dt.toLocaleDateString(undefined,{month:'short',day:'numeric'}) + ' ' +
-        dt.getHours().toString().padStart(2,'0') + ':' + dt.getMinutes().toString().padStart(2,'0');
-    els.time.textContent = label;
-    els.time.style.display = 'block';
-    var tagW = els.time.offsetWidth || 86;
-    els.time.style.left = Math.round(Math.max(0, Math.min(x - tagW/2, chartW - tagW))) + 'px';
-  } else {
-    els.time.style.display = 'none';
-  }
+  // The canvas owns both cursor badges, including on live-tick repaints.
+  // Hide legacy DOM tags so mouse/touch paths cannot paint a second copy.
+  hideChartCursorReadout(canvas);
 }
 
 function initChartEvents() {
@@ -17555,7 +17536,16 @@ function updateChartSummary(){
     (w&&w.rangeHigh?(chartState.livePrice>w.rangeHigh?'Above prior base':chartState.livePrice<w.rangeLow?'Below prior base':'Inside prior base'):'No established base')+' · '+
     (fl&&fl.provisional?'New swing developing · ':'')+(s.usable?'Closed data ready':'DATA WAIT');
   if(chartState.d){var plan=buildCanonicalChartPlan(chartState.d);compact+=' · '+plan.status;}
-  var html='<details class="cp-summary-details"><summary>'+esc(compact)+' · Details</summary><div>'+lines.join('')+'<div class="cp-health">'+esc(health)+'</div></div></details>';
+  var anchorText='';
+  if(chartState.indicators.fib&&f&&f.valid){
+    var m=chartState._map||{},first=m.offset==null?chartState.offset:m.offset,count=m.visibleCount||chartState.zoom||0;
+    var off=[f.startIndex,f.endIndex].some(function(i){return i<first||i>=first+count;})||
+      (m.pMin!=null&&[f.startPrice,f.endPrice].some(function(p){return p<m.pMin||p>m.pMin+m.pRange;}));
+    anchorText='<div class="cp-fib-anchor-strip">'+esc((f.scope==='major'?'Major':f.manual?'Manual':'Recent')+' Fib · 0: '+fmtPrice(f.startPrice)+' → 1: '+fmtPrice(f.endPrice))+
+      (off?' <strong>· Anchor outside view</strong>':'')+' <button onclick="chartFit(\'swing\')">Fit anchors</button></div>';
+  }
+  var reason=plan&&plan.status==='BLOCKED'?'<div class="cp-muted">'+esc(plan.action)+'</div>':'';
+  var html=anchorText+'<details class="cp-summary-details"><summary>'+esc(compact)+' · Details</summary><div>'+lines.join('')+'<div class="cp-health">'+esc(health)+'</div></div></details>'+reason;
   ['chart-summary','chart-summary-fs'].forEach(function(id){var el=document.getElementById(id);if(el&&el.innerHTML!==html){var wasOpen=el.querySelector&&el.querySelector('details[open]');el.innerHTML=html;if(wasOpen)el.querySelector('details').open=true;}});
 }
 function createChartLabelLayer(ctx,bounds){
@@ -18780,7 +18770,7 @@ function _drawChartNow() {
       ctx.fillText(fmtPrice(cprice2), chartW + 6, cyp + 4);
     } else { ctx.setLineDash([]); }
     // Date label
-    var ci3 = Math.max(0, Math.min(visible.length-1, Math.floor(cxp / candleW)));
+    var ci3 = cxp>=LEFT_PAD&&cxp<chartW?Math.floor((cxp-LEFT_PAD)/candleW):-1;
     if (visible[ci3]) {
       var cdt3 = new Date(parseInt(visible[ci3][0]));
       var tdStr2 = (chartState.tf==='1d'||chartState.tf==='1w')
