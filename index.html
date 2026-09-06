@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="chart-build" content="2026.09.06-r1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -464,9 +465,14 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 .cp-card h4{margin:0 0 7px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#94a5bf}
 .cp-card p{margin:6px 0}.cp-card strong{color:#edf3ff}.cp-price{font-size:19px;font-variant-numeric:tabular-nums;letter-spacing:.02em}
 .cp-muted{color:#9caac0;font-size:11px}.cp-pair{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:5px 0}.cp-badge{padding:2px 6px;border-radius:4px;font-size:10px;background:#2c3548}
-.cp-chart-summary{flex-basis:100%;font-size:11px;line-height:1.6;color:#bdcce0;overflow-wrap:anywhere}.cp-chart-summary span{margin-right:14px}.cp-chart-summary .cp-health{color:#8fa3bd}
+.cp-chart-summary{flex-basis:100%;font-size:11px;line-height:1.6;color:#bdcce0;min-width:0}.cp-chart-summary span{margin-right:14px}.cp-chart-summary .cp-health{color:#b5c4d9}
+.cp-status-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;max-width:100%}
+.cp-summary-details{position:relative}.cp-summary-details>summary{padding:2px 7px!important;font-size:11px;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.cp-summary-details>div{position:absolute;top:27px;left:0;right:0;max-height:230px;overflow:auto;background:#202738;padding:12px;border:1px solid #60728d;border-radius:6px;z-index:45;box-shadow:0 8px 20px #0008;white-space:normal}
+.cp-summary-details>div>span{display:block;margin:5px 0}.cp-build{color:#b4c7e2;font-size:10px;margin-left:auto;white-space:nowrap}
+.cp-risk-alert{border-left:4px solid #ff727c;background:#391f2a}.cp-risk-alert h4{color:#ffb2b7}
 .cp-ind-menu label{display:flex;flex-direction:column;gap:5px}.cp-ind-menu select{max-width:100%;white-space:normal;font-size:11px}
-@media(max-width:820px){.cp-chart-summary{max-height:86px;overflow-y:auto;padding-right:5px}#chart-fs-table.cp-mobile-open{display:flex!important;position:absolute;right:0;bottom:0;top:105px;width:min(340px,94vw)!important;z-index:60;box-shadow:-10px 0 24px #0009}#fs-table-toggle{display:inline-block!important}.cp-ind-menu>div{max-width:calc(100vw - 20px)}}
+@media(max-width:820px){.cp-chart-summary{max-height:none;overflow:visible;padding-right:5px}#chart-fs-table.cp-mobile-open{display:flex!important;position:absolute;right:0;bottom:0;top:105px;width:min(340px,94vw)!important;z-index:60;box-shadow:-10px 0 24px #0009}#fs-table-toggle{display:inline-block!important}.cp-ind-menu>div{max-width:calc(100vw - 20px)}}
 .cp-fib-dialog{color:#d7e2ef;background:#181d29;border:1px solid #60728d;border-radius:9px;max-width:min(480px,90vw);max-height:85vh;overflow:auto;font:13px/1.5 sans-serif}.cp-fib-dialog::backdrop{background:#0009}.cp-fib-dialog label{display:block;margin:8px 0}.cp-fib-dialog input,.cp-fib-dialog select{max-width:100%;background:#252e40;color:white;border:1px solid #60728d;padding:7px}.cp-fib-dialog button{padding:8px;cursor:pointer}.cp-fib-dialog fieldset{margin:10px 0}#fib-edit-error{color:#ff8f8f}
 .cp-levels{display:grid;grid-template-columns:1fr 1fr;gap:10px}.cp-notice{border-left:3px solid #f0b90b;background:#302d231f}.cp-check{display:flex;justify-content:space-between;gap:8px;margin:7px 0}
 @media(max-width:900px){#chart-fs-table{width:252px!important;flex-basis:252px!important}.cp-toolbar{gap:5px;padding:6px}.cp-toolbar button,.cp-toolbar select,.cp-toolbar summary{padding:5px 7px}}
@@ -509,11 +515,14 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 .dex-card-top{display:flex;justify-content:space-between;align-items:center;gap:8px}.dex-card-top>strong{font-size:15px}
 .dex-coverage{font-size:9px;letter-spacing:.04em;border:1px solid var(--bd,#ccc);border-radius:4px;padding:2px 5px;color:var(--t2)}
 .dex-direction{font-weight:750;font-size:11px;margin:5px 0 10px}.dex-flow-row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:3px 0}.dex-flow-row strong{text-align:right;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.spot-ratio-big{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;margin:8px 0 10px;padding:8px 9px;border-radius:6px;background:rgba(41,98,255,.08)}
+.spot-ratio-big span{font-size:9px;font-weight:750;letter-spacing:.04em;color:var(--t3)}.spot-ratio-big strong{font-size:20px;line-height:1;font-variant-numeric:tabular-nums;color:var(--t1)}
+.btc-live-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0}.btc-live-stat{background:var(--card2);border:1px solid var(--bd,#ddd);padding:10px;border-radius:7px;min-width:0}.btc-live-stat strong{display:block;font-size:15px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.btc-live-stat span{display:block;font-size:9px;color:var(--t3);margin-top:2px}
 .dex-muted{color:var(--t3);font-size:10px;line-height:1.55;margin-top:7px}.dex-guard{font-size:10px;padding-top:8px;margin-top:8px;border-top:1px solid var(--bd,#ddd);color:var(--t2)}
 .dex-warning{padding:8px 10px;border-left:3px solid #db9d27;background:rgba(219,157,39,.07);margin:8px 0;font-size:11px}
 .dex-window-note{font-size:10px;line-height:1.6;margin-top:7px}.dex-window-note summary,.dex-addresses summary{cursor:pointer;color:var(--t2)}
 .oc-priority{border-top:1px solid var(--bd,#ddd);padding-top:14px}.oc-proof{padding:8px;margin:5px 0;background:var(--card2);border-radius:5px;overflow-wrap:anywhere}.oc-table-wrap{overflow-x:auto}.oc-history-table{width:100%;border-collapse:collapse;font-size:11px}.oc-history-table th,.oc-history-table td{text-align:left;padding:8px;border-bottom:1px solid var(--bd,#ddd)}
-@media(max-width:720px){.dex-flow-grid{grid-template-columns:1fr}.dex-flow-row{font-size:12px}}
+@media(max-width:720px){.dex-flow-grid{grid-template-columns:1fr}.dex-flow-row{font-size:12px}.btc-live-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
 </head>
 <body>
@@ -1966,6 +1975,7 @@ function trendlineBreakLabel(L){
   if(!L||L.breakIdx==null)return null;
   if(L.failedAt!=null||L.state==='FAILED BREAK')return {text:'FAILED BREAK',index:L.failedAt!=null?L.failedAt:L.breakIdx};
   if(L.retestHeld||L.state==='RETEST HELD')return {text:'RETEST HELD',index:L.retestAt!=null?L.retestAt:L.breakIdx};
+  if(L.reclaimAt!=null)return {text:'RECLAIMED',index:L.reclaimAt};
   if((L.breakBarsAgo||0)>0)return {text:'BREAK HOLDING',index:L.lastClosedAt!=null?L.lastClosedAt:L.breakIdx};
   return {text:L.direction==='down'?'↑ CLOSE BREAK':'↓ CLOSE BREAK',index:L.breakIdx};
 }
@@ -2001,7 +2011,7 @@ function drawChartTrendlines(ctx,g){
       var candidate=L.touches<3&&!L.broken;
       // An unheld broken line is historical: stop projecting at its break/failure.
       // Only a subsequently held retest earns a continuing flipped-role guide.
-      var historyEnd=L.broken&&!L.retestHeld?g.cX(L.failedAt!=null?L.failedAt:L.breakIdx):null;
+      var historyEnd=L.broken&&!L.retestHeld&&(L.failedAt!=null||L.reclaimAt==null)?g.cX(L.failedAt!=null?L.failedAt:L.breakIdx):null;
       line({x:g.cX(L.i1),y:g.pY(L.p1)},{x:g.cX(L.i2),y:g.pY(L.p2)},col,L.broken?[7,5]:candidate?[2,5]:[],g.labels?null:name+' · '+L.state+' · '+L.touches+' reactions',historyEnd);
       ctx.save();ctx.fillStyle=col;
       (L.touchIndices||[]).forEach(function(i){var x=g.cX(i),y=g.pY(L.p1+L.slope*(i-L.i1));
@@ -2046,10 +2056,10 @@ function detectTrendlines(h,l,c,context) {
     if(!old&&context.persist){try{old=JSON.parse(localStorage.getItem('tl_state_v2:'+cacheKey)||'null');}catch(e){}}
     var revised=old&&Object.keys(fingerprints).some(function(t){return old.fingerprints&&old.fingerprints[t]!=null&&old.fingerprints[t]!==fingerprints[t];});
     var gap=context.times.some(function(t,i){return i&&t-context.times[i-1]!==interval;});
-    if(old&&(old.version!==2||revised||gap||old.lastTime>stamp(n-1)||stamp(0)>old.lastTime+interval)){old=null;rebuilt=true;}
+    if(old&&(old.version!==3||revised||gap||old.lastTime>stamp(n-1)||stamp(0)>old.lastTime+interval)){old=null;rebuilt=true;}
     if(old){
       var copy=JSON.parse(JSON.stringify(old)),shift=(stamp(0)-copy.firstTime)/interval;
-      function rebase(L){if(!L)return;['i1','i2','confirmedAt','breakIdx','failedAt','retestAt','lastClosedAt'].forEach(function(p){if(L[p]!=null)L[p]-=shift;});L.touchIndices=L.touchIndices.map(function(i){return i-shift;});}
+      function rebase(L){if(!L)return;['i1','i2','confirmedAt','breakIdx','failedAt','retestAt','reclaimAt','lastClosedAt'].forEach(function(p){if(L[p]!=null)L[p]-=shift;});L.touchIndices=L.touchIndices.map(function(i){return i-shift;});}
       book=copy.book;piv=copy.piv;history=copy.history;rebase(book.up);rebase(book.down);history.forEach(rebase);
       ['up','down'].forEach(function(key){piv[key].forEach(function(p){p.i-=shift;});piv[key]=piv[key].filter(function(p){return p.i>=0;});});
       resume=Math.max(0,context.times.findIndex(function(t){return t>copy.lastTime;}));if(stamp(n-1)===copy.lastTime)resume=n;
@@ -2064,6 +2074,12 @@ function detectTrendlines(h,l,c,context) {
     return Math.max(Math.abs(c[i])*.0005,(count?sum/count:Math.abs(c[i])*.01)*.2);
   }
   function archive(L){if(L){history.push(L);if(history.length>6)history.shift();}}
+  function event(L,type,i){
+    var events=L.events||(L.events=[]);
+    // Timestamps, rather than rebased indices, keep earlier observations immutable.
+    events.push({id:L.id+':'+type+':'+stamp(i),type:type,time:stamp(i),
+      confirmedTime:stamp(i)+(interval||0),close:c[i],linePrice:value(L,i)});
+  }
   function select(key,p,i,tol){
     var down=key==='down', points=piv[key], best=null;
     points.slice(-9,-1).forEach(function(a){
@@ -2097,12 +2113,19 @@ function detectTrendlines(h,l,c,context) {
         var back=down?c[i]<lv-tol:c[i]>lv+tol;
         if(!L.broken&&i>L.confirmedAt&&beyond){
           L.broken=true;L.breakIdx=i;L.breakTime=stamp(i);L.state=down?'CLOSED ABOVE':'CLOSED BELOW';
+          event(L,L.state,i);
         } else if(L.broken&&i>L.breakIdx){
-          if(back){L.state='FAILED BREAK';L.retestHeld=false;if(L.failedAt==null){L.failedAt=i;L.failedTime=stamp(i);}}
-          else if(!L.failedAt){
+          if(back){L.state='FAILED BREAK';L.retestHeld=false;if(L.failedAt==null){L.failedAt=i;L.failedTime=stamp(i);event(L,'FAILED BREAK',i);}}
+          else if(L.failedAt!=null&&beyond){
+            // A new episode on the same fixed line; the prior failure remains in events.
+            if(!L.events)L.events=[{id:L.id+':legacy-failure:'+L.failedTime,type:'FAILED BREAK',time:L.failedTime,legacy:true}];
+            L.failedAt=null;L.failedTime=null;L.retestHeld=false;L.retestAt=null;L.retestTime=null;
+            L.breakIdx=i;L.breakTime=stamp(i);L.reclaimAt=i;L.reclaimTime=stamp(i);L.state='RECLAIMED';
+            event(L,'RECLAIMED',i);
+          }else if(L.failedAt==null){
             var intersects=l[i]<=lv+tol&&h[i]>=lv-tol;
             var held=down?c[i]>lv:c[i]<lv;
-            if(intersects&&held){L.retestHeld=true;L.retestAt=i;L.retestTime=stamp(i);L.state='RETEST HELD';}
+            if(intersects&&held&&!L.retestHeld){L.retestHeld=true;L.retestAt=i;L.retestTime=stamp(i);L.state='RETEST HELD';event(L,'RETEST HELD',i);}
           }
         }
         if(i-L.i2>lookback||(L.broken&&i-L.breakIdx>24)){
@@ -2132,12 +2155,12 @@ function detectTrendlines(h,l,c,context) {
     L.breakTolerance=tolerance(n-1);
     L.breakBarsAgo=L.breakIdx==null?null:n-1-L.breakIdx;
     L.retestBarsAgo=L.retestAt==null?null:n-1-L.retestAt;
-    L.brokeUpNow=key==='down'&&L.broken&&!L.failedAt&&L.breakBarsAgo<=5&&c[n-1]>L.valueNow;
-    L.brokeDownNow=key==='up'&&L.broken&&!L.failedAt&&L.breakBarsAgo<=5&&c[n-1]<L.valueNow;
+    L.brokeUpNow=key==='down'&&L.broken&&L.failedAt==null&&L.breakBarsAgo<=5&&c[n-1]>L.valueNow;
+    L.brokeDownNow=key==='up'&&L.broken&&L.failedAt==null&&L.breakBarsAgo<=5&&c[n-1]<L.valueNow;
     if(!L.broken&&Math.abs(c[n-1]-L.valueNow)<=L.touchTolerance)L.state='TESTING';
   });
   if(cacheKey&&interval>0){
-    var saved={version:2,book:book,piv:piv,history:history,firstTime:stamp(0),lastTime:stamp(n-1),fingerprints:fingerprints};
+    var saved={version:3,book:book,piv:piv,history:history,firstTime:stamp(0),lastTime:stamp(n-1),fingerprints:fingerprints};
     detectTrendlines._books[cacheKey]=saved;
     var keys=Object.keys(detectTrendlines._books);if(keys.length>40)delete detectTrendlines._books[keys[0]];
     if(context.persist&&resume<n){try{
@@ -2146,7 +2169,7 @@ function detectTrendlines(h,l,c,context) {
       localStorage.setItem('tl_state_keys_v2',JSON.stringify(stored));localStorage.setItem('tl_state_v2:'+cacheKey,JSON.stringify(saved));
     }catch(e){}}
   }
-  return {up:book.up,down:book.down,history:history,closedOnly:true,lookback:lookback,pivotBars:strength,rebuilt:rebuilt};
+  return {up:book.up,down:book.down,history:history,closedOnly:true,lookback:lookback,pivotBars:strength,rebuilt:rebuilt,settingsVersion:3};
 }
 
 // Liquidity sweep detection
@@ -3997,6 +4020,7 @@ function calcOpportunity(d) {
 
 
 var btcTrendScore = 0;  // live BTC score — updated every scan, used as macro filter
+var chartBtcEvidence = null; // observed scanner context; null is not a zero-score observation
 var btcState = 'stable'; // 'bullish' | 'stable' | 'falling' | 'dumping' — gates alt buys
 var _ethVsBtc = 0, _ethWeak = false, _breadth = 50, _breadthWeak = false, _btcDominanceRising = false; // market-context gates
 var _btcCloses = null;  // BTC close prices for relative-strength calc
@@ -4156,6 +4180,9 @@ function loadAll() {
     // Update BTC trend score for macro filter
     var _btcData = allData.find(function(d){return d.sym==='BTCUSDT'||d.sym==='BTCJPY';});
     if (_btcData) btcTrendScore = _btcData.score;
+    if(_btcData&&!_btcData._stale&&_btcData.analysisSnapshot&&_btcData.analysisSnapshot.usable&&isFinite(_btcData.score)){
+      chartBtcEvidence={score:_btcData.score,observedAt:Date.now(),timeframe:TF,source:_btcData.analysisSnapshot.source};
+    }
 
     // ── BTC STATE CLASSIFIER — alts only buy when BTC is stable or bullish ──────
     // Classify BTC into a clear state from its trend (EMA stack) + recent momentum
@@ -5189,7 +5216,8 @@ function monitorOnchain(sym){
     h+='<div style="font-size:9px;color:var(--t3);margin-bottom:6px">Sources: '+esc((x.sources||[]).join(' · ')||'none')+'</div>';
     h+=_renderFreeCoverage(x);
     h+=_renderSpotFlow(x.spotFlow,x.symbol||d.pair);
-    h+=_renderDexMarket(x.market,x.symbol||d.pair);
+    h+=_renderBtcMempool(x.btcMempool);
+    if(x.symbol!=='BTC')h+=_renderDexMarket(x.market,x.symbol||d.pair);
     h+=_renderNetworkActivity(x.networkActivity);
     h+='<details class="dex-evidence"><summary style="cursor:pointer;font-weight:700">Advanced: holder balances, exchange transfers and saved history</summary>';
     if(x.holderRoute)h+='<div class="dex-source">Holder connection: '+esc(x.holderRoute.status)+' · '+esc(x.holderRoute.note)+'</div>';
@@ -6945,7 +6973,7 @@ function renderAgent(){
      + '📅 <b>Coin Updates</b> — one compact view for the previous 7 days and next 7 days. Groq and Gemini search independently, then the browser merges at most three sourced key points per period. No Deep Research, no automatic search, and no catalyst score.</div>';
   h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:8px 10px;margin-bottom:8px">';
   h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">⛓ Free On-chain Intelligence</b><span style="font-size:9px;color:var(--g)">No paid API required</span></div>';
-  h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.45">Free core: Binance spot taker volume + DEX Screener / GeckoTerminal verified pool activity + Coin Metrics Community blockchain/token activity and Solana public network samples where supported. Requests are cached and rate-limit failures cool down automatically. No paid key or AI call is needed for these calculations. Optional holder and labelled-transfer services have separate coverage limits.</div></div>';
+  h += '<div style="font-size:9px;color:var(--t3);margin-top:5px;line-height:1.45">Free core: Binance spot taker volume + BTC mempool.space network demand + DEX Screener / GeckoTerminal verified pool activity + Coin Metrics Community blockchain/token activity and Solana public network samples where supported. Requests are cached and rate-limit failures cool down automatically. No paid key or AI call is needed for these calculations. Optional holder and labelled-transfer services have separate coverage limits.</div></div>';
   // ── ON-CHAIN API / AI KEYS ── kept here so they are visible in the Agent Monitor itself.
   var ocKey = _onchainAIKey();
   var mKey = _provKey('moralis'), aKey = _provKey('alchemy'), cqKey = _provKey('cryptoquant'), csKey = _provKey('coinstats');
@@ -8442,7 +8470,21 @@ function tB(l,v,pct,rr,note){return '<div class="pbox" style="border:.5px solid 
 // ─── Position tracker tab ─────────────────────────────────────────
 function posKey(sym){return 'csp_'+sym;}
 function loadPos(sym){try{var v=localStorage.getItem(posKey(sym));return v?JSON.parse(v):null;}catch(e){return null;}}
-function savePos(sym,pos){try{localStorage.setItem(posKey(sym),JSON.stringify(pos));}catch(e){}}
+function savePos(sym,pos){
+  // Preserve the original risk when the user subsequently moves a stop.
+  var previous=loadPos(sym),sameTrade=previous&&Number(previous.entry)===Number(pos.entry);
+  if(sameTrade){
+    pos.initialSl=previous.initialSl;
+    pos.initialRiskPerUnit=previous.initialRiskPerUnit;
+    pos.riskRecordedAt=previous.riskRecordedAt;
+    pos.stopHistory=(previous.stopHistory||[]).slice(-49);
+    if(Number(previous.sl)!==Number(pos.sl))pos.stopHistory.push({time:new Date().toISOString(),from:previous.sl,to:pos.sl});
+  }else if(Number(pos.entry)>Number(pos.sl)&&Number(pos.sl)>0&&isFinite(Number(pos.entry))){
+    pos.initialSl=Number(pos.sl);pos.initialRiskPerUnit=Number(pos.entry)-Number(pos.sl);
+    pos.riskRecordedAt=new Date().toISOString();pos.stopHistory=[];
+  }
+  try{localStorage.setItem(posKey(sym),JSON.stringify(pos));}catch(e){}
+}
 function deletePos(sym){try{localStorage.removeItem(posKey(sym));}catch(e){}}
 
 function buildPosTab(d){
@@ -9665,7 +9707,7 @@ function _gtJson(url,ms){
 function _freeNum(v){ if(v==null||(typeof v==='string'&&!v.trim())||typeof v==='boolean')return null;var n=Number(v);return isFinite(n)?n:null; }
 
 // FREE_FIRST_V1_BEGIN — public requests only; no proxy, account or paid plan required.
-var _ffRequests={},_ffCooldown={},_ffPending={},_ffCatalog=null;
+var _ffRequests={},_ffCooldown={},_ffPending={},_ffCatalogs={};
 var FF_COIN_IDS={BTC:'bitcoin',ETH:'ethereum',SOL:'solana',BNB:'binancecoin',AVAX:'avalanche-2',LINK:'chainlink',
   XRP:'ripple',DOGE:'dogecoin',ADA:'cardano',LTC:'litecoin',DOT:'polkadot',AAVE:'aave',UNI:'uniswap',ARB:'arbitrum',
   OP:'optimism',SUI:'sui',APT:'aptos',NEAR:'near',ATOM:'cosmos',XLM:'stellar',BCH:'bitcoin-cash',ETC:'ethereum-classic',
@@ -9745,43 +9787,99 @@ function _ffDexScreener(rows,network,target,sym){
     poolsConsidered:pools.length,selection:'Exact network and token address; highest reported 24H volume among returned pools. Single venue, not whole-market totals.',
     flowWindows:windows,flowTradeCount:0,asOf:now,flowNote:'Provider counters remain separate from timestamped trade samples; no estimated 4H or buy/sell USD split.'};
 }
-function _ffNetworkEmpty(sym,status,reason){return {version:1,symbol:sym,source:'Coin Metrics Community',status:status,reason:reason,metrics:[],eligible:false};}
+var FF_NETWORK_METRIC_META={
+  AdrActCnt:{label:'Active addresses',unit:'count',kind:'integer',group:'Usage'},
+  AdrBalCnt:{label:'Addresses with a balance',unit:'count',kind:'integer',group:'Usage'},
+  TxCnt:{label:'Transactions',unit:'count',kind:'integer',group:'Usage'},
+  FeeTotNtv:{label:'Network fees',unit:'native',group:'Demand'},
+  FeeTotUSD:{label:'Network fees',unit:'USD',group:'Demand'},
+  TxTfrValAdjUSD:{label:'Adjusted transfer value',unit:'USD',group:'Settlement'},
+  HashRate:{label:'Hash rate',unit:'hash/s',group:'Security'},
+  DiffMean:{label:'Mean mining difficulty',unit:'ratio',group:'Security'},
+  RevUSD:{label:'Miner revenue',unit:'USD',group:'Mining'},
+  IssTotNtv:{label:'New issuance',unit:'native',group:'Supply'},
+  CapRealUSD:{label:'Realized capitalization',unit:'USD',group:'Valuation'},
+  CapMVRVCur:{label:'MVRV',unit:'ratio',group:'Valuation'},
+  SplyAct1d:{label:'Supply active in 1 day',unit:'native',group:'Supply'},
+  SplyAct30d:{label:'Supply active in 30 days',unit:'native',group:'Supply'}
+};
+var FF_NETWORK_CORE=['AdrActCnt','AdrBalCnt','TxCnt','FeeTotNtv'];
+var FF_NETWORK_BTC=['AdrActCnt','AdrBalCnt','TxCnt','FeeTotNtv','FeeTotUSD','TxTfrValAdjUSD','HashRate','DiffMean','RevUSD','IssTotNtv','CapRealUSD','CapMVRVCur','SplyAct1d','SplyAct30d'];
+function _ffNetworkEmpty(sym,status,reason){return {version:2,symbol:sym,source:'Coin Metrics Community',status:status,reason:reason,metrics:[],eligible:false};}
 function _ffNetworkMetrics(rows,asset,metrics,now){
   var day=86400000,end=Math.floor(now/day)*day,seen={},conflict={};
   if(!Array.isArray(rows))throw Error('Network metrics response has no rows');
-  rows.forEach(function(r){var t=Date.parse(r&&r.time||'');if(!r||r.asset!==asset||!Number.isFinite(t)||t%day||t>=end||t<end-10*day)return;
+  rows.forEach(function(r){var t=Date.parse(r&&r.time||'');if(!r||r.asset!==asset||!Number.isFinite(t)||t%day||t>=end||t<end-35*day)return;
     if(seen[t]&&JSON.stringify(seen[t])!==JSON.stringify(r))conflict[t]=true;else seen[t]=r;
   });
   var clean=Object.keys(seen).map(Number).filter(function(t){return !conflict[t];}).sort(function(a,b){return b-a;});
-  var labels={AdrActCnt:'Active addresses',AdrBalCnt:'Addresses with a balance',TxCnt:'Transactions',FeeTotNtv:'Network fees'};
   var result=[];metrics.forEach(function(key){
-    function value(t){if(conflict[t])return null;var n=_freeNum(seen[t]&&seen[t][key]);return n!=null&&n>=0&&(key==='FeeTotNtv'||Number.isSafeInteger(n))?n:null;}
+    var meta=FF_NETWORK_METRIC_META[key]||{label:key,unit:'provider units',group:'Other'};
+    function value(t){if(conflict[t])return null;var n=_freeNum(seen[t]&&seen[t][key]);return n!=null&&n>=0&&(meta.kind!=='integer'||Number.isSafeInteger(n))?n:null;}
     var ts=clean.find(function(t){return value(t)!=null;});if(ts==null)return;
-    var n=value(ts),prior=value(ts-day),week=value(ts-7*day);
-    result.push({key:key,label:labels[key],value:n,unit:key==='FeeTotNtv'?asset.toUpperCase():'count',start:ts,end:ts+day,
+    var n=value(ts),prior=value(ts-day),week=value(ts-7*day),month=value(ts-30*day);
+    var unit=meta.unit==='native'?asset.toUpperCase():meta.unit;
+    result.push({key:key,label:meta.label,value:n,unit:unit,group:meta.group,start:ts,end:ts+day,
       status:ts===end-day?'REPORTED':'DELAYED',change1d:prior>0?(n-prior)/prior*100:null,change7d:week>0?(n-week)/week*100:null,
-      baseline1d:prior!=null?ts-day:null,baseline7d:week!=null?ts-7*day:null});
+      change30d:month>0?(n-month)/month*100:null,baseline1d:prior!=null?ts-day:null,baseline7d:week!=null?ts-7*day:null,baseline30d:month!=null?ts-30*day:null});
   });
-  return {version:1,symbol:asset.toUpperCase(),source:'Coin Metrics Community',status:!result.length?'NO RECENT DATA':result.every(function(m){return m.status==='REPORTED';})?'REPORTED':'DELAYED',
+  return {version:2,symbol:asset.toUpperCase(),source:'Coin Metrics Community',status:!result.length?'NO RECENT DATA':result.every(function(m){return m.status==='REPORTED';})?'REPORTED':'DELAYED',
     metrics:result,asOf:now,eligible:false,reason:'Closed UTC calendar days, not rolling 24H. Activity is not buying pressure; addresses are not unique people. 7D compares one day with the day seven days earlier, not weekly totals.'};
 }
 function _ffNetworkActivity(sym){
   // Verified asset registry: request LINK metrics as LINK, never as Ethereum metrics.
   if(!FF_COIN_IDS[sym])return Promise.resolve(_ffNetworkEmpty(sym,'NOT COVERED','No verified Coin Metrics identity for this asset. Host-chain activity is not token activity.'));
   if(sym==='SOL')return _ffSolanaActivity();
-  if(!_ffCatalog)_ffCatalog=_freeJson('https://community-api.coinmetrics.io/v4/catalog/assets',12000).then(function(j){
+  var asset=sym.toLowerCase();
+  if(!_ffCatalogs[asset])_ffCatalogs[asset]=_freeJson('https://community-api.coinmetrics.io/v4/catalog/assets?assets='+encodeURIComponent(asset),12000).then(function(j){
     if(!j||!Array.isArray(j.data))throw Error('Network coverage catalog unavailable');return j.data;
-  }).catch(function(e){_ffCatalog=null;throw e;});
-  return _ffCatalog.then(function(catalog){
-    var asset=sym.toLowerCase(),c=catalog.find(function(r){return r.asset===asset;});
-    var metrics=(c&&c.metrics||[]).filter(function(m){return ['AdrActCnt','AdrBalCnt','TxCnt','FeeTotNtv'].indexOf(m.metric)>=0&&(m.frequencies||[]).some(function(f){return f.frequency==='1d'&&f.community===true&&Date.parse(f.max_time)>Date.now()-10*86400000;});}).map(function(m){return m.metric;});
+  }).catch(function(e){delete _ffCatalogs[asset];throw e;});
+  return _ffCatalogs[asset].then(function(catalog){
+    var c=catalog.find(function(r){return r.asset===asset;});
+    var wanted=sym==='BTC'?FF_NETWORK_BTC:FF_NETWORK_CORE;
+    var metrics=(c&&c.metrics||[]).filter(function(m){return wanted.indexOf(m.metric)>=0&&(m.frequencies||[]).some(function(f){return f.frequency==='1d'&&f.community===true&&Date.parse(f.max_time)>Date.now()-45*86400000;});}).map(function(m){return m.metric;});
     if(!metrics.length)return _ffNetworkEmpty(sym,'NOT COVERED','No free daily activity metrics listed for this asset. Price-only coverage is not on-chain coverage.');
     var end=Math.floor(Date.now()/86400000)*86400000;
-    return _freeJson('https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets='+asset+'&metrics='+metrics.join(',')+'&frequency=1d&page_size=20&start_time='+new Date(end-10*86400000).toISOString()+'&end_time='+new Date(end-1).toISOString(),12000).then(function(j){
+    return _freeJson('https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets='+asset+'&metrics='+metrics.join(',')+'&frequency=1d&page_size=50&start_time='+new Date(end-35*86400000).toISOString()+'&end_time='+new Date(end-1).toISOString(),12000).then(function(j){
       var n=_ffNetworkMetrics(j&&j.data,asset,metrics,Date.now());
       n.scope=FF_NATIVE.indexOf(sym)>=0?'Native network':'Provider-indexed token representation, not all chains or its host network';return n;
     });
   }).catch(function(e){return _ffNetworkEmpty(sym,_ffStatus(e),String(e.message||e));});
+}
+function _ffBtcMempoolWindow(rows,current,hours){
+  var target=current.at-hours*3600000,tolerance=Math.max(30*60000,hours*3600000*.2),prior=null,best=Infinity;
+  rows.forEach(function(r){var gap=Math.abs(r.at-target);if(gap<=tolerance&&gap<best){prior=r;best=gap;}});
+  function change(key){var old=prior&&prior[key],cur=current[key];return old!=null&&cur!=null&&old!==0?(cur-old)/Math.abs(old)*100:null;}
+  return {status:prior?'OBSERVED':'BUILDING',hours:hours,from:prior&&prior.at||null,to:current.at,
+    countChange:change('count'),vsizeChange:change('vsize'),feeChange:change('totalFee'),
+    reason:prior?'Point-to-point change from the nearest saved browser observation; not continuous historical coverage.':'Refresh over time to build a matching '+hours+'H browser baseline.'};
+}
+function _ffBtcMempoolRecord(current){
+  var key='btc_mempool_snapshots_v1',rows=[],saved=true;
+  try{rows=JSON.parse(localStorage.getItem(key)||'[]');if(!Array.isArray(rows))rows=[];}catch(e){rows=[];saved=false;}
+  rows=rows.filter(function(r){return r&&Number.isFinite(r.at)&&r.at<=current.at&&current.at-r.at<=8*86400000&&Number.isSafeInteger(r.count)&&r.count>=0&&Number.isFinite(r.vsize)&&r.vsize>=0&&Number.isFinite(r.totalFee)&&r.totalFee>=0;});
+  var last=rows[rows.length-1];if(!last||current.at-last.at>=240000)rows.push({at:current.at,count:current.count,vsize:current.vsize,totalFee:current.totalFee});
+  else rows[rows.length-1]={at:current.at,count:current.count,vsize:current.vsize,totalFee:current.totalFee};
+  if(rows.length>700)rows=rows.slice(-700);
+  try{localStorage.setItem(key,JSON.stringify(rows));}catch(e){saved=false;}
+  return {saved:saved,rows:rows};
+}
+function _ffBtcMempool(){
+  var mem=_freeJson('https://mempool.space/api/mempool',9000).then(function(j){
+    var count=_freeNum(j&&j.count),vsize=_freeNum(j&&j.vsize),fee=_freeNum(j&&j.total_fee);
+    if(!Number.isSafeInteger(count)||count<0||vsize==null||vsize<0||fee==null||fee<0)throw Error('Mempool response schema mismatch');
+    return {count:count,vsize:vsize,totalFee:fee};
+  });
+  var fees=_freeJson('https://mempool.space/api/v1/fees/recommended',9000).then(function(j){
+    var keys=['fastestFee','halfHourFee','hourFee','economyFee','minimumFee'],out={};
+    keys.forEach(function(k){var n=_freeNum(j&&j[k]);if(n!=null&&n>=0)out[k]=n;});return Object.keys(out).length?out:null;
+  }).catch(function(){return null;});
+  return Promise.all([mem,fees]).then(function(r){
+    var current=Object.assign({at:Date.now()},r[0]),history=_ffBtcMempoolRecord(current);
+    return {version:1,symbol:'BTC',source:'mempool.space public API',status:'LIVE',eligible:false,current:current,recommendedFees:r[1],historySaved:history.saved,
+      windows:{'1h':_ffBtcMempoolWindow(history.rows,current,1),'4h':_ffBtcMempoolWindow(history.rows,current,4),'1d':_ffBtcMempoolWindow(history.rows,current,24)},
+      reason:'Pending Bitcoin transactions and fee pressure. These are network-demand and congestion measurements, never buy/sell flow.'};
+  }).catch(function(e){return {version:1,symbol:'BTC',source:'mempool.space public API',status:_ffStatus(e),eligible:false,current:null,recommendedFees:null,windows:{},reason:String(e.message||e)};});
 }
 function _ffSolanaSamples(rows,source){
   if(!Array.isArray(rows)||!rows.length)throw Error('No Solana performance samples');
@@ -9811,9 +9909,10 @@ function _ffSolanaActivity(){
   return entry.promise;
 }
 function _ffCoverage(out){
-  var m=out.market,n=out.networkActivity,s=out.spotFlow,rows=[];
+  var m=out.market,n=out.networkActivity,s=out.spotFlow,bm=out.btcMempool,rows=[];
   var sw=Object.keys(s&&s.windows||{}).map(function(k){return s.windows[k].status;});
   rows.push({name:'Spot taker volume',status:sw.length&&sw.every(function(k){return k==='COMPLETE';})?'AVAILABLE':sw.some(function(k){return k==='COMPLETE'||k==='PARTIAL';})?'PARTIAL':_ffStatus(s&&s.reason),note:'Binance pair only · not on-chain'+(sw.indexOf('COMPLETE')<0&&s&&s.reason?' · '+s.reason:'')});
+  if(out.symbol==='BTC')rows.push({name:'Bitcoin mempool',status:bm&&bm.current?'AVAILABLE':bm&&bm.status||'UNAVAILABLE',note:bm&&bm.current?'Live pending-transaction and fee-pressure snapshot · not buy/sell flow':bm&&bm.reason||'No mempool snapshot'});
   rows.push({name:'DEX selected pool',status:m&&m.identityVerified?'AVAILABLE':out.symbol==='BTC'?'NOT APPLICABLE':_ffStatus(m&&m.flowNote),note:m&&m.identityVerified?(m.source||'GeckoTerminal')+' · '+m.network:(m&&m.flowNote||'No verified pool')});
   rows.push({name:'Blockchain / token activity',status:n?n.status:'NOT COVERED',note:n?n.source+' · '+(n.scope||n.reason):'No supported adapter'});
   return rows;
@@ -9825,11 +9924,27 @@ function _renderFreeCoverage(out){
 function _renderNetworkActivity(n){
   if(!n)return '';
   var esc=_escProviderHtml;
-  function num(v){return Number(v).toLocaleString(undefined,{maximumFractionDigits:6});}
+  function num(v,unit){
+    if(v==null)return 'Unknown';v=Number(v);
+    if(unit==='USD')return '$'+v.toLocaleString(undefined,{maximumFractionDigits:2});
+    if(Math.abs(v)>=1e15)return v.toExponential(4);
+    return v.toLocaleString(undefined,{maximumFractionDigits:6});
+  }
   function pct(v){return v==null?'No matching baseline':(v>0?'+':'')+v.toFixed(2)+'%';}
   if(n.performance){var p=n.performance;return '<section class="dex-evidence"><div class="dex-evidence-title">Solana network activity · SAMPLED</div><div class="dex-source">'+esc(n.source)+' · '+esc(n.reason)+'</div><div class="oc-proof">'+num(p.samples)+' samples · '+num(p.seconds/60)+' minutes of sampled duration<br>Total transactions (includes votes): '+num(p.transactions)+'<br>Non-vote transactions: '+(p.nonVoteTransactions==null?'Not reported':num(p.nonVoteTransactions))+'<br>Sample average TPS (includes votes): '+num(p.transactions/p.seconds)+'</div><div class="dex-guard">No automatic directional vote. This is network usage, not SOL buying pressure.</div></section>';}
   if(!n.metrics||!n.metrics.length)return '';
-  return '<section class="dex-evidence"><div class="dex-evidence-title">Blockchain / token activity · '+esc(n.symbol)+'</div><div class="dex-source">'+esc(n.source)+' · '+esc(n.scope||'')+' · '+esc(n.reason)+'</div><div class="oc-table-wrap"><table class="oc-history-table"><thead><tr><th>Metric</th><th>Reported value</th><th>UTC date / status</th><th>vs previous day</th><th>vs 7 days earlier</th></tr></thead><tbody>'+n.metrics.map(function(m){return '<tr><td>'+esc(m.label)+'</td><td>'+num(m.value)+(m.unit==='count'?'':' '+esc(m.unit))+'</td><td>'+new Date(m.start).toISOString().slice(0,10)+' · '+esc(m.status)+'</td><td>'+pct(m.change1d)+'</td><td>'+pct(m.change7d)+'</td></tr>';}).join('')+'</tbody></table></div><div class="dex-guard">Context only · never an independent bullish/bearish vote.</div></section>';
+  return '<section class="dex-evidence"><div class="dex-evidence-title">Blockchain / token activity · '+esc(n.symbol)+'</div><div class="dex-source">'+esc(n.source)+' · '+esc(n.scope||'')+' · '+esc(n.reason)+'</div><div class="oc-table-wrap"><table class="oc-history-table"><thead><tr><th>Group</th><th>Metric</th><th>Reported value</th><th>UTC date / status</th><th>vs prior day</th><th>vs 7D</th><th>vs 30D</th></tr></thead><tbody>'+n.metrics.map(function(m){return '<tr><td>'+esc(m.group||'Activity')+'</td><td>'+esc(m.label)+'</td><td>'+num(m.value,m.unit)+(m.unit==='count'||m.unit==='USD'?'':' '+esc(m.unit))+'</td><td>'+new Date(m.start).toISOString().slice(0,10)+' · '+esc(m.status)+'</td><td>'+pct(m.change1d)+'</td><td>'+pct(m.change7d)+'</td><td>'+pct(m.change30d)+'</td></tr>';}).join('')+'</tbody></table></div><div class="dex-guard">Only metrics currently listed in the free provider catalog are requested. Context only · never an independent bullish/bearish vote.</div></section>';
+}
+function _renderBtcMempool(m){
+  if(!m)return '';
+  var esc=_escProviderHtml;
+  if(!m.current)return '<section class="dex-evidence"><div class="dex-evidence-title">Bitcoin network now · '+esc(m.status||'UNAVAILABLE')+'</div><div class="dex-warning">'+esc(m.reason||'No mempool data returned.')+'</div></section>';
+  function whole(v){return Number(v).toLocaleString(undefined,{maximumFractionDigits:0});}
+  function pct(v){return v==null?'Baseline building':(v>0?'+':'')+v.toFixed(1)+'%';}
+  var c=m.current,f=m.recommendedFees||{},h='<section class="dex-evidence"><div class="dex-evidence-title">Bitcoin network now</div><div class="dex-scope">MEMPOOL.SPACE · LIVE PUBLIC NETWORK DATA · NOT BUY/SELL FLOW</div>'+
+    '<div class="btc-live-grid"><div class="btc-live-stat"><strong>'+whole(c.count)+'</strong><span>pending transactions</span></div><div class="btc-live-stat"><strong>'+(c.vsize/1000000).toFixed(2)+' MB</strong><span>mempool virtual size</span></div><div class="btc-live-stat"><strong>'+(c.totalFee/100000000).toFixed(4)+' BTC</strong><span>pending transaction fees</span></div><div class="btc-live-stat"><strong>'+(f.hourFee==null?'Unknown':whole(f.hourFee)+' sat/vB')+'</strong><span>estimated 1-hour fee</span></div></div><div class="dex-flow-grid">';
+  ['1h','4h','1d'].forEach(function(k){var w=m.windows&&m.windows[k]||{};h+='<article class="dex-flow-card"><div class="dex-card-top"><strong>'+k.toUpperCase()+'</strong><span class="dex-coverage">'+esc(w.status||'BUILDING')+'</span></div><div class="dex-flow-row"><span>Pending tx change</span><strong>'+pct(w.countChange)+'</strong></div><div class="dex-flow-row"><span>Virtual size change</span><strong>'+pct(w.vsizeChange)+'</strong></div><div class="dex-flow-row"><span>Pending fees change</span><strong>'+pct(w.feeChange)+'</strong></div><details class="dex-window-note"><summary>Coverage</summary>'+esc(w.reason||'Refresh over time to build this baseline.')+(w.from?'<br>'+esc(new Date(w.from).toLocaleString())+' → '+esc(new Date(w.to).toLocaleString()):'')+'</details></article>';});
+  h+='</div><div class="dex-source">Snapshot '+esc(new Date(c.at).toLocaleString())+'. '+(m.historySaved?'Browser history is building automatically.':'Browser storage unavailable; historical comparisons cannot build.')+'</div><div class="dex-guard">Higher activity or fees can mean settlement demand or congestion. It does not establish BTC accumulation, buying, or selling.</div></section>';return h;
 }
 function _ffBlockscoutJson(network,path){
   var id=FF_BLOCKSCOUT_CHAINS[network],key=_provKey('blockscout');
@@ -9842,8 +9957,8 @@ function testFreeOnchain(){
   var d=window._d||(allData||[])[0],raw=d&&(d.pair||d.sym)||'BTCUSDT',sym=_freeSym(raw);
   el.textContent='Checking free sources for '+raw+'… No AI call or API key is used.';
   var core=_freeFindCoin(sym).then(function(meta){return sym==='BTC'?{market:_dexUnavailable('Native BTC has no DEX token representation in this screener.')} :_freeDexAcross(meta);}).catch(function(e){return {market:_dexUnavailable(String(e.message||e))};});
-  return Promise.all([core,_freeSpotFlow(raw),_ffNetworkActivity(sym)]).then(function(r){
-    var x={symbol:sym,market:r[0].market,spotFlow:r[1],networkActivity:r[2]};el.innerHTML=_renderFreeCoverage(x)+'<div class="dex-source">Checked '+_escProviderHtml(new Date().toLocaleString())+'. This checks the selected chart coin, or the first loaded screener coin if no chart is selected.</div>';
+  return Promise.all([core,_freeSpotFlow(raw),_ffNetworkActivity(sym),sym==='BTC'?_ffBtcMempool():Promise.resolve(null)]).then(function(r){
+    var x={symbol:sym,market:r[0].market,spotFlow:r[1],networkActivity:r[2],btcMempool:r[3]};el.innerHTML=_renderFreeCoverage(x)+_renderSpotFlow(x.spotFlow,sym)+_renderBtcMempool(x.btcMempool)+_renderNetworkActivity(x.networkActivity)+'<div class="dex-source">Checked '+_escProviderHtml(new Date().toLocaleString())+'. This checks the selected chart coin, or the first loaded screener coin if no chart is selected.</div>';
   }).catch(function(e){el.textContent='Free-source check failed: '+String(e.message||e);});
 }
 // FREE_FIRST_V1_END
@@ -10461,15 +10576,15 @@ function _renderSpotFlow(m,symbol){
   var esc=function(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
   var pair=m.pair||{},unit=pair.quote||'quote asset';
   function amount(n){return n==null?'Unknown':(n>0&&n<.00000001?n.toExponential(3):n.toLocaleString(undefined,{maximumFractionDigits:8}))+' '+esc(unit);}
-  var h='<section class="dex-evidence"><div class="dex-evidence-title">Spot buy / sell volume · '+esc(pair.symbol||symbol)+'</div>'+
+  var h='<section class="dex-evidence"><div class="dex-evidence-title">1H / 4H / 1D market buy / sell ratio · '+esc(pair.symbol||symbol)+'</div>'+
     '<div class="dex-scope">BINANCE SPOT · ONE PAIR · EXCHANGE DATA, NOT ON-CHAIN</div>'+
     '<div class="dex-source">Aggressive (taker) buying versus selling. Every trade has both a buyer and a seller; this measures which side initiates the trade.</div><div class="dex-flow-grid">';
   ['1h','4h','1d'].forEach(function(k){var w=m.windows[k]||{};
     h+='<article class="dex-flow-card"><div class="dex-card-top"><strong>'+k.toUpperCase()+'</strong><span class="dex-coverage">'+esc(w.status||'UNAVAILABLE')+'</span></div>'+
       '<div class="dex-direction">'+esc(w.direction||'UNKNOWN')+'</div>'+
+      '<div class="spot-ratio-big"><span>BUY / SELL<br>VOLUME RATIO</span><strong>'+_dexRatioText(w.buyVolume,w.sellVolume,'usd')+'</strong></div>'+
       '<div class="dex-flow-row"><span>Taker buy volume</span><strong>'+amount(w.buyVolume)+'</strong></div>'+
       '<div class="dex-flow-row"><span>Taker sell volume</span><strong>'+amount(w.sellVolume)+'</strong></div>'+
-      '<div class="dex-flow-row"><span>Volume buy/sell ratio</span><strong>'+_dexRatioText(w.buyVolume,w.sellVolume,'usd')+'</strong></div>'+
       '<div class="dex-flow-row"><span>Taker buy share</span><strong>'+(w.buyShare==null?'Unknown':w.buyShare.toFixed(2)+'%')+'</strong></div>'+
       '<div class="dex-flow-row"><span>Total trades</span><strong>'+(w.totalTrades==null?'Unknown':w.totalTrades.toLocaleString())+'</strong></div>'+
       '<div class="dex-muted">Buy/sell transaction counts and transaction ratio: unavailable from candles.</div>'+
@@ -10781,7 +10896,7 @@ function _onchainAICall(sym, payload){
   if(!key) return Promise.resolve({enabled:false,text:'',error:'No dedicated On-chain AI API key entered.'});
   var model=_onchainAIModel();
   var system='You are a dedicated ON-CHAIN INTELLIGENCE analyst for a crypto spot screener. You are NOT the Catalyst Verification agent and NOT the general Research/Analyst agent. Analyze ONLY the supplied on-chain evidence. Do not use headlines, catalyst claims, technical indicators, or unsupported assumptions. Missing data is UNKNOWN, never zero. Cross-check Moralis indexed holder data against Blockscout and Alchemy where available. Distinguish holders, whale proxies, labeled exchanges, DEX activity, market enrichment, raw transfers, and detected anomalies. Never claim a wallet is a whale or exchange unless the data supports it. Give: 1) On-chain regime (ACCUMULATION/DISTRIBUTION/MIXED/UNKNOWN), 2) strongest evidence, 3) risks/contradictions, 4) data freshness/coverage, 5) confidence 0-100. This is evidence only, not a BUY/SELL signal.';
-  system+=' SOURCE SEPARATION: spotFlow is centralized Binance exchange taker-volume data, NOT on-chain evidence. Never combine its volume or trades with DEX counts, infer buy/sell transaction counts from candles, or use it to confirm on-chain accumulation. Its quote asset is not automatically USD. Its windows end at the latest closed 5-minute boundary. Wrapped-token DEX representations must be named; their holders and transfers are not native-coin holder/transfer coverage. BTC active-address growth alone is not a bullish buying signal.';
+  system+=' SOURCE SEPARATION: spotFlow is centralized Binance exchange taker-volume data, NOT on-chain evidence. Its 1H/4H/1D figures are taker buy/sell VOLUME ratios, never buy/sell transaction-count ratios. Never combine its volume or trades with DEX counts, infer buy/sell transaction counts from candles, or use it to confirm on-chain accumulation. Its quote asset is not automatically USD. Its windows end at the latest closed 5-minute boundary. Wrapped-token DEX representations must be named; their holders and transfers are not native-coin holder/transfer coverage. BTC active-address growth, transfer value, hash rate, mempool growth and fee pressure are network context, not bullish buying signals. Mempool windows are saved point-to-point browser observations, not continuous historical coverage.';
   system+=_ocAIRules();
   var user='COIN: '+sym+'\nCURRENT ON-CHAIN EVIDENCE:\n'+JSON.stringify(payload||{},null,2);
   system+=' DEX EVIDENCE RULES: market.scope is a single selected pool, not the whole coin or chain. Use watched-token from/to-address direction. Ignore raw kind labels and unverified symbol matches. market.flowWindows coverage COMPLETE requires explicit evidence; PARTIAL, CONFLICT and UNAVAILABLE cannot confirm accumulation or distribution. Respect eligible=false and tinyDenominator warnings. A 39-to-1 transaction ratio is different from a dollar ratio; a sub-dollar sell can inflate the latter. Missing USD is unknown, never zero. UNKNOWN must remain unknown, not become neutral certainty. Nested 1H/4H/1D samples are correlated, not three independent confirmations. Do not reinterpret counts to agree with the pool summary. Scores are heuristic, not calibrated probabilities.';
@@ -10979,14 +11094,15 @@ function _freeProviderEnrichment(sym,baseOut){
 function _agentOnchain(f){
   f=f||{}; var sym=_freeSym(f.sym||f.symbol||'');
   if(!sym) return Promise.resolve({symbol:'',status:'unknown',sources:[],errors:['No symbol supplied.'],warnings:[],bias:'UNKNOWN'});
-  var pair=_spotPair(f.sym||f.symbol),cacheKey='freeoc_v6_'+(pair?pair.symbol:sym), now=Date.now();
+  var pair=_spotPair(f.sym||f.symbol),cacheKey='freeoc_v7_'+(pair?pair.symbol:sym), now=Date.now();
   if(!f.force&&_freeOnchainCache[cacheKey] && now-_freeOnchainCache[cacheKey].ts<300000) return Promise.resolve(_freeOnchainCache[cacheKey].d);
   if(_ffPending[cacheKey])return _ffPending[cacheKey];
   var core=_agentOnchainCore(f).catch(function(e){return {symbol:sym,status:'error',sources:[],errors:[String(e.message||e)],providerErrors:[],warnings:[],market:_dexUnavailable('On-chain services failed; exchange coverage is separate.'),bias:'UNKNOWN'};});
-  _ffPending[cacheKey]=Promise.all([core,_freeSpotFlow(f.sym||f.symbol),_ffNetworkActivity(sym)]).then(function(r){
-    var out=r[0];out.spotFlow=r[1];out.networkActivity=r[2];out.sources=out.sources||[];
+  _ffPending[cacheKey]=Promise.all([core,_freeSpotFlow(f.sym||f.symbol),_ffNetworkActivity(sym),sym==='BTC'?_ffBtcMempool():Promise.resolve(null)]).then(function(r){
+    var out=r[0];out.spotFlow=r[1];out.networkActivity=r[2];out.btcMempool=r[3];out.sources=out.sources||[];
     if(Object.keys(r[1].windows).some(function(k){return r[1].windows[k].status==='COMPLETE';}))out.sources.push('Binance spot market data (NOT on-chain)');
     if(r[2].metrics.length||r[2].performance)out.sources.push(r[2].source+' (activity, not buy/sell flow)');
+    if(r[3]&&r[3].current)out.sources.push('mempool.space (network demand, not buy/sell flow)');
     out.coverage=_ffCoverage(out);
     out.updatedAt=Date.now();_freeOnchainCache[cacheKey]={ts:Date.now(),d:out};return out;
   }).finally(function(){delete _ffPending[cacheKey];});return _ffPending[cacheKey];
@@ -11061,11 +11177,11 @@ function runResearchAgent(){
     + 'BOARD {json} - the LIVE board of all scanned coins right now. filters: signalsOnly, tier, minOpportunity, minRsRank, struct, trendlineBreak, sweep, sym, sortBy, limit. per coin returns price, chg24h, opportunity, score, rsRank, momQuintile, trendQ, accum, trendAccumScore, trendAccumGrade, rsi, volR, struct, tier, buySignal, extAboveEMA20pct, dailyTrendUp, trendline, sweep, support, resistance. '
     + 'CONTEXT {} - market regime plus the tool grading ITSELF: btcState, breadth, ethVsBtc, altWeather, suppressionReasons, buyZone, the user track record, scoringAudit (which of its own scores predict wins), icLab (information coefficients). '
     + 'NEWS {json} - recent headlines. filters: contains, limit. '
-    + 'ONCHAIN {json} - free-first data aggregator. args: sym or symbol. Returns separately scoped Binance spot taker volume (NOT on-chain), DEX Screener/GeckoTerminal verified pool counters and trade samples, Coin Metrics asset-specific daily blockchain/token metrics and Solana sampled network usage where supported. Advanced holder/transfers use optional Blockscout Pro free-tier, Moralis, Alchemy or GoldRush connections; CryptoQuant is optional BTC/ETH exchange context. Other market/research/swap sources are enrichment, never on-chain votes. Read coverage and actual timestamps. COUNTERS ONLY lacks buy/sell USD; network usage is not accumulation. Query at most once unless necessary. Missing data is UNKNOWN, never zero activity. '
+    + 'ONCHAIN {json} - free-first data aggregator. args: sym or symbol. Returns separately scoped Binance spot taker buy/sell VOLUME for 1H/4H/1D (NOT on-chain), BTC mempool.space network demand, DEX Screener/GeckoTerminal verified pool counters and trade samples, Coin Metrics catalog-verified daily blockchain/token metrics and Solana sampled network usage where supported. Advanced holder/transfers use optional Blockscout Pro free-tier, Moralis, Alchemy or GoldRush connections; CryptoQuant is optional BTC/ETH exchange context. Other market/research/swap sources are enrichment, never on-chain votes. Read coverage and actual timestamps. COUNTERS ONLY lacks buy/sell USD; network usage is not accumulation. Query at most once unless necessary. Missing data is UNKNOWN, never zero activity. '
     + 'CHART {\"sym\":\"BTCUSDT\"} - renders that coin chart so you can SEE it. Costs quota: use at most once, only when a visual read genuinely matters. '
     + 'WORKFLOW: call a tool, read the result, call another if needed, maximum 5 calls, then give your FINAL ANSWER with no tool line. '
     + 'STATISTICAL HONESTY IS MANDATORY: for LOG slices, under 10 resolved means the slice cannot support a conclusion, under 30 is a weak hint that must cite the confidence interval, and comparing many slices inflates false positives. BOARD data is CURRENT CONDITIONS, not outcomes - describe setup quality, never predict. '
-    + 'EVIDENCE BASE: trend and higher-timeframe alignment are the proven edges; entries more than 3.5 percent above EMA20 are late and this trader log proved loud extended entries lost; unconfirmed breakouts and counter-daily-trend entries underperform; accumulation scores and CHoCH have no proven edge. '
+    + 'METHOD LIMITS: trend, volume and structure rules are hypotheses to validate on chronological data after costs. Do not claim that this app or a user trade log proves an edge. '
     + 'NEVER recommend a trade, predict a price, or claim an edge the data cannot support. If the honest answer is that the data is too thin, say exactly that. Cite which tool gave which number. Plain text, no markdown symbols, concise.';
 
   sys+=' SOURCE SEPARATION: spotFlow in ONCHAIN results is Binance centralized exchange taker-volume data, NOT on-chain evidence. Do not combine it with DEX transactions, invent directional transaction counts from candles, or infer native holder data from wrapped-token proxies. Respect window coverage and quote currency.';
@@ -12664,8 +12780,9 @@ function askClaude(sym){
       bearBlock:d.wyckoff.bearBlock,reason:d.wyckoff.reason} : null,
     autoFib: getChartFibContext(d.sym),
     chartTrendlines: getChartTrendContext(d.sym),
+    canonicalChartPlan:chartState.sym===d.sym&&chartState.snapshot&&chartState.snapshot.usable?buildCanonicalChartPlan(d):null,
     chartWyckoff: getChartWyckoffContext(d.sym),
-    chartContextRule:'All chart tools share the same source-tagged closed snapshot. Scanner metrics are a separate timeframe/source; never merge them into chart confirmation.',
+    chartContextRule:'All chart tools share the same source-tagged closed snapshot. Scanner metrics are separate context. If canonicalChartPlan is present, preserve its saved entry, stop, targets, original-risk availability and planId. A saved break-even or trailing stop is valid; never lower it automatically. A stop breach is not a confirmed fill. State the plan data/risk warning before proposing any alternative.',
     scannerTrendlineTimeframe: TF,
     // The trendline state the chart draws — previously missing from the payload,
     // so the AI could not comment on a line the user could plainly see.
@@ -12694,12 +12811,12 @@ function askClaude(sym){
         caveat: 'The ruleset was materially rebuilt after most of these trades (weak setups removed, lateness guard, portfolio cap, daily-trend gates added). Treat the all-time number as the OLD system, not the current one, and say so if you cite it. Neither sample is large enough for confidence — use it only to argue for small size, never as a prediction.' };
     })()
   };
-  var commonRules = 'Rules you must never break: (1) NEVER give probabilities, price predictions, or "this will pump/dump" claims — direction and timing are unknowable; (2) tie every judgment to specific data points given, using conviction language (strong/moderate/weak); (3) always state what would invalidate the position; (4) be blunt when it is bad — the user values truth over comfort; (5) factor in their real track record (provided) — if below breakeven, remind them to keep size small; (6) SPOT only, no leverage; (7) write a DEEP analysis of 400-600 words in plain text (no markdown symbols like ** or #); organize it with these UPPERCASE section labels, each on its own line: VERDICT (either NO SETUP - SKIP with the reason, or SETUP WORTH PLANNING), THE CASE AGAINST THIS TRADE (the strongest honest bear argument from this same data), READ (what the chart shows — structure, EMA stack, momentum, volume, citing specific recent candles and levels), ACT OR WAIT (the honest case for and against entering RIGHT NOW — extension above EMA20, overbought, position vs the 200 EMA, where in the range price sits), PLAN A - PULLBACK ENTRY (preferred when price is extended: exact entry ZONE at real levels with the confluence reason, SL below structure with %, TP1/TP2/TP3 with % gain, R:R, and scale-out portions), PLAN B - BREAKOUT CONTINUATION (only on confirmation: the exact candle-CLOSE level required plus a held retest condition, its SL and targets), DEEPER ADD ZONE (if a better R:R level exists below — the level, why, and the no-trade line under it), INVALIDATION (the exact closes that kill each plan — closes, not wicks), SIZING AND CAVEATS (their track record, volume quality of the move, liquidity), BOTTOM LINE (one blunt memorable line, e.g. right structure wrong moment — let it come to X or prove itself with a close above Y); (8) if historicalDNA is provided, tailor the advice to how THIS coin historically behaves — e.g. a Pumper that gives back most gains → take profits faster and never chase; low trendiness → expect chop, favor range levels; huge historical single-day moves → wider stops or smaller size. History is tendency, not destiny — say so if you lean on it; (9) if recentCandles are provided (last ~60 CLOSED bars on the active timeframe, oldest first, UTC), read the price action like a chart: wick rejections at levels, whether closes are strengthening or fading, the character of the latest pullback/bounce, and where the highs/lows cluster — cite specific candles when you do; (10) after the first full analysis, the user may ask follow-up questions in chat — answer those directly and concisely (no section format), grounded in the same data and the same honesty rules; (11) FINAL LINE of the first full analysis only: output one line starting with LEVELS_JSON then compact JSON of numeric levels {"planA":[zoneLow,zoneHigh],"sl":n,"tp1":n,"tp2":n,"tp3":n} — in investing mode planA is the accumulation zone and sl the structural invalidation. Omit unknown keys. Nothing after it; (12) if a chart image is attached, it is the tool\'s rendered chart of this coin and timeframe — read it visually and reconcile it with the numbers; (13) tactical guidance may be deviated from ONLY with an explicit line starting RULE DEVIATION: naming the guideline, the exact evidence justifying the exception, and what would prove it wrong — honesty rules (no predictions, cite data, blunt truth) are never deviable; (14) apply classical TA context: volume must confirm moves, tested levels grow in significance, broken resistance becomes support (a held retest is the best accumulation entry), divergences are warnings, and the higher timeframe trend dominates; (15) EVIDENCE BASE from a crypto research audit — for long-term accumulation the proven levers are: trend/higher-timeframe alignment (buy quality in confirmed uptrends, never catch falling knives), volatility persistence (a coin\'s volatility profile is predictable, its future returns are NOT — never extrapolate past pumps into predictions), and above all POSITION SIZING and drawdown survival over signal selection; CHoCH/SMC and RSI divergence have no proven edge so give them no extra weight; funding/OI are sentiment context only.' + WYCKOFF_SPOT_AI_RULES;
+  var commonRules = 'Rules you must never break: (1) NEVER give probabilities, price predictions, or "this will pump/dump" claims — direction and timing are unknowable; (2) tie every judgment to specific data points given, using conviction language (strong/moderate/weak); (3) always state what would invalidate the position; (4) be blunt when it is bad — the user values truth over comfort; (5) factor in their real track record (provided) — if below breakeven, remind them to keep size small; (6) SPOT only, no leverage; (7) write a DEEP analysis of 400-600 words in plain text (no markdown symbols like ** or #); organize it with these UPPERCASE section labels, each on its own line: VERDICT (either NO SETUP - SKIP with the reason, or SETUP WORTH PLANNING), THE CASE AGAINST THIS TRADE (the strongest honest bear argument from this same data), READ (what the chart shows — structure, EMA stack, momentum, volume, citing specific recent candles and levels), ACT OR WAIT (the honest case for and against entering RIGHT NOW — extension above EMA20, overbought, position vs the 200 EMA, where in the range price sits), PLAN A - PULLBACK ENTRY (preferred when price is extended: exact entry ZONE at real levels with the confluence reason, SL below structure with %, TP1/TP2/TP3 with % gain, R:R, and scale-out portions), PLAN B - BREAKOUT CONTINUATION (only on confirmation: the exact candle-CLOSE level required plus a held retest condition, its SL and targets), DEEPER ADD ZONE (if a better R:R level exists below — the level, why, and the no-trade line under it), INVALIDATION (the exact closes that kill each plan — closes, not wicks), SIZING AND CAVEATS (their track record, volume quality of the move, liquidity), BOTTOM LINE (one blunt memorable line, e.g. right structure wrong moment — let it come to X or prove itself with a close above Y); (8) if historicalDNA is provided, tailor the advice to how THIS coin historically behaves — e.g. a Pumper that gives back most gains → take profits faster and never chase; low trendiness → expect chop, favor range levels; huge historical single-day moves → wider stops or smaller size. History is tendency, not destiny — say so if you lean on it; (9) if recentCandles are provided (last ~60 CLOSED bars on the active timeframe, oldest first, UTC), read the price action like a chart: wick rejections at levels, whether closes are strengthening or fading, the character of the latest pullback/bounce, and where the highs/lows cluster — cite specific candles when you do; (10) after the first full analysis, the user may ask follow-up questions in chat — answer those directly and concisely (no section format), grounded in the same data and the same honesty rules; (11) FINAL LINE of the first full analysis only: output one line starting with LEVELS_JSON then compact JSON of numeric levels {"planA":[zoneLow,zoneHigh],"sl":n,"tp1":n,"tp2":n,"tp3":n} — in investing mode planA is the accumulation zone and sl the structural invalidation. Omit unknown keys. Nothing after it; (12) if a chart image is attached, it is the tool\'s rendered chart of this coin and timeframe — read it visually and reconcile it with the numbers; (13) tactical guidance may be deviated from ONLY with an explicit line starting RULE DEVIATION: naming the guideline, the exact evidence justifying the exception, and what would prove it wrong — honesty rules (no predictions, cite data, blunt truth) are never deviable; (14) apply classical TA context: volume must confirm moves, tested levels grow in significance, broken resistance becomes support (a held retest is the best accumulation entry), divergences are warnings, and the higher timeframe trend dominates; (15) METHOD LIMITS: interpret the supplied trend, volume and risk measurements conditionally. No strategy here has an established edge without a relevant, cited out-of-sample evaluation. Funding and open interest describe positioning, not assured direction.' + WYCKOFF_SPOT_AI_RULES;
   var sys;
   if (_investMode) {
     sys = 'You are a brutally honest long-term crypto INVESTING advisor inside the user\'s screener. Context: spot accumulation — buying quality coins at a discount to hold for months. ' + commonRules + ' Give PROPER INVESTING GUIDELINES for this specific coin: (a) is this a quality asset worth accumulating at all (market-cap rank, trend health) or likely dead money; (b) is NOW a reasonable accumulation zone (discount from high, vs 200EMA, RSI) or still overpriced/falling-knife; (c) entry approach — lump vs DCA ladder and why; (d) realistic exit thinking by horizon; (e) the structural invalidation where the thesis is wrong. Follow the section format from the rules exactly, adapting LEVELS AND PLAN to DCA levels and horizon exits.';
   } else {
-    sys = 'You are a brutally honest professional SPOT trading analyst. Spot only — no leverage, no shorts, long entries and exits only. You receive one coin\'s live data: price, EMA 20/50/200, RSI, volume ratio, structure, support/resistance, ATR%, BTC market state, the last ~30 CLOSED candles (OHLC, oldest first), the coin\'s historical DNA profile (personality, typical ranges, pump-giveback behavior), and the user\'s real logged track record. INVIOLABLE RULES — never break these under any circumstances: 1. NEVER give probabilities, price predictions, or "this will pump/dump" claims. Direction and timing are unknowable. 2. Tie every judgment to specific data points provided — cite specific candles and levels; if the data doesn\'t support a claim, don\'t make it. 3. Factor in the user\'s real track record; if their system is below the 40% breakeven (at 1.5 R:R), remind them to keep position size small. 4. Be blunt when a setup is weak — a weak setup called weak saves money; false encouragement loses it. 5. Every plan is conditional if-then tied to exact levels, never a forecast. 6. ABSTENTION IS A FIRST-CLASS ANSWER (mandatory): if the data does not support a clean setup, your correct output is NO SETUP - SKIP THIS COIN, stated plainly at the top, with the one or two specific conditions that would make it worth revisiting. Research shows models like you almost never volunteer this and instead manufacture a plan; that behaviour loses this user money. Saying skip is a SUCCESS, not a failure - a majority of coins on a given day deserve exactly that answer. Never invent a marginal plan to seem useful. 7. ANTI-BIAS: the user opened this coin, which signals interest - do NOT let that pull you bullish. You must include a section THE CASE AGAINST THIS TRADE giving the strongest honest bear argument from the same data (what the seller sees, what breaks this thesis, what the data does not support), BEFORE any plan. If the case against is stronger than the case for, say so and skip. 8. SPOT PHASE READ (mandatory, FIRST line of your answer): classify this coin into exactly one phase and lead with it, because a spot trader acts differently in each — ACCUMULATION (quiet near range lows, contracting volatility, volume drying up, price refusing to make new lows) → the patient buy phase, scale in at range support; MARKUP (trending up, holding above a rising EMA20, healthy shallow pullbacks) → buy pullbacks to the EMA/structure, never the highs; EXTENDED (price far above EMA20, RSI hot, climax volume) → momentum is REAL but there is no safe entry HERE; the correct spot action is WAIT for the pullback and name its zone; DISTRIBUTION (repeated failures at highs, lower highs after a run, volume fading into strength) → protect gains, do not add, consider trimming; RANGE (chop between clear boundaries) → only the edges matter, buy the lower boundary, never the middle. Say the phase in plain words and what a SPOT trader does in it. NEVER describe a strongly rising coin as merely bad or weak — if it is EXTENDED, say the trend is strong and the ENTRY is what is wrong. This distinction matters: skipping a pumping coin and skipping a dying coin are different judgments and must read differently. 9. CONTINUATION QUALITY, NOT PROBABILITY: when a breakout or continuation is in play, do NOT invent a percentage. Grade it HIGH / MODERATE / LOW quality using only checkable evidence — volume confirming the break (volR at or above 1.2-1.5), price holding above the level on CLOSES not wicks, a held retest, daily-trend agreement, and whether the move is already extended. State which of those are present and which are missing; that is the honest answer to whether this breakout can be trusted. 10. ACCUMULATION ZONES (honest limits): you may identify a zone as CONSISTENT WITH ACCUMULATION from what candles actually show — price basing near range lows, volatility contracting, volume drying up then absorbing on dips without new lows. You may NOT claim institutions or smart money are buying: that requires order-flow or on-chain data you do not have, and the research audit found accumulation scores from candles alone have no proven edge. Frame it as structure and probability of a good ENTRY LOCATION, never as insider knowledge. 11. WHEN YOU SKIP FOR EXTENSION: you must still name the concrete pullback zone that WOULD be tradeable and put it in LEVELS_JSON as planA, with its sl, so the software can watch that level and alert the user when price actually arrives. A skip for being extended is a WAIT instruction with a level, not a dismissal. DISCIPLINE DEFAULTS — strong priors built from the user\'s own logged failures; follow them by default: A. Every trigger is a candle CLOSE on the active timeframe, not a wick. B. Never recommend chasing — if price is extended more than ~3% above EMA20 or at the highs, anchor Plan A at the pullback level and say not to market-buy here. C. A first break of a FALLING 200 EMA is lower-probability — flag it. D. Use the historical DNA to shape exits — a Pumper that gives back gains means faster TPs and a trailed remainder; low trendiness means favor range levels; history is tendency, not destiny. MURPHY PLAYBOOK (apply where the data supports it): healthy pullbacks in an uptrend typically retrace 38-62% of the prior advance — a dip holding that zone with falling volume is textbook, a deeper break is a warning; volume must CONFIRM — breakouts and pattern completions on weak volume (volR under ~1.2) deserve suspicion, and price rising while volume shrinks hints exhaustion; watch RSI divergence — new price high with a lower RSI high weakens Plan B; measured-move logic — a base or flag projects roughly its own height above the breakout, use it to sanity-check TP2/TP3; money management — never risk more than ~2% of capital on one trade, derive position size from the SL distance. MURPHY PRINCIPLES (classical technical analysis — apply with judgment, cite the data): M1. Volume must confirm price — a breakout on volume below ~1.2x average is suspect; a rising trend on shrinking volume is a warning. M2. Divergence (price makes a new high while RSI makes a lower high) is a warning to tighten stops and take profits sooner — never an entry signal by itself. M3. Role reversal — broken resistance becomes support; the retest of a broken level that HOLDS is the highest-quality entry in classical TA. M4. A level grows more significant the more times it has been tested and the more volume traded there. M5. Continuation patterns (coils, triangles, flags) resolve most reliably in the direction of the PRIOR trend — favor plans aligned with it. M6. The higher timeframe dominates — a 4h setup aligned with the 1d trend carries far more weight than one fighting it; say which case this is. M7. A reversal candle (hammer, engulfing) matters only AT a meaningful level — mid-range it is noise. M8. Breaks need filters — require the close, and treat sub-1% penetrations of a level as unconfirmed to avoid whipsaw. EVIDENCE BASE (from a peer-reviewed research audit of these exact methods in crypto — weight your conviction by what is actually PROVEN, and say so): E1. STRONGEST edge: trend/momentum and higher-timeframe alignment — entries with the 1d/1w trend are the best-supported; counter-trend entries carry a documented penalty, so downgrade them. E2. Breakout + volume + retest-hold is well-founded; a breakout WITHOUT volume confirmation (volR under ~1.5) or without a held retest has a high failure rate (60%+ in crypto) — treat unconfirmed breakouts as low-conviction. E3. EMA retests work only as TREND CONTEXT, not magic support — their edge comes from the trend, so require trend-strength confirmation, never advise buying an EMA touch in a downtrend. E4. Dip-buying has positive expectancy ONLY in a confirmed uptrend (price above a rising 200-day trend); a dip in a falling market is a falling knife — refuse it. E5. CHoCH / smart-money-concepts have NO demonstrated edge beyond their plain trend-continuation core — do not lend them extra weight or institutional-order-flow narrative; evaluate a structure break as a simple breakout. E6. RSI divergence is a WARNING/context flag only, never an entry trigger — the research found no standalone edge. E7. Funding/OI extremes are SENTIMENT/cascade-risk context, not directional signals; the one defensible contrarian tell is extreme-negative funding AFTER a flush. E8. Volatility compression precedes expansion but says NOTHING about direction — never imply which way a coil breaks. E9. Coin volatility \'personality\' is real and persistent (use it for sizing and expectation), but past RETURNS do not predict future returns — do not extrapolate direction from history. E10. THE BIGGEST LEVER is position sizing and expectancy, not signal selection — always tie advice to the ~1-2% risk sizing and remind the user that surviving drawdowns matters more than any single setup. When your chart read and the evidence base conflict, name the conflict and lean toward the evidence. DEVIATION PROTOCOL: you MAY advise deviating from a DISCIPLINE DEFAULT when the specific evidence in THIS data genuinely warrants it — but only by writing an explicit line starting with RULE DEVIATION: naming which default, the exact data points that justify the exception, and what would prove the deviation wrong. Never deviate silently. Never deviate from the INVIOLABLE rules. If in doubt, follow the default. POSITIONING DATA (funding, open interest, long/short accounts): when supplied, treat it as CROWDING and squeeze risk ONLY. Crowded longs mean stops get hit on ordinary noise and flushes arrive without warning — it does NOT mean price will fall, and you must never phrase it as a direction call. The research base is explicit that funding explains only about 12.5 percent of weekly price variation and decays quickly. Legitimate uses: widening a stop, sizing smaller, or noting that an entry sits in a crowded area. Illegitimate: predicting a reversal because funding is high. If positioning data is absent, say nothing about it rather than speculating. VISION IS LOW-TRUST (evidence-based limit): if a chart image is attached it is this tool\'s own rendered chart of the same coin and timeframe. Controlled research shows vision models score at chance when reading candlestick evidence and mostly just extrapolate the recent trend, so treat the image as WEAK CONFIRMING CONTEXT ONLY. The numeric data provided is the source of truth. Never let a visual impression override, contradict or add a level that the numbers do not support, and never claim to see a pattern the numeric data cannot corroborate. If the image and the numbers disagree, say so and follow the numbers. LEVEL DISCIPLINE (mandatory): every price level you cite must be anchored to a level supplied in the data (support, resistance, EMA20/50/200, PDH/PDL/PWH/PWL/PMH/PML, the recent candle highs and lows) or a simple stated arithmetic step from one of them (for example support minus one ATR). Do NOT invent round numbers or levels you cannot trace to the supplied data - the software cross-checks your levels and flags any it cannot verify. FINAL LINE (mandatory in the first full analysis only): after everything, output exactly one line starting with LEVELS_JSON followed by a compact JSON object of NUMERIC price levels from your plan: {"planA":[zoneLow,zoneHigh],"sl":n,"tp1":n,"tp2":n,"tp3":n,"breakout":n}. Omit any key you did not specify. SECOND-TO-LAST LINE (also mandatory): output one line starting with CONDITIONS_JSON followed by a compact JSON ARRAY of the machine-checkable conditions that must ALL be true before this entry is valid — the same conditions you wrote in your plan, expressed so software can verify them live. Allowed objects: {\"t\":\"priceInZone\"} price inside your Plan A zone; {\"t\":\"priceAbove\",\"v\":n}; {\"t\":\"priceBelow\",\"v\":n}; {\"t\":\"closeAboveEMA20\"}; {\"t\":\"volRAbove\",\"v\":n}; {\"t\":\"rsiAbove\",\"v\":n}; {\"t\":\"rsiBelow\",\"v\":n}; {\"t\":\"dailyTrendUp\"}; {\"t\":\"btcOk\"} BTC stable or bullish; {\"t\":\"altWeatherOk\"}; {\"t\":\"notExtended\"} under 3.5 percent above EMA20. Include 3 to 6 conditions, ALWAYS including btcOk and dailyTrendUp unless your plan explicitly argues against them. If you gave a SECOND path (Plan B breakout / continuation, or a second revisit-if route), ALSO output a line starting with CONDITIONS_B_JSON followed by the same kind of array for THAT path — both routes get watched live, so give the breakout route its own conditions (typically priceAbove the breakout level plus volRAbove and btcOk). Nothing after the LEVELS_JSON line.';
+    sys = 'You are a brutally honest professional SPOT trading analyst. Spot only — no leverage, no shorts, long entries and exits only. You receive one coin\'s live data: price, EMA 20/50/200, RSI, volume ratio, structure, support/resistance, ATR%, BTC market state, the last ~30 CLOSED candles (OHLC, oldest first), the coin\'s historical DNA profile (personality, typical ranges, pump-giveback behavior), and the user\'s real logged track record. INVIOLABLE RULES — never break these under any circumstances: 1. NEVER give probabilities, price predictions, or "this will pump/dump" claims. Direction and timing are unknowable. 2. Tie every judgment to specific data points provided — cite specific candles and levels; if the data doesn\'t support a claim, don\'t make it. 3. Factor in the user\'s real track record; if their system is below the 40% breakeven (at 1.5 R:R), remind them to keep position size small. 4. Be blunt when a setup is weak — a weak setup called weak saves money; false encouragement loses it. 5. Every plan is conditional if-then tied to exact levels, never a forecast. 6. ABSTENTION IS A FIRST-CLASS ANSWER (mandatory): if the data does not support a clean setup, your correct output is NO SETUP - SKIP THIS COIN, stated plainly at the top, with the one or two specific conditions that would make it worth revisiting. Do not manufacture a plan when required evidence is missing. Saying skip is a SUCCESS, not a failure - a majority of coins on a given day deserve exactly that answer. Never invent a marginal plan to seem useful. 7. ANTI-BIAS: the user opened this coin, which signals interest - do NOT let that pull you bullish. You must include a section THE CASE AGAINST THIS TRADE giving the strongest honest bear argument from the same data (what the seller sees, what breaks this thesis, what the data does not support), BEFORE any plan. If the case against is stronger than the case for, say so and skip. 8. SPOT PHASE READ (mandatory, FIRST line of your answer): classify this coin into exactly one phase and lead with it, because a spot trader acts differently in each — ACCUMULATION (quiet near range lows, contracting volatility, volume drying up, price refusing to make new lows) → the patient buy phase, scale in at range support; MARKUP (trending up, holding above a rising EMA20, healthy shallow pullbacks) → buy pullbacks to the EMA/structure, never the highs; EXTENDED (price far above EMA20, RSI hot, climax volume) → momentum is REAL but there is no safe entry HERE; the correct spot action is WAIT for the pullback and name its zone; DISTRIBUTION (repeated failures at highs, lower highs after a run, volume fading into strength) → protect gains, do not add, consider trimming; RANGE (chop between clear boundaries) → only the edges matter, buy the lower boundary, never the middle. Say the phase in plain words and what a SPOT trader does in it. NEVER describe a strongly rising coin as merely bad or weak — if it is EXTENDED, say the trend is strong and the ENTRY is what is wrong. This distinction matters: skipping a pumping coin and skipping a dying coin are different judgments and must read differently. 9. CONTINUATION QUALITY, NOT PROBABILITY: when a breakout or continuation is in play, do NOT invent a percentage. Grade it HIGH / MODERATE / LOW quality using only checkable evidence — volume confirming the break (volR at or above 1.2-1.5), price holding above the level on CLOSES not wicks, a held retest, daily-trend agreement, and whether the move is already extended. State which of those are present and which are missing; that is the honest answer to whether this breakout can be trusted. 10. ACCUMULATION ZONES (honest limits): you may identify a zone as CONSISTENT WITH ACCUMULATION from what candles actually show — price basing near range lows, volatility contracting, volume drying up then absorbing on dips without new lows. You may NOT claim institutions or smart money are buying: that requires order-flow or on-chain data you do not have, and candles alone do not identify the owners placing trades. Frame it as structure and probability of a good ENTRY LOCATION, never as insider knowledge. 11. WHEN YOU SKIP FOR EXTENSION: you must still name the concrete pullback zone that WOULD be tradeable and put it in LEVELS_JSON as planA, with its sl, so the software can watch that level and alert the user when price actually arrives. A skip for being extended is a WAIT instruction with a level, not a dismissal. DISCIPLINE DEFAULTS — configurable planning heuristics, not validated performance claims: A. Every trigger is a candle CLOSE on the active timeframe, not a wick. B. Never recommend chasing — if price is extended more than ~3% above EMA20 or at the highs, anchor Plan A at the pullback level and say not to market-buy here. C. A first break of a FALLING 200 EMA is lower-probability — flag it. D. Use the historical DNA to shape exits — a Pumper that gives back gains means faster TPs and a trailed remainder; low trendiness means favor range levels; history is tendency, not destiny. MURPHY PLAYBOOK (apply where the data supports it): healthy pullbacks in an uptrend typically retrace 38-62% of the prior advance — a dip holding that zone with falling volume is textbook, a deeper break is a warning; volume must CONFIRM — breakouts and pattern completions on weak volume (volR under ~1.2) deserve suspicion, and price rising while volume shrinks hints exhaustion; watch RSI divergence — new price high with a lower RSI high weakens Plan B; measured-move logic — a base or flag projects roughly its own height above the breakout, use it to sanity-check TP2/TP3; money management — never risk more than ~2% of capital on one trade, derive position size from the SL distance. MURPHY PRINCIPLES (classical technical analysis — apply with judgment, cite the data): M1. Volume must confirm price — a breakout on volume below ~1.2x average is suspect; a rising trend on shrinking volume is a warning. M2. Divergence (price makes a new high while RSI makes a lower high) is a warning to tighten stops and take profits sooner — never an entry signal by itself. M3. Role reversal — broken resistance becomes support; the retest of a broken level that HOLDS is the highest-quality entry in classical TA. M4. A level grows more significant the more times it has been tested and the more volume traded there. M5. Continuation patterns (coils, triangles, flags) resolve most reliably in the direction of the PRIOR trend — favor plans aligned with it. M6. The higher timeframe dominates — a 4h setup aligned with the 1d trend carries far more weight than one fighting it; say which case this is. M7. A reversal candle (hammer, engulfing) matters only AT a meaningful level — mid-range it is noise. M8. Breaks need filters — require the close, and treat sub-1% penetrations of a level as unconfirmed to avoid whipsaw. METHOD LIMITS: These chart rules are uncalibrated heuristics. Do not cite general failure rates, expected returns, win probabilities or proven edges without a named source and matching population. The current chart and an in-sample trade log cannot establish profitability. Trend, volume, retests, divergence and volatility describe observations; evaluate each added filter chronologically after fees and slippage. DEVIATION PROTOCOL: you MAY advise deviating from a DISCIPLINE DEFAULT when the specific evidence in THIS data genuinely warrants it — but only by writing an explicit line starting with RULE DEVIATION: naming which default, the exact data points that justify the exception, and what would prove the deviation wrong. Never deviate silently. Never deviate from the INVIOLABLE rules. If in doubt, follow the default. POSITIONING DATA (funding, open interest, long/short accounts): when supplied, treat it as CROWDING and squeeze risk ONLY. Crowded longs mean stops get hit on ordinary noise and flushes arrive without warning — it does NOT mean price will fall, and you must never phrase it as a direction call. Legitimate uses: widening a stop, sizing smaller, or noting that an entry sits in a crowded area. Illegitimate: predicting a reversal because funding is high. If positioning data is absent, say nothing about it rather than speculating. VISION IS LOW-TRUST (evidence-based limit): if a chart image is attached it is this tool\'s own rendered chart of the same coin and timeframe. Chart pixels may be ambiguous or stale. Verify chart readings against timestamped numeric data from the same venue and timeframe. Never let a visual impression override, contradict or add a level that the numbers do not support, and never claim to see a pattern the numeric data cannot corroborate. If the image and the numbers disagree, say so and follow the numbers. LEVEL DISCIPLINE (mandatory): every price level you cite must be anchored to a level supplied in the data (support, resistance, EMA20/50/200, PDH/PDL/PWH/PWL/PMH/PML, the recent candle highs and lows) or a simple stated arithmetic step from one of them (for example support minus one ATR). Do NOT invent round numbers or levels you cannot trace to the supplied data - the software cross-checks your levels and flags any it cannot verify. FINAL LINE (mandatory in the first full analysis only): after everything, output exactly one line starting with LEVELS_JSON followed by a compact JSON object of NUMERIC price levels from your plan: {"planA":[zoneLow,zoneHigh],"sl":n,"tp1":n,"tp2":n,"tp3":n,"breakout":n}. Omit any key you did not specify. SECOND-TO-LAST LINE (also mandatory): output one line starting with CONDITIONS_JSON followed by a compact JSON ARRAY of the machine-checkable conditions that must ALL be true before this entry is valid — the same conditions you wrote in your plan, expressed so software can verify them live. Allowed objects: {\"t\":\"priceInZone\"} price inside your Plan A zone; {\"t\":\"priceAbove\",\"v\":n}; {\"t\":\"priceBelow\",\"v\":n}; {\"t\":\"closeAboveEMA20\"}; {\"t\":\"volRAbove\",\"v\":n}; {\"t\":\"rsiAbove\",\"v\":n}; {\"t\":\"rsiBelow\",\"v\":n}; {\"t\":\"dailyTrendUp\"}; {\"t\":\"btcOk\"} BTC stable or bullish; {\"t\":\"altWeatherOk\"}; {\"t\":\"notExtended\"} under 3.5 percent above EMA20. Include 3 to 6 conditions, ALWAYS including btcOk and dailyTrendUp unless your plan explicitly argues against them. If you gave a SECOND path (Plan B breakout / continuation, or a second revisit-if route), ALSO output a line starting with CONDITIONS_B_JSON followed by the same kind of array for THAT path — both routes get watched live, so give the breakout route its own conditions (typically priceAbove the breakout level plus volRAbove and btcOk). Nothing after the LEVELS_JSON line.';
   }
 
   sys += '\nFIB LIFECYCLE RULE: autoFib.usable=false or EXTENSION COMPLETE means the old Fib is historical only. Ignore its anchor prices and all dashed P/PROVISIONAL levels in a chart image for entries, stops, targets, and signal confirmation. Wait for a new confirmed pivot. A target marked PASSED is not a future target or proof of an order fill. Never invent a replacement target just because the prior target was passed.';
@@ -14432,7 +14549,7 @@ function runProAnalysis(d) {
   // Rule: only enter when institutional (>1.5×) volume supports the move
   if (d.volR >= 2 && d.chg >= 0) {
     score += 15; factors.push({pts:15, max:15, ok:true, name:'Volume',
-      note:'Vol ' + d.volR.toFixed(2) + '× on bullish move — institutional buying confirmed'});
+      note:'Vol ' + d.volR.toFixed(2) + '× on bullish move — higher participation observed; buyer identity unknown'});
   } else if (d.volR >= 1.5 && d.chg >= 0) {
     score += 10; factors.push({pts:10, max:15, ok:true, name:'Volume',
       note:'Vol ' + d.volR.toFixed(2) + '× — above average, buying pressure present'});
@@ -14441,7 +14558,7 @@ function runProAnalysis(d) {
       note:'Vol ' + d.volR.toFixed(2) + '× on down-move — distribution signal, caution'});
   } else if (d.volR < 0.7) {
     score += 2; factors.push({pts:2, max:15, ok:false, name:'Volume',
-      note:'Vol ' + d.volR.toFixed(2) + '× — too low. Breakouts on thin volume fail ~65% of time'});
+      note:'Vol ' + d.volR.toFixed(2) + '× — weak participation; breakout confirmation is missing'});
   } else {
     score += 6; factors.push({pts:6, max:15, ok:null, name:'Volume',
       note:'Vol ' + d.volR.toFixed(2) + '× — average, neutral confirmation'});
@@ -15995,9 +16112,9 @@ var chartState = {
 
 // Chart presentation settings are local preferences, never trading authority.
 var CHART_VIEWS={
-  clean:{ema:false,emaLong:false,vol:true,rsi:false,sr:true,analyst:false,fib:false,wyckoff:false},
-  analysis:{ema:true,emaLong:false,vol:true,rsi:false,sr:true,analyst:false,fib:true,wyckoff:true},
-  plan:{ema:false,emaLong:false,vol:true,rsi:false,sr:false,analyst:true,fib:false,wyckoff:false}
+  clean:{ema:false,emaLong:false,vol:true,rsi:false,sr:true,analyst:false,fib:false,wyckoff:false,profile:false,preview:false,history:false,avwap:false},
+  analysis:{ema:true,emaLong:false,vol:true,rsi:false,sr:true,analyst:false,fib:true,wyckoff:true,profile:false,preview:false,history:false,avwap:false},
+  plan:{ema:false,emaLong:false,vol:true,rsi:false,sr:false,analyst:true,fib:false,wyckoff:false,profile:false,preview:false,history:false,avwap:false}
 };
 function saveChartPreferences(){
   try{localStorage.setItem('chart_pro_preferences_v1',JSON.stringify({view:chartState.viewMode,
@@ -16133,13 +16250,14 @@ function installChartProUI(){
     }).join('')+'</div><label class="cp-select-label">Trendlines <select data-chart-trend onchange="setChartTrendMode(this.value)"><option value="auto">Auto</option><option value="manual">Manual</option><option value="both">Both</option><option value="off">Off</option></select></label>'+
     '<label class="cp-select-label">Fib <select data-chart-fib-scope onchange="setChartFibScope(this.value)" title="Major includes internal pullbacks; Recent measures the latest local leg. Manual preserves your chosen anchors."><option value="major">Major swing</option><option value="recent">Recent swing</option><option value="manual">Manual / locked</option></select></label>'+
     '<details class="cp-ind-menu"><summary>Fib anchors</summary><div><button onclick="editChartFib()">Edit anchors</button><button onclick="lockChartFib()">Lock / unlock Fib</button><label>Retire swing <select data-chart-fib-retirement onchange="setChartFibRetirement(this.value)"><option value="extension">2 closes past 1.618 or origin break</option><option value="origin">Origin break only</option></select></label><small>Retirement is a custom app rule, not a Fibonacci law. Unlocked manual anchors can be dragged. Manual Fib is visual only.</small></div></details>'+
-    '<details class="cp-ind-menu"><summary>Indicators</summary><div>'+Object.keys(CHART_VIEWS.clean).map(function(k){
-      var names={ema:'EMA 20 / 50',emaLong:'EMA 100 / 200',vol:'Volume',rsi:'RSI',sr:'Support / resistance',analyst:'Trade levels',fib:'Auto Fib',wyckoff:'Wyckoff'};
+    '<details class="cp-ind-menu"><summary>Layers</summary><div>'+Object.keys(CHART_VIEWS.clean).map(function(k){
+      var names={ema:'EMA 20 / 50',emaLong:'EMA 100 / 200',vol:'Volume bars',rsi:'RSI',sr:'Horizontal levels',analyst:'Trade levels',fib:'Confirmed Fib',wyckoff:'Historical Wyckoff base',profile:'Estimated volume profile',preview:'Developing Fib preview',history:'Past Wyckoff events',avwap:'Anchored VWAP estimate'};
       return '<button data-chart-ind="'+k+'" onclick="toggleInd(\''+k+'\')">'+names[k]+'</button>';
     }).join('')+'<button data-chart-fib-connector onclick="toggleFibConnector()">Fib anchor connector</button></div></details>'+
-    '<button onclick="chartFit(\'swing\')">Fit selected swing</button><button onclick="chartFit(\'all\')">Fit all</button><button onclick="chartState.offset=Math.max(0,(chartState.klines||[]).length-chartState.zoom);drawChart()">Return to live</button>'+
+    '<details class="cp-ind-menu"><summary>View</summary><div><button onclick="chartFit(\'swing\')">Fit selected swing</button><button onclick="chartFit(\'all\')">Fit all</button><button onclick="chartState.offset=Math.max(0,(chartState.klines||[]).length-chartState.zoom);drawChart()">Return to live</button></div></details>'+
+    '<button onclick="editChartExecution()">Execution</button><button onclick="recordChartDecision()" title="Save the current data, settings and decision for later review">Record decision</button>'+
     '<details class="cp-ind-menu"><summary>Edit lines</summary><div><button onclick="toggleDrawMode()">Draw two anchors</button><button data-chart-magnet onclick="toggleChartMagnet()">Snap to candle</button><button onclick="editSelectedDrawing(\'lock\')">Lock / unlock selected</button><button onclick="editSelectedDrawing(\'extend\')">Extend selected right</button><button onclick="editSelectedDrawing(\'delete\')">Delete selected</button><small>Click a manual line to select. Drag an unlocked anchor. Manual lines are visual only.</small></div></details>';
-    el.innerHTML+='<div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
+    el.innerHTML+='<span class="cp-build" title="Release 2026-09-06 · verify this label after uploading">Chart 2026.09.06-r1</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
     if(suffix){var top=document.getElementById('chart-fs-bar');if(top)top.after(el);}
     else{var wrap=document.getElementById('chart-canvas-wrap');if(wrap)wrap.before(el);}
   });syncChartProUI();
@@ -16161,8 +16279,8 @@ function getChartTrendContext(sym){
     id:L.id,
     state:L.state,role:L.retestHeld?(L.direction==='down'?'support after retest':'resistance after retest'):(L.broken?'former ':'')+(L.direction==='down'?'resistance':'support'),
     priceAtLastClose:L.valueNow,touches:L.touches,breakBarsAgo:L.breakBarsAgo,
-    confirmedFrom:(k[L.confirmedAt]||[])[0],retestHeld:L.retestHeld};}
-  if(chartState.snapshot&&!chartState.snapshot.usable)return {timeframe:chartState.tf,usable:false,reason:chartState.snapshot.message};
+    confirmedFrom:L.confirmedTime+_chartTFDuration(chartState.tf),events:(L.events||[]).map(function(e){return Object.assign({},e);}),retestHeld:L.retestHeld};}
+  if(!chartState.snapshot||!chartState.snapshot.usable)return {timeframe:chartState.tf,usable:false,reason:chartState.snapshot&&chartState.snapshot.message||'No chart snapshot'};
   return {timeframe:chartState.tf,source:chartState.snapshot&&chartState.snapshot.source,snapshotId:chartState.snapshot&&chartState.snapshot.signature,closedOnly:true,support:line(chartState.trendlines.up),
     resistance:line(chartState.trendlines.down),rule:'Candidate is not validated support/resistance. Break alone is not a buy. Manual drawings and Fib connectors are not signals.'};
 }
@@ -16556,13 +16674,14 @@ function _chartCountdown(ts) {
 // Priority: a saved real position → independently verified AI levels → structure.
 function chartSnapshot(rows,sym,tf,now){
   now=now==null?Date.now():now;rows=rows||[];
-  var source=rows.dataSource||'Unknown',duration=_chartTFDuration(tf),errors=[],valid=true,hash=2166136261;
+  var source=rows.dataSource||'Unknown',duration=_chartTFDuration(tf),errors=[],valid=true,volumeValid=true,hash=2166136261;
   var closed=rows.slice(0,-1),last=rows[rows.length-1],times=[];
   rows.forEach(function(k,i){
     var t=Number(k[0]),o=Number(k[1]),h=Number(k[2]),l=Number(k[3]),c=Number(k[4]);
     if(![t,o,h,l,c].every(isFinite)||!(l>0)||h<l||o<l||o>h||c<l||c>h){valid=false;errors.push('Invalid OHLC');}
     if(i&&t-Number(rows[i-1][0])!==duration){valid=false;errors.push('Duplicate, unordered or missing candles');}
     if(i<rows.length-1){
+      if(k[5]==null||k[5]===''||!isFinite(Number(k[5]))||Number(k[5])<0)volumeValid=false;
       if(t+duration>now){valid=false;errors.push('Unclosed candle in confirmed history');}
       times.push(t);var content=k.join(',');for(var j=0;j<content.length;j++)hash=Math.imul(hash^content.charCodeAt(j),16777619);
     }
@@ -16572,33 +16691,174 @@ function chartSnapshot(rows,sym,tf,now){
   if(!last||now>=Number(last[0])+duration||Number(last[0])>now)errors.push('Candle feed stale or clock mismatch');
   var latestClose=closed.length?Number(closed[closed.length-1][0])+duration:null;
   return {source:source,symbol:sym,timeframe:tf,key:source+':'+sym+':'+tf,signature:source+':'+sym+':'+tf+':'+(hash>>>0),
-    times:times,valid:valid,usable:valid&&!errors.length,lastClosedTime:latestClose,
+    times:times,valid:valid,volumeValid:volumeValid,usable:valid&&!errors.length,lastClosedTime:latestClose,
     message:Array.from(new Set(errors)).join(' · ')||'Closed-candle snapshot ready',settingsVersion:2};
 }
 function chartMetrics(d){
   return d&&chartState.metrics&&chartState.metrics.sym===d.sym&&chartState.metrics.chartTF===chartState.tf?chartState.metrics:d;
 }
+function getChartExecutionSettings(){
+  var x={};try{x=JSON.parse(localStorage.getItem('chart_execution_v1')||'{}')||{};}catch(e){}
+  function number(key,fallback,max){var n=x[key];return n!=null&&isFinite(Number(n))&&Number(n)>=0&&Number(n)<=max?Number(n):fallback;}
+  var legacy=CONFIG.CHART_COST_PCT;
+  return {feePctEach:number('feePctEach',legacy!=null&&legacy>=0?legacy/2:0.1,5),
+    entrySlipPct:number('entrySlipPct',0,10),exitSlipPct:number('exitSlipPct',0,10),
+    orderQuote:number('orderQuote',1000,1e9),equityQuote:number('equityQuote',0,1e12),
+    freeCashQuote:number('freeCashQuote',null,1e12),wyckoffRequired:x.wyckoffRequired!==false};
+}
+
+function calculateChartDepth(raw,notional){
+  function side(rows,ascending){
+    if(!Array.isArray(rows)||!rows.length)throw Error('Empty order book');
+    var seen={};return rows.map(function(r){var p=Number(r[0]),q=Number(r[1]);
+      if(!(p>0&&q>0&&isFinite(p)&&isFinite(q))||seen[p])throw Error('Invalid or duplicate book level');seen[p]=true;return [p,q];
+    }).sort(function(a,b){return ascending?a[0]-b[0]:b[0]-a[0];});
+  }
+  var asks=side(raw.asks,true),bids=side(raw.bids,false),ask=asks[0][0],bid=bids[0][0];
+  if(bid>=ask)throw Error('Crossed or locked book; wait for a new snapshot');
+  if(!(isFinite(notional)&&notional>0))throw Error('Order notional must be positive');
+  var mid=(ask+bid)/2,left=notional,quantity=0;
+  asks.forEach(function(r){if(left<=0)return;var quote=Math.min(left,r[0]*r[1]);quantity+=quote/r[0];left-=quote;});
+  var complete=left<=Math.max(1e-8,notional*1e-10),buyVWAP=complete?notional/quantity:null;
+  var remaining=quantity,sellQuote=0;
+  bids.forEach(function(r){var q=Math.min(remaining,r[1]);sellQuote+=q*r[0];remaining-=q;});
+  var sellComplete=complete&&remaining<=Math.max(1e-10,quantity*1e-10);
+  return {bestBid:bid,bestAsk:ask,mid:mid,spreadBps:(ask-bid)/mid*10000,
+    notional:notional,buyComplete:complete,buyVWAP:buyVWAP,baseQuantity:complete?quantity:null,
+    buyImpactBps:complete?(buyVWAP/mid-1)*10000:null,
+    sellVWAP:sellComplete?sellQuote/quantity:null,sellComplete:sellComplete,
+    bidDepth50:bids.reduce(function(sum,r){return sum+(r[0]>=mid*.995?r[0]*r[1]:0);},0),
+    askDepth50:asks.reduce(function(sum,r){return sum+(r[0]<=mid*1.005?r[0]*r[1]:0);},0),
+    filledQuote:notional-left,method:'REST snapshot; midpoint impact includes half-spread. Displayed liquidity only.'};
+}
+
+function chartDepthIsCurrent(book){
+  var s=chartState.snapshot||{},age=book?Date.now()-book.receivedAt:Infinity;
+  return !!(book&&book.symbol===chartState.sym&&book.timeframe===chartState.tf&&book.source===s.source&&
+    book.loadRequestId===chartState.loadRequestId&&age>=0&&age<=15000&&book.orderQuote===getChartExecutionSettings().orderQuote);
+}
+
+async function refreshChartDepth(){
+  var symbol=chartState.sym,timeframe=chartState.tf,source=chartState.snapshot&&chartState.snapshot.source;
+  var loadId=chartState.loadRequestId,requestId=(chartState.depthRequestId||0)+1;
+  chartState.depthRequestId=requestId;chartState.depth=null;chartState.depthMessage='Loading book snapshot…';
+  renderChartExecution();
+  var settings=getChartExecutionSettings(),url;
+  if(source==='Bybit')url='https://api.bybit.com/v5/market/orderbook?category=spot&symbol='+encodeURIComponent(symbol)+'&limit=200';
+  else if(source==='Binance')url='https://data-api.binance.vision/api/v3/depth?symbol='+encodeURIComponent(symbol)+'&limit=100';
+  else {chartState.depthMessage='Book snapshot is not connected for '+(source||'this venue')+'. No other venue has been substituted.';renderChartExecution();return;}
+  var started=Date.now();
+  function stillSelected(){return chartState.sym===symbol&&chartState.tf===timeframe&&chartState.loadRequestId===loadId&&
+    chartState.depthRequestId===requestId&&chartState.snapshot&&chartState.snapshot.source===source;}
+  try{
+    var response=await fetchJ(url,7000);if(!stillSelected())return;
+    var received=Date.now(),raw=source==='Bybit'?response.result:response;
+    if(source==='Bybit'&&(response.retCode!==0||!raw||raw.s!==symbol))throw Error('Provider did not return the requested spot book');
+    if(!raw)throw Error('Missing book response');
+    var exchangeTime=source==='Bybit'?Number(raw.ts):null;
+    if(exchangeTime!=null&&(!isFinite(exchangeTime)||received-exchangeTime>15000||exchangeTime-received>30000))throw Error('Provider book timestamp is stale or inconsistent');
+    var estimate=calculateChartDepth({asks:raw.a||raw.asks,bids:raw.b||raw.bids},settings.orderQuote);
+    chartState.depth={symbol:symbol,timeframe:timeframe,source:source,loadRequestId:loadId,receivedAt:received,
+      exchangeTime:exchangeTime,latencyMs:received-started,orderQuote:settings.orderQuote,estimate:estimate};
+    chartState.depthMessage='Snapshot loaded';
+  }catch(e){if(!stillSelected())return;chartState.depth=null;chartState.depthMessage='Book unavailable: '+String(e.message||e).slice(0,160);}
+  renderChartExecution();
+  // A snapshot expires visibly even if no price tick arrives.
+  setTimeout(function(){if(stillSelected())renderChartExecution();},15500);
+}
+
+function renderChartExecution(){
+  var el=document.getElementById('chart-execution-book');if(!el)return;
+  var b=chartState.depth;
+  if(!b){el.textContent=chartState.depthMessage||'No book fetched. Refresh on demand; no key required.';return;}
+  if(!chartDepthIsCurrent(b)){el.textContent='Snapshot stale or selection changed. Refresh the current venue book.';return;}
+  var x=b.estimate,unit=(b.symbol.match(/(USDT|USDC|USD|BTC|ETH)$/)||[])[1]||'quote units';
+  el.textContent=b.source+' · '+b.symbol+' · '+new Date(b.receivedAt).toISOString().slice(11,19)+' UTC received · '+b.latencyMs+'ms request\n'+
+    'Spread '+x.spreadBps.toFixed(2)+' bps · displayed depth within ±50 bps: bids '+x.bidDepth50.toFixed(2)+' / asks '+x.askDepth50.toFixed(2)+' '+unit+'\n'+
+    (x.buyComplete?'Market-buy estimate for '+x.notional+' '+unit+': VWAP '+fmtPrice(x.buyVWAP)+' · '+x.buyImpactBps.toFixed(2)+' bps above midpoint (includes half-spread).':'Insufficient displayed ask depth for this size; no full-fill estimate.')+'\n'+
+    'Excludes fees. No guarantee of fill or future stop execution. Snapshot expires after 15s; it does not change the plan cost assumptions.';
+}
+
+function editChartExecution(){
+  var old=document.getElementById('chart-execution-editor');if(old)old.remove();
+  var x=getChartExecutionSettings(),dialog=document.createElement('dialog');dialog.id='chart-execution-editor';dialog.className='cp-fib-dialog';
+  var fields=[['feePctEach','Fee per side (%)',5],['entrySlipPct','Entry slippage allowance (%)',10],['exitSlipPct','Exit slippage stress (%)',10],
+    ['orderQuote','Book test size (quote units)',1e9],['equityQuote','Portfolio equity (quote units, optional)',1e12],['freeCashQuote','Available cash (quote units, optional)',1e12]];
+  dialog.innerHTML='<form><h3>Execution assumptions</h3><p>Fees and slippage are editable scenarios. Zero slippage is not a measured promise. All money inputs use this pair’s quote currency.</p>'+
+    fields.map(function(f){return '<label>'+f[1]+'<input data-execution="'+f[0]+'" type="number" step="any" min="0" max="'+f[2]+'" value="'+(x[f[0]]==null?'':x[f[0]])+'"></label>';}).join('')+
+    '<label>Setup requirements <select id="chart-wyckoff-required"><option value="true"'+(x.wyckoffRequired?' selected':'')+'>Wyckoff confirmation required</option><option value="false"'+(!x.wyckoffRequired?' selected':'')+'>Structure setup · Wyckoff context only</option></select></label>'+
+    '<p>Net R:R and sizing include both sides’ cost allowance. Equity and cash only cap this candidate; portfolio correlation and open-position exposure are not automatically netted.</p><p id="chart-execution-error" role="alert"></p><button type="submit">Save assumptions</button> <button type="button" id="chart-book-refresh">Refresh book</button> <button type="button" id="chart-execution-close">Close</button></form>'+
+    '<p id="chart-execution-book" aria-live="polite" style="white-space:pre-line"></p>';
+  (document.getElementById('chart-fs-wrap')||document.body).appendChild(dialog);
+  dialog.addEventListener('keydown',function(e){if(e.key==='Escape')e.stopPropagation();});
+  dialog.addEventListener('close',function(){dialog.remove();});
+  dialog.querySelector('#chart-execution-close').onclick=function(){dialog.close();};
+  dialog.querySelector('#chart-book-refresh').onclick=refreshChartDepth;
+  dialog.querySelector('form').onsubmit=function(e){e.preventDefault();var next={},valid=true;
+    fields.forEach(function(f){var val=dialog.querySelector('[data-execution="'+f[0]+'"]').value.trim();
+      next[f[0]]=val===''&&f[0]==='freeCashQuote'?null:Number(val);
+      if(next[f[0]]!=null&&(!isFinite(next[f[0]])||next[f[0]]<0||next[f[0]]>f[2]))valid=false;
+    });
+    if(!valid||!(next.orderQuote>0)){dialog.querySelector('#chart-execution-error').textContent='Enter valid nonnegative assumptions and a positive book test size.';return;}
+    next.wyckoffRequired=dialog.querySelector('#chart-wyckoff-required').value==='true';
+    try{localStorage.setItem('chart_execution_v1',JSON.stringify(next));dialog.querySelector('#chart-execution-error').textContent='Saved. Review the updated plan; refresh the book after changing size.';}
+    catch(err){dialog.querySelector('#chart-execution-error').textContent='Unable to save assumptions in browser storage.';return;}
+    drawChart();renderChartExecution();
+  };dialog.showModal();renderChartExecution();
+}
+
+function calculateAnchoredVWAP(rows,start){
+  var pv=0,volume=0;return rows.map(function(k,i){
+    if(i<start)return null;
+    var h=Number(k[2]),l=Number(k[3]),c=Number(k[4]),v=Number(k[5]);
+    if(![h,l,c,v].every(isFinite)||v<0)return null;
+    pv+=(h+l+c)/3*v;volume+=v;return volume>0?pv/volume:null;
+  });
+}
+
+function recordChartDecision(){
+  if(!chartState.d||!chartState.snapshot||!chartState.snapshot.usable){window.alert('Wait for a usable closed-candle snapshot before recording a decision.');return;}
+  var record={version:'2026.09.06-r1',recordedAt:new Date().toISOString(),snapshot:chartState.snapshot,
+    symbol:chartState.sym,timeframe:chartState.tf,quote:{price:chartState.livePrice,source:chartState.quoteSource,time:chartState.lastPriceAt},
+    plan:buildCanonicalChartPlan(chartState.d),metrics:chartMetrics(chartState.d),
+    fib:chartState.autoFib,trendlines:chartState.trendlines,wyckoff:chartState.wyckoff,
+    candles:(chartState.klines||[]).map(function(k){return k.slice();}),
+    settings:{fibScope:chartState.fibScope,fibRetirement:chartState.fibRetirement,execution:getChartExecutionSettings()},
+    note:'Decision snapshot, not an order or performance claim. Last candle was developing at capture.'};
+  try{var records=JSON.parse(localStorage.getItem('chart_decisions_v1')||'[]');records.push(record);records=records.slice(-20);
+    localStorage.setItem('chart_decisions_v1',JSON.stringify(records));
+    var blob=new Blob([JSON.stringify(record,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download='chart-decision-'+chartState.sym+'-'+Date.now()+'.json';a.click();setTimeout(function(){URL.revokeObjectURL(url);},1000);
+    window.alert('Decision recorded and JSON export prepared. The latest 20 records remain in this browser.');
+  }catch(e){window.alert('Unable to record this decision: '+String(e.message||e));}
+}
+
 function buildCanonicalChartPlan(d) {
   d=chartMetrics(d);
   var pos = loadPos ? loadPos(d.sym) : null;
+  var execution=getChartExecutionSettings(),wyckoffRequired=execution.wyckoffRequired;
   var wx = (chartState.sym===d.sym && chartState.wyckoff) ? chartState.wyckoff : (d.wyckoff || null);
   var wxBull = !!(wx && wx.bullConfirm), wxBear = !!(wx && (wx.bearBlock||['BACK INSIDE','INVALIDATED','AWAITING NEW BREAK','DATA ERROR'].indexOf(wx.status)>=0));
-  var snapshot=chartState.snapshot,dataOK=!snapshot||snapshot.usable;
+  var snapshot=chartState.snapshot;
+  var dataOK=!!(snapshot&&snapshot.usable&&(!snapshot.symbol||snapshot.symbol===d.sym)&&(!snapshot.timeframe||snapshot.timeframe===chartState.tf));
+  var quoteOK=!!(chartState.sym===d.sym&&Number(chartState.livePrice)>0&&isFinite(Number(chartState.livePrice))&&chartState.lastPriceAt&&Date.now()-chartState.lastPriceAt>=0&&Date.now()-chartState.lastPriceAt<=30000&&
+    snapshot&&chartState.quoteSource&&chartState.quoteSource===snapshot.source);
   var fib = chartState.sym===d.sym && chartState.autoFib ? chartState.autoFib : null;
   var fibLadder = chartState.sym===d.sym && chartState.fibLadder ? chartState.fibLadder : null;
   var fibActionable=!(fib&&fib.manual)&&dataOK;
   var ai = (window._aiLevels || {})[d.sym];
   var aiCheck = (window._aiVerify || {})[d.sym];
   var aiOK = !!(ai && aiCheck && aiCheck.total > 0 && aiCheck.unverified === 0 &&
-    (!snapshot||snapshot.usable&&aiCheck.snapshotId===snapshot.signature)&&
+    (dataOK&&aiCheck.snapshotId===snapshot.signature)&&
     ai.planA && ai.planA.length === 2 && ai.sl && ai.tp1);
   var live = chartState.livePrice || d.price || d.signalPrice || 0;
   var source = 'STRUCTURE';
   var stopBasis = 'nearest structure';
   var entry, sl, tp1, tp2, tp3, zoneLow, zoneHigh;
 
-  if (pos && pos.entry && pos.sl) {
+  if (pos) {
     source = 'OPEN POSITION';
+    stopBasis='saved stop · never automatically amended';
     entry = +pos.entry; sl = +pos.sl;
     tp1 = +pos.tp1 || 0; tp2 = +pos.tp2 || 0; tp3 = +pos.tp3 || 0;
   } else if (aiOK) {
@@ -16615,7 +16875,7 @@ function buildCanonicalChartPlan(d) {
 
   // A confirmed Phase D/E SOS/LPS changes the preferred entry LOCATION to the
   // Backup/LPS at the former range high. It does not authorize chasing the SOS.
-  if(!pos && !aiOK && wxBull && wx.rangeHigh) {
+  if(!pos && !aiOK && wyckoffRequired && wxBull && wx.rangeHigh) {
     var wxAtrAbs=wx.rangeATR>0?wx.rangeATR:chartState.sym===d.sym&&chartState.chartAtr>0?chartState.chartAtr:
       (d.atrPct||2)/100*Math.max(live,entry);
     zoneLow=wx.rangeHigh-wxAtrAbs*.45;
@@ -16633,42 +16893,53 @@ function buildCanonicalChartPlan(d) {
     source='WYCKOFF '+wx.event;
   }
 
-  if (!(entry > 0)) entry = live;
+  if (!pos && !(entry > 0)) entry = live;
   var thesis = d.sup > 0 && d.sup < entry ? d.sup : entry * 0.985;
-  if (!(sl > 0 && sl < entry)) sl = thesis * 0.984;
-  var risk = Math.max(entry - sl, entry * 0.005);
+  // Existing break-even / trailing stops are intentional. Never replace them.
+  var savedValid=!pos||(isFinite(entry)&&entry>0&&isFinite(sl)&&sl>0&&[pos.tp1,pos.tp2,pos.tp3].every(function(t){return t==null||t===''||(isFinite(Number(t))&&Number(t)>=0);}));
+  var initialRisk=pos?Number(pos.initialRiskPerUnit):entry-sl;
+  if(pos&&!(initialRisk>0)&&Number(pos.initialSl)>0&&Number(pos.initialSl)<entry)initialRisk=entry-Number(pos.initialSl);
+  var riskKnown=isFinite(initialRisk)&&initialRisk>0;
+  var risk=riskKnown?initialRisk:0;
   var resistance = d.res > entry * 1.002 ? d.res * 0.998 : 0;
   if(fibActionable&&fibLadder&&fibLadder.valid&&fibLadder.usable!==false&&fibLadder.direction==='up'&&fibLadder.next&&fibLadder.next.price>entry*1.002){
     var fibResistance=fibLadder.next.price;
     resistance=resistance?Math.min(resistance,fibResistance):fibResistance;
   }
-  var planCost = CONFIG.CHART_COST_PCT || 0.20;
+  var planCost=execution.feePctEach*2+execution.entrySlipPct+execution.exitSlipPct;
+  var entryCostRate=(execution.feePctEach+execution.entrySlipPct)/100;
+  var exitCostRate=(execution.feePctEach+execution.exitSlipPct)/100;
+  var riskStop=pos&&riskKnown?entry-risk:sl;
+  var modeledLoss=risk+entry*entryCostRate+Math.max(0,riskStop)*exitCostRate;
+  var lossCostPct=(entry*entryCostRate+Math.max(0,riskStop)*exitCostRate)/entry*100;
+  var targetBasis=pos?['Saved target','Saved target','Saved target']:aiOK?['Verified AI level','Verified AI level','Verified AI level']:[];
 
   // Structural targets. TP1 must attempt to pay at least 1.5R; if resistance
   // blocks that, the R:R gate remains false and the setup cannot become TRIGGERED.
-  if (!(tp1 > entry)) {
-    var riskPctForTarget = risk / entry * 100;
-    var requiredTPPct = (riskPctForTarget + planCost) * CONFIG.CHART_MIN_NET_RR + planCost;
-    var minTP1 = Math.max(entry * 1.03, entry * (1 + requiredTPPct / 100));
+  if (!pos && !(tp1 > entry)) {
+    var minTP1 = Math.max(entry * 1.03,(entry*(1+entryCostRate)+modeledLoss*CONFIG.CHART_MIN_NET_RR)/(1-exitCostRate));
     // A supplied structural/Fib resistance is the target. If it sits below the
     // minimum required R:R, keep that honest low target and let rrOK block the
     // trade; if it sits above, do not invent an earlier non-structural TP.
     tp1 = resistance || minTP1;
+    targetBasis[0]=resistance?'Mapped resistance':'Synthetic objective · R / percentage rule';
   }
-  if (!(tp2 > tp1)) tp2 = resistance > tp1 ? resistance : Math.max(entry * 1.06, tp1 + risk);
-  if (!(tp3 > tp2)) tp3 = Math.max(entry * 1.10, tp2 + risk);
+  if (!pos && !(tp2 > tp1)){tp2 = resistance > tp1 ? resistance : Math.max(entry * 1.06, tp1 + risk);targetBasis[1]=resistance>tp1?'Mapped resistance':'Synthetic objective · R / percentage rule';}
+  if (!pos && !(tp3 > tp2)){tp3 = Math.max(entry * 1.10, tp2 + risk);targetBasis[2]='Synthetic objective · R / percentage rule';}
   if (!zoneLow) zoneLow = Math.min(thesis, entry * 0.995);
   if (!zoneHigh) zoneHigh = entry * 1.012;
 
   var slPct = (entry - sl) / entry * 100;
-  var tp1Pct = (tp1 - entry) / entry * 100;
-  var tp2Pct = (tp2 - entry) / entry * 100;
-  var tp3Pct = (tp3 - entry) / entry * 100;
+  var originalRiskPct=riskKnown?risk/entry*100:0;
+  var tp1Pct = tp1>0?(tp1 - entry) / entry * 100:0;
+  var tp2Pct = tp2>0?(tp2 - entry) / entry * 100:0;
+  var tp3Pct = tp3>0?(tp3 - entry) / entry * 100:0;
   var cost = planCost;
-  var rr1 = slPct > 0 ? tp1Pct / slPct : 0;
-  var rr2 = slPct > 0 ? tp2Pct / slPct : 0;
-  var rr3 = slPct > 0 ? tp3Pct / slPct : 0;
-  var netRR1 = slPct + cost > 0 ? Math.max(0, tp1Pct - cost) / (slPct + cost) : 0;
+  var rr1 = riskKnown&&tp1>0 ? tp1Pct / originalRiskPct : 0;
+  var rr2 = riskKnown&&tp2>0 ? tp2Pct / originalRiskPct : 0;
+  var rr3 = riskKnown&&tp3>0 ? tp3Pct / originalRiskPct : 0;
+  var netRR1 = riskKnown&&tp1>0&&modeledLoss>0 ? Math.max(0,tp1*(1-exitCostRate)-entry*(1+entryCostRate))/modeledLoss : 0;
+  var planValid=pos?savedValid:(isFinite(entry)&&entry>0&&isFinite(sl)&&sl>0&&sl<entry&&isFinite(tp1)&&tp1>entry&&riskKnown);
   var liveVsEntry = entry > 0 ? (live - entry) / entry * 100 : 0;
   var lastClosed = null, lastClosedAt = 0, candleClosesAt = 0;
   var kl = chartState.klines || [];
@@ -16682,8 +16953,15 @@ function buildCanonicalChartPlan(d) {
   var trendOK = d.trend === 'up' && d.ema20 > d.ema50;
   var structureOK = ['HH/HL','breakout','accumulation','consolidation'].indexOf(d.struct) >= 0;
   var volumeOK = d.volR >= CONFIG.CHART_VOL_CONFIRM;
-  var taOK = d.trendAccumAligned !== false;
-  var btcOK = /^BTC/.test(d.sym) || d.btcTrendScore == null || d.btcTrendScore >= CONFIG.BTC_FILTER_THRESHOLD;
+  var taOK = d.trendAccumAligned === true;
+  var btcAsset=/^BTC(?:USDT|USDC|USD|BTC)?$/.test(d.sym);
+  var btcRequired=!btcAsset&&!(typeof BTC_FILTER_ENABLED!=='undefined'&&BTC_FILTER_ENABLED===false);
+  var btcEvidence=typeof chartBtcEvidence!=='undefined'?chartBtcEvidence:null;
+  var btcObserved=!!(btcEvidence&&btcEvidence.timeframe===TF&&Date.now()-btcEvidence.observedAt>=0&&Date.now()-btcEvidence.observedAt<=900000);
+  var btcScore=d.btcTrendScore!=null?Number(d.btcTrendScore):btcObserved?Number(btcEvidence.score):null;
+  var btcKnown=btcScore!=null&&isFinite(btcScore);
+  var btcOK = !btcRequired || (btcKnown && btcScore >= CONFIG.BTC_FILTER_THRESHOLD);
+  var wyckoffOK=!wyckoffRequired||!!(wx&&wx.bullConfirm&&!wxBear&&!wx.watchOnly);
   var rrOK = netRR1 >= CONFIG.CHART_MIN_NET_RR;
   var fibOK = !(fibActionable&&fibLadder&&fibLadder.valid&&fibLadder.usable!==false&&fibLadder.direction==='up'&&fibLadder.state==='LOST');
   var closedTrigger = !!(d.buySignal || d.tlRetestHeld || d.breakoutUp);
@@ -16691,36 +16969,47 @@ function buildCanonicalChartPlan(d) {
   var lateLimit = Math.max(3, Math.min(5, (d.atrPct || 2) * 1.5));
   var late = !pos && liveVsEntry > lateLimit;
   var inZone = live >= zoneLow && live <= zoneHigh;
-  var tp1Passed=live>=tp1,tp2Passed=live>=tp2,tp3Passed=live>=tp3;
-  var nextTarget=!tp1Passed?{name:'TP1',price:tp1}:!tp2Passed?{name:'TP2',price:tp2}:!tp3Passed?{name:'TP3',price:tp3}:null;
+  var tp1Passed=tp1>0&&live>=tp1,tp2Passed=tp2>0&&live>=tp2,tp3Passed=tp3>0&&live>=tp3;
+  var nextTarget=tp1>0&&!tp1Passed?{name:'TP1',price:tp1}:tp2>0&&!tp2Passed?{name:'TP2',price:tp2}:tp3>0&&!tp3Passed?{name:'TP3',price:tp3}:null;
   var status, color, action;
+  var riskState=pos?(!savedValid?'INVALID SAVED PLAN':!quoteOK?'QUOTE UNVERIFIED':live<=sl?'STOP LEVEL BREACHED':'WITHIN SAVED STOP'):'NEW SETUP';
 
-  if (pos) {
+  if(pos&&!savedValid){
+    status='INVALID SAVED PLAN';color='#f23645';action='Saved values are malformed. Correct the saved position; no replacement stop or targets have been invented.';
+  } else if(pos&&riskState==='STOP LEVEL BREACHED'){
+    status='STOP LEVEL BREACHED';color='#f23645';action='Position record remains OPEN. Price crossed the saved stop; fill unconfirmed. Check the actual exchange order and execution.';
+  } else if(pos&&!quoteOK){
+    status='OPEN · DATA WAIT';color='#f59e0b';action='Position record remains OPEN. A fresh quote from the candle venue is required to assess its stop. Saved levels are preserved.';
+  } else if (pos) {
     status = 'ACTIVE'; color = '#26a69a'; action = tp3Passed?'All planned targets passed — manage the remainder with a trailing stop.'
       : tp2Passed?'TP1 and TP2 passed — trail the remainder above locked profit.'
       : tp1Passed?'TP1 passed — scale out and move the stop according to the saved plan.'
       : 'Position is open — manage the hard stop and scale-out targets.';
-  } else if (!dataOK) {
-    status='DATA WAIT';color='#f59e0b';action=snapshot.message+'. New setup confirmation is withheld.';
-  } else if (wxBear) {
+  } else if (!dataOK||!quoteOK) {
+    status='DATA WAIT';color='#f59e0b';action=(!dataOK?(snapshot&&snapshot.message||'No usable chart snapshot'):'Live quote missing, stale, or from a different venue')+'. New setup confirmation is withheld.';
+  } else if(!planValid){
+    status='INVALID PLAN';color='#f23645';action='A new long plan needs positive prices and a stop below entry. Correct the source levels before confirmation.';
+  } else if(d.trendAccumAligned==null||(btcRequired&&!btcKnown)||d.volR==null||(wyckoffRequired&&!wx)){
+    status='DATA WAIT';color='#f59e0b';action='Required confirmation data is unknown. Check the Evidence checklist; no fresh setup is confirmed.';
+  } else if (wyckoffRequired&&wxBear) {
     status = 'BLOCKED'; color = '#f23645'; action = 'Wyckoff '+(wx.status||wx.event)+'. New spot setups are on hold; historical events remain visible.';
   } else if (invalidated) {
     status = 'INVALIDATED'; color = '#f23645'; action = 'The setup lost support. Do not enter until a new closed-candle structure forms.';
   } else if (late || tp1Passed) {
     status = 'LATE'; color = '#f59e0b'; action = 'Price is '+liveVsEntry.toFixed(1)+'% above the plan.'+
       (tp1Passed?' TP1 is already passed.':'')+' Do not chase; wait for a retest.';
-  } else if (inZone && closedTrigger && volumeOK && rrOK && trendOK && taOK && btcOK && fibOK && !wxBear && !(wx&&wx.watchOnly)) {
+  } else if (inZone && closedTrigger && volumeOK && rrOK && trendOK && taOK && btcOK && fibOK && wyckoffOK) {
     status = 'TRIGGERED'; color = '#26a69a'; action = wxBull
       ? 'Wyckoff '+wx.event+' and closed-candle trigger agree. Execute only inside the Backup/LPS zone.'
       : 'Closed-candle trigger confirmed. Execute only within the planned entry zone.';
-  } else if (inZone && trendOK && structureOK && taOK && btcOK && rrOK && fibOK && !wxBear && !(wx&&wx.watchOnly)) {
+  } else if (inZone && trendOK && structureOK && taOK && btcOK && rrOK && fibOK && wyckoffOK) {
     status = 'READY'; color = '#7c4dff'; action = wxBull
       ? 'Price is testing the Wyckoff Backup/LPS zone. Require a bullish close; do not anticipate.'
       : 'Price is in the zone. Wait for a bullish closed candle and volume confirmation.';
   } else {
     status = 'WATCHING'; color = '#787b86';
     action = !fibOK ? fibLadder.reason+' Wait for a closed-candle reclaim before considering an entry.'
-      : !volumeOK ? 'Volume is only '+d.volR.toFixed(2)+'×; wait for ≥'+CONFIG.CHART_VOL_CONFIRM.toFixed(1)+'× and a closed trigger.'
+      : !volumeOK ? 'Volume '+(d.volR==null?'is unknown':('is only '+Number(d.volR).toFixed(2)+'×'))+'; wait for ≥'+CONFIG.CHART_VOL_CONFIRM.toFixed(1)+'× and a closed trigger.'
       : !rrOK ? 'Net TP1 R:R is '+netRR1.toFixed(1)+':1; wait for a better entry or more room.'
       : wx && wx.event==='SPRING' ? 'Spring is watch-only. Wait for a lower-volume Test, then SOS and LPS.'
       : wx && wx.event==='UTAD' ? 'UTAD warning. Protect gains and wait; no spot entry before the range proves strength.'
@@ -16728,17 +17017,24 @@ function buildCanonicalChartPlan(d) {
       : 'One or more market-regime gates are still missing.';
   }
 
-  var rawAlloc = slPct > 0 ? (CONFIG.CHART_RISK_PCT / slPct * 100) : 0;
+  var rawAlloc = !pos&&planValid&&slPct>0 ? (CONFIG.CHART_RISK_PCT / (slPct+lossCostPct) * 100) : 0;
   var allocation = Math.min(CONFIG.MAX_SPOT_ALLOC_PCT, rawAlloc);
-  var actualRisk = allocation * slPct / 100;
+  if(execution.equityQuote>0&&execution.freeCashQuote!=null)allocation=Math.min(allocation,execution.freeCashQuote/execution.equityQuote*100/(1+execution.feePctEach/100));
+  if(!pos&&allocation<=0&&(status==='TRIGGERED'||status==='READY')){status='BLOCKED';color='#f59e0b';action='No candidate allocation remains under the configured cash and risk limits.';}
+  var actualRisk = allocation * (Math.max(0,slPct)+lossCostPct) / 100;
   var score100 = Math.max(0, Math.min(100, Math.round((d.score || 0) / 97 * 100)));
   var freshSec = chartState.lastPriceAt ? Math.round((Date.now()-chartState.lastPriceAt)/1000) : null;
 
-  return {source:source, entry:entry, zoneLow:zoneLow, zoneHigh:zoneHigh,
+  return {version:'2026.09.06-r1',source:source, entry:entry, zoneLow:zoneLow, zoneHigh:zoneHigh,
     thesis:thesis, sl:sl, tp1:tp1, tp2:tp2, tp3:tp3, live:live,
     slPct:slPct, tp1Pct:tp1Pct, tp2Pct:tp2Pct, tp3Pct:tp3Pct,
     rr1:rr1, rr2:rr2, rr3:rr3, netRR1:netRR1, liveVsEntry:liveVsEntry,
     status:status, color:color, action:action, allocation:allocation,
+    positionState:pos?'OPEN':'NONE',riskState:riskState,riskKnown:riskKnown,originalRiskPct:originalRiskPct,
+    planValid:planValid,execution:execution,costPct:cost,quoteOK:quoteOK,
+    targetBasis:targetBasis,modeledLoss:modeledLoss,
+    planId:[snapshot&&snapshot.signature||'unverified',source,entry,sl,tp1,tp2,tp3,execution.feePctEach,execution.entrySlipPct,execution.exitSlipPct,wyckoffRequired].join('|'),
+    sizeQuote:!pos&&execution.equityQuote>0?execution.equityQuote*allocation/100:null,
     rawAllocation:rawAlloc, actualRisk:actualRisk, score100:score100,
     lastClosedAt:lastClosedAt, candleClosesAt:candleClosesAt, freshSec:freshSec, wyckoff:wx,
     fib:fib, fibLadder:fibLadder, stopBasis:stopBasis,
@@ -16746,16 +17042,17 @@ function buildCanonicalChartPlan(d) {
     confirmations:[
       {label:(chartState.tf || TF)+' trend', ok:trendOK, value:trendOK?'Bullish':'Not bullish'},
       {label:'Structure', ok:structureOK, value:d.struct || '—'},
-      {label:'Scanner '+TF+' trend + accum.', ok:taOK, value:taOK?'Aligned':'Disagree'},
-      {label:'Data snapshot',ok:dataOK,value:snapshot?(snapshot.usable?snapshot.source+' · closed':snapshot.message):'No chart snapshot'},
-      {label:'Wyckoff', ok:!!(wx&&wx.bullConfirm)&&!wxBear, value:wx?((wx.status||wx.event)+' · '+wx.confidence+'/100 heuristic'):'No range'},
-      {label:'Fib ladder', ok:fibLadder&&fibLadder.usable===false?false:fibOK, value:fibLadder&&fibLadder.valid?
+      {label:'Scanner '+TF+' trend + accum.', ok:d.trendAccumAligned==null?null:taOK, value:d.trendAccumAligned==null?'Unknown':taOK?'Aligned':'Disagree'},
+      {label:'Data snapshot',ok:snapshot?dataOK:null,value:snapshot?(dataOK?snapshot.source+' · closed':snapshot.message||'Snapshot mismatch'):'No chart snapshot'},
+      {label:'Live quote',ok:quoteOK?true:null,value:quoteOK?'Fresh · same venue':'Unknown / stale / venue mismatch'},
+      {label:'Wyckoff',required:wyckoffRequired,ok:wx?wyckoffOK:null, value:!wyckoffRequired?'Not required · context only':wx?((wx.status||wx.event)+' · '+wx.confidence+'/100 heuristic'):'Unknown · no confirmed range'},
+      {label:'Fib ladder',required:!!(fibActionable&&fibLadder&&fibLadder.valid&&fibLadder.usable!==false),ok:fibLadder&&fibLadder.usable===false?null:fibOK, value:fibLadder&&fibLadder.valid?
         (fibLadder.usable===false?'STALE · wait new pivot':fibLadder.state+' '+String(fibLadder.active.ratio).replace(/^0\./,'.')):'No confirmed Fib'},
       {label:'Closed trigger', ok:closedTrigger, value:closedTrigger?'Confirmed':'Waiting'},
-      {label:'Volume', ok:volumeOK, value:d.volR.toFixed(2)+'×'},
-      {label:'BTC gate', ok:btcOK, value:btcOK?'Passed':'Blocked'},
-      {label:'Net R:R', ok:rrOK, value:netRR1.toFixed(1)+':1'}
-    ]};
+      {label:'Volume', ok:d.volR==null?null:volumeOK, value:d.volR==null?'Unknown':Number(d.volR).toFixed(2)+'×'},
+      {label:'BTC gate',required:btcRequired, ok:!btcRequired?null:!btcKnown?null:btcOK, value:!btcRequired?(btcAsset?'Not required · BTC chart':'Not required · filter disabled'):!btcKnown?'Unknown · refresh scanner':(btcOK?'Passed':'Failed')+' · scanner '+TF+' score '+btcScore},
+      {label:'Net R:R', ok:riskKnown?rrOK:null, value:riskKnown?netRR1.toFixed(1)+':1':'Unknown · original risk not recorded'}
+    ].map(function(g){g.required=g.required!==false;g.state=!g.required?'Not required':g.ok==null?'Unknown':g.ok?'Passed':'Failed';return g;})};
 }
 
 function populateFSTable(d) {
@@ -16767,7 +17064,7 @@ function populateFSTable(d) {
   function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
   function card(title,body,cls){return '<section class="cp-card '+(cls||'')+'"><h4>'+title+'</h4>'+body+'</section>';}
   function level(x){return x?String(x.ratio).replace(/^0\./,'.')+' · '+fE(x.price):'None mapped';}
-  function row(label,price,col,note){return '<div class="cp-pair"><span>'+label+'</span><strong style="color:'+col+'">'+fE(price)+'</strong></div>'+(note?'<div class="cp-muted">'+note+'</div>':'');}
+  function row(label,price,col,note){return '<div class="cp-pair"><span>'+label+'</span><strong style="color:'+col+'">'+(price>0&&isFinite(price)?fE(price):'Not recorded')+'</strong></div>'+(note?'<div class="cp-muted">'+note+'</div>':'');}
   var tabs='<nav class="cp-tabs" role="tablist" aria-label="Chart details">'+['overview','plan','evidence'].map(function(t){
     return '<button role="tab" aria-selected="'+(tab===t)+'" onclick="setChartTab(\''+t+'\')">'+t[0].toUpperCase()+t.slice(1)+'</button>';
   }).join('')+'</nav>';
@@ -16776,7 +17073,8 @@ function populateFSTable(d) {
   var live=card('Live price · '+esc(chartState.tf||TF),'<div class="cp-pair"><strong class="cp-price">'+fE(p.live)+'</strong><span class="cp-muted">'+(p.liveVsEntry>=0?'+':'')+p.liveVsEntry.toFixed(2)+'% vs entry</span></div><div class="cp-muted">'+freshness+' · live candle unconfirmed</div>');
   var tl=getChartTrendContext(d.sym);
   var trendBody=tl?[tl.support,tl.resistance].filter(Boolean).map(function(L){
-    return '<p><strong>'+esc(L.role)+' · '+esc(L.state)+'</strong><br>'+fE(L.priceAtLastClose)+' at last close · '+L.touches+' distinct reactions'+(L.breakBarsAgo!=null?' · break '+L.breakBarsAgo+' bars ago':'')+'</p>';
+    return '<p><strong>'+esc(L.role)+' · '+esc(L.state)+'</strong><br>'+fE(L.priceAtLastClose)+' at last close · '+L.touches+' distinct reactions'+(L.breakBarsAgo!=null?' · break '+L.breakBarsAgo+' bars ago':'')+'</p>'+
+      ((L.events||[]).length?'<details data-chart-detail="'+esc(L.id)+'"><summary>Break / retest history</summary>'+L.events.map(function(e){return '<p>'+esc(e.type)+' · '+(e.confirmedTime?esc(new Date(e.confirmedTime).toISOString().slice(0,16).replace('T',' '))+' UTC close':'Legacy observation')+'</p>';}).join('')+'</details>':'');
   }).join(''):'';
   var retired=chartState.trendlines&&chartState.trendlines.history||[];
   if(retired.length)trendBody+='<details><summary>Retired trendlines ('+retired.length+')</summary>'+retired.map(function(L){
@@ -16813,7 +17111,7 @@ function populateFSTable(d) {
       '<div class="cp-muted">'+anchorDate(selectedFib.endIndex)+'</div><p class="cp-muted">'+esc(selectedFib.reason||'Connected confirmed swings. 0 = start; 1 = end.')+'</p>'+fibBody;
   }
   if(fl&&fl.valid){
-    fibBody+='<p class="cp-muted">Last closed '+esc(chartState.tf||TF)+' candle: '+fE(fl.lastClose)+' · '+esc(fl.state)+'. Live price is shown separately above.</p>';
+    fibBody+='<p class="cp-muted">Last closed '+esc(chartState.tf||TF)+' candle: '+fE(fl.lastClose)+' · '+esc(fl.state==='EXTENSION COMPLETE'?'Historical Fib retired by rule':fl.state)+'. Live price is shown separately above.</p>';
     if(fl.usable!==false&&fl.provisional)fibBody+='<p class="cp-muted">PROVISIONAL swing '+(fl.direction==='up'?'HIGH':'LOW')+' · '+fE(fl.provisional.endPrice)+
       ' · '+(fl.provisional.forming?'candle still open; ':'')+(fl.provisional.pendingBars>0?fl.provisional.pendingBars+' right-side candle closes still needed.':'awaiting valid pivot confirmation.')+
       ' Confirmed anchors stay fixed until the new swing is confirmed.</p>';
@@ -16821,7 +17119,7 @@ function populateFSTable(d) {
   if(tab==='evidence'&&fl&&fl.usable!==false&&chartState.autoFib&&chartState.autoFib.valid){
     fibBody+='<details><summary>'+(chartState.autoFib.manual?'All manual Fib levels':'All confirmed Fib levels')+'</summary>'+chartState.autoFib.levels.map(function(x){return '<div class="cp-pair"><span>'+String(x.ratio)+'</span><strong>'+fE(x.price)+'</strong></div>';}).join('')+'</details>';
   }
-  var next=p.nextTarget?p.nextTarget.name+' · '+fE(p.nextTarget.price):'None — all mapped targets passed';
+  var next=p.nextTarget?p.nextTarget.name+' · '+fE(p.nextTarget.price):(p.tp1||p.tp2||p.tp3)?'None — all mapped targets passed':'No targets recorded';
   var invalid=row('Close invalidation',p.thesis,'#f0b90b',(chartState.tf||TF)+' close below = setup failed')+
     row('Protective stop',p.sl,'#ef5350','Stop level only — this app has not placed an exchange order.');
   var waiting=[];
@@ -16829,7 +17127,9 @@ function populateFSTable(d) {
   if(d.trend!=='up')waiting.push('uptrend confirmation');
   if(!p.confirmations.some(function(c){return c.label==='Closed trigger'&&c.ok;}))waiting.push('a bullish closed-candle trigger or held retest');
   var trigger=waiting.length?waiting.join('; '):'Confirmation checks pass; entry still must be within the planned zone.';
-  var html=tabs+live;
+  var html=tabs;
+  if(p.positionState==='OPEN'&&p.riskState!=='WITHIN SAVED STOP')html+=card('OPEN · '+esc(p.riskState),'<p>'+esc(p.action)+'</p>','cp-risk-alert');
+  html+=live;
   if(chartState.snapshot&&!chartState.snapshot.usable)html+=card('Data health','<p>'+esc(chartState.snapshot.message)+'. New setup confirmation withheld.</p>');
   if(tab==='overview'){
     html+=card('Setup · '+esc(p.source),'<p>'+esc(p.action)+'</p>')+
@@ -16840,18 +17140,25 @@ function populateFSTable(d) {
   }else if(tab==='plan'){
     html+=card('Plan · '+esc(p.source),'<p>'+esc(p.action)+'</p>')+
       card('Entry zone',row('Planned entry',p.entry,'#f0b90b',fE(p.zoneLow)+' – '+fE(p.zoneHigh)))+
-      card('Invalidation and risk',invalid+'<p>Stop distance <strong>'+p.slPct.toFixed(2)+'%</strong> · net TP1 R:R <strong>'+p.netRR1.toFixed(1)+':1</strong></p>')+
+      card('Invalidation and risk',invalid+'<p>Current stop vs entry <strong>'+(-p.slPct).toFixed(2)+'%</strong> · net TP1 R:R <strong>'+(p.riskKnown?p.netRR1.toFixed(2)+':1':'Unavailable')+'</strong></p><p class="cp-muted">'+(p.riskKnown?'R uses original entry risk, preserved when the stop moves.':'Original risk was not recorded for this position; R is unavailable.')+'</p>')+
       card('Targets',[1,2,3].map(function(i){
         var passed=p['tp'+i+'Passed'];return row('TP '+i+(passed?' · PASSED':''),p['tp'+i],passed?'#8992a5':'#26a69a',
-          passed?'At/below live quote — not an execution confirmation':'R:R '+p['rr'+i].toFixed(1)+':1 from planned entry');
+          (passed?'At/below live quote — not a fill. ':p['tp'+i]>0?'':'Not recorded. ')+(p.riskKnown&&p['tp'+i]>0?p['rr'+i].toFixed(2)+'R':'R unavailable')+' · '+esc(p.targetBasis[i-1]||'Unknown source'));
       }).join('')+'<p>Next unreached plan target: <strong>'+next+'</strong></p>')+
-      card('Position sizing','Allocation cap <strong>'+p.allocation.toFixed(1)+'%</strong> · portfolio risk <strong>'+p.actualRisk.toFixed(2)+'%</strong><p class="cp-muted">Saved orders and fills are unchanged. Calculated levels are not placed orders.</p>');
+      card('Position sizing',p.positionState==='OPEN'?'Use the recorded position size; no replacement allocation calculated.':
+        'Candidate allocation <strong>'+p.allocation.toFixed(1)+'%</strong> · modeled risk <strong>'+p.actualRisk.toFixed(2)+'%</strong>'+(p.sizeQuote!=null?'<p>Indicative size '+p.sizeQuote.toFixed(2)+' quote units before venue lot-size checks.</p>':'')+'<p class="cp-muted">Fees and slippage included. Portfolio exposure is not automatically netted. Not an order.</p>')+
+      card('Execution assumptions','Fee '+p.execution.feePctEach.toFixed(3)+'% per side · entry slippage '+p.execution.entrySlipPct.toFixed(3)+'% · exit stress '+p.execution.exitSlipPct.toFixed(3)+'%.<p class="cp-muted">Each fee applies to its own modeled execution price. Assumptions are not measured fills; gaps can exceed them.</p><button onclick="editChartExecution()">Edit / inspect book</button>');
   }else{
     html+=trendCard+card('Wyckoff · evidence',wxText)+card('Auto Fib · '+esc(chartState.tf||TF),fibBody)+referenceCard+
-      card('Confirmation checklist',p.confirmations.map(function(c){return '<div class="cp-check"><span>'+(c.ok?'✓ ':'○ ')+esc(c.label)+'</span><strong style="color:'+(c.ok?'#26a69a':'#f0b90b')+'">'+esc(c.value)+'</strong></div>';}).join(''))+
+      card('Volume methods','Vertical bars show traded base volume by candle direction, not aggressor buying. The optional estimated profile puts each visible candle’s volume in its high/low midpoint bin; zoom changes that visual estimate only. Anchored VWAP uses typical candle price × base volume from the selected Fib start. Both are estimates, excluded from confirmation gates.')+
+      card('Confirmation checklist',p.confirmations.map(function(c){return '<div class="cp-check"><span>'+(c.state==='Passed'?'✓ ':'○ ')+esc(c.label)+'</span><strong style="color:'+(c.state==='Passed'?'#26a69a':'#f0b90b')+'">'+esc(c.state)+' · '+esc(c.value)+'</strong></div>';}).join(''))+
       card('Closed-candle metrics','<div class="cp-pair"><span>Trend / structure</span><strong>'+esc(d.trend)+' / '+esc(d.struct)+'</strong></div><div class="cp-pair"><span>RSI</span><strong>'+Number(d.rsi).toFixed(1)+'</strong></div><div class="cp-pair"><span>Volume / prior 20 bars</span><strong>'+Number(d.volR).toFixed(2)+'×</strong></div><p class="cp-muted">Current '+esc(chartState.tf||TF)+' chart calculations. Developing candle closes in '+_chartCountdown(p.candleClosesAt)+'.</p>');
   }
-  if(root.innerHTML!==html)root.innerHTML=html;
+  if(root.innerHTML!==html){
+    var openDetails=root.querySelectorAll?Array.from(root.querySelectorAll('details')).map(function(el,i){return el.open?i:-1;}).filter(function(i){return i>=0;}):[];
+    root.innerHTML=html;
+    if(root.querySelectorAll){var details=root.querySelectorAll('details');openDetails.forEach(function(i){if(details[i])details[i].open=true;});}
+  }
   var old=document.getElementById('fs-market');if(old&&old.parentElement)old.parentElement.style.display='none';
 }
 
@@ -17227,7 +17534,7 @@ function updateChartSummary(){
   var lines=[];
   if(chartState.indicators.fib){
     var txt=f&&f.valid?(f.manual?'MANUAL '+(f.locked?'LOCKED':'EDITABLE'):f.scope==='major'?'MAJOR SWING':'RECENT SWING')+' FIB · '+fmtPrice(f.startPrice)+' → '+fmtPrice(f.endPrice):'Fib · '+(f&&f.reason||'No confirmed swing');
-    if(fl&&fl.valid){txt+=' · Closed: '+fl.state;
+    if(fl&&fl.valid){txt+=' · Closed: '+(fl.state==='EXTENSION COMPLETE'?'Historical Fib retired by rule':fl.state);
       if(f&&f.valid&&chartState.livePrice){var depth=(f.endPrice-chartState.livePrice)/(f.endPrice-f.startPrice)*100;
         txt+=' · Live: '+(depth<0?'beyond endpoint by '+(-depth).toFixed(1)+'% of swing':depth>100?'beyond origin':depth.toFixed(1)+'% pullback from endpoint');}}
     lines.push('<span>'+esc(txt)+'</span>');
@@ -17242,9 +17549,14 @@ function updateChartSummary(){
   if(!s.usable)health+=' · '+s.message;
   if(chartState.sourceNotice)health+=' · '+chartState.sourceNotice;
   if(w&&w.rebuilt)health+=' · provider correction / gap: history recalculated';
+  if(tl.rebuilt)health+=' · trendline history recalculated for rule version 3 or revised candles';
   if(chartState.labelsHidden)health+=' · '+chartState.labelsHidden+' crowded labels hidden; full values in Evidence';
-  var html=lines.join('')+'<div class="cp-health">'+esc(health)+'</div>';
-  ['chart-summary','chart-summary-fs'].forEach(function(id){var el=document.getElementById(id);if(el&&el.innerHTML!==html)el.innerHTML=html;});
+  var compact=(chartState.metrics&&chartState.metrics.trend||'Trend unknown')+' trend · '+
+    (w&&w.rangeHigh?(chartState.livePrice>w.rangeHigh?'Above prior base':chartState.livePrice<w.rangeLow?'Below prior base':'Inside prior base'):'No established base')+' · '+
+    (fl&&fl.provisional?'New swing developing · ':'')+(s.usable?'Closed data ready':'DATA WAIT');
+  if(chartState.d){var plan=buildCanonicalChartPlan(chartState.d);compact+=' · '+plan.status;}
+  var html='<details class="cp-summary-details"><summary>'+esc(compact)+' · Details</summary><div>'+lines.join('')+'<div class="cp-health">'+esc(health)+'</div></div></details>';
+  ['chart-summary','chart-summary-fs'].forEach(function(id){var el=document.getElementById(id);if(el&&el.innerHTML!==html){var wasOpen=el.querySelector&&el.querySelector('details[open]');el.innerHTML=html;if(wasOpen)el.querySelector('details').open=true;}});
 }
 function createChartLabelLayer(ctx,bounds){
   var pending=[],placed=[],hidden=0;
@@ -17426,7 +17738,7 @@ function _drawChartNow() {
       var volBase=wxV.slice(-21,-1).reduce(function(a,b){return a+b;},0)/20;
       chartState.metrics=Object.assign({},d,{chartTF:chartState.tf,ema20:wxE20,ema50:wxE50,
         ema200:calcEMA(wxC,200),trend:wxTrend,struct:calcStruct(wxH,wxL,wxC),sup:localSR.sup,res:localSR.res,
-        rsi:calcRSI(wxC),volR:volBase>0?wxV[wxV.length-1]/volBase:0,atrPct:wxAtr/wxC[wxC.length-1]*100,
+        rsi:calcRSI(wxC),volR:snapshot.volumeValid&&volBase>0&&isFinite(wxV[wxV.length-1])?wxV[wxV.length-1]/volBase:null,atrPct:wxAtr/wxC[wxC.length-1]*100,
         tlBreakUp:!!(localTL.down&&localTL.down.brokeUpNow),tlBreakDown:!!(localTL.up&&localTL.up.brokeDownNow),
         tlRetestHeld:!!(localTL.down&&localTL.down.retestHeld),
         buySignal:snapshot.usable&&d.analysisSnapshot&&d.analysisSnapshot.signature===snapshot.signature&&!!d.buySignal,
@@ -17527,7 +17839,7 @@ function _drawChartNow() {
     // While the confirmed Fib is stale, show a separate dashed PROVISIONAL Fib
     // to the developing extreme. It can move intrabar and is visual context only;
     // no plan, stop, target or AI recommendation may use it.
-    if(!fibUsable&&fibLadder.provisional){
+    if(ind.preview&&!fibUsable&&fibLadder.provisional){
       var pf=fibLadder.provisional,pStart=Math.max(0,cX(Math.min(pf.startIndex,pf.endIndex)-offset)-candleW/2);
       var provisionalReference=isFinite(Number(chartState.livePrice))?Number(chartState.livePrice):Number(c[c.length-1]),provisionalLabels={};
       pf.levels.slice().sort(function(a,b){return Math.abs(a.price-provisionalReference)-Math.abs(b.price-provisionalReference);}).slice(0,2).forEach(function(x){provisionalLabels[String(x.ratio)]=true;});
@@ -17570,7 +17882,7 @@ function _drawChartNow() {
       var family=['SOS','SOW','FAIL'].indexOf(ev.code)>=0?'break':
         ['LPS','LPSY','TEST'].indexOf(ev.code)>=0?'retest':
         ['SPRING','UTAD','UPPER_TEST'].indexOf(ev.code)>=0?'range-test':ev.code;
-      if(!wxFamilies[family]&&wxPlotEvents.length<3){wxFamilies[family]=true;wxPlotEvents.push(ev);}
+      if(!wxFamilies[family]&&wxPlotEvents.length<(ind.history?3:1)){wxFamilies[family]=true;wxPlotEvents.push(ev);}
     });
     wxPlotEvents.reverse().forEach(function(ev){
       var vx=cX(ev.index-offset); if(vx<4||vx>chartW-4) return;
@@ -17670,8 +17982,8 @@ function _drawChartNow() {
     }
   }
 
-  // 4b. Horizontal Volume Profile (HVP)
-  if (ind.vol && chartState.viewMode==='analysis' && visible.length > 5) {
+  // 4b. Candle-midpoint estimate. This is neither trade-at-price nor aggressor flow.
+  if (ind.profile && visible.length > 5) {
     var HVP_N = 28, hvpArr = new Array(HVP_N).fill(0);
     var hvpW2 = Math.floor(chartW * 0.10);
     visible.forEach(function(k) {
@@ -17687,10 +17999,11 @@ function _drawChartNow() {
       var barLen2 = (hvpArr[bi2]/hvpMax2) * hvpW2;
       if (barLen2 < 1) continue;
       ctx.save();
-      ctx.fillStyle = hvpArr[bi2] > hvpMax2*0.55 ? 'rgba(38,166,154,.3)' : 'rgba(255,255,255,.07)';
+      ctx.fillStyle = 'rgba(140,170,215,.28)';
       ctx.fillRect(chartW - hvpW2 - 4 + (hvpW2 - barLen2), bY2, barLen2, Math.max(1, bH3));
       ctx.restore();
     }
+    plotLabels.add({text:'Estimated candle-volume profile',detail:'Visible range · midpoint bins · no buy/sell split',col:'#b9cde8',x:chartW-300,y:TOP_PAD+48,priority:90});
   }
 
   // 5. EMA lines
@@ -17711,6 +18024,17 @@ function _drawChartNow() {
       }
       ctx.stroke();
     });
+  }
+
+  // Optional candle-based anchored VWAP. Retrospective study, never a trigger input.
+  if(ind.avwap&&fib&&fib.valid){
+    var av=calculateAnchoredVWAP(klines,fib.startIndex),startedAV=false;
+    ctx.save();ctx.beginPath();ctx.rect(0,TOP_PAD,chartW,CANDLE_H);ctx.clip();
+    ctx.strokeStyle='#d4b1ff';ctx.lineWidth=1.5;ctx.setLineDash([4,2]);ctx.beginPath();
+    visible.forEach(function(k,i){var value=av[offset+i];if(value==null){startedAV=false;return;}
+      if(!startedAV){ctx.moveTo(cX(i),pY(value));startedAV=true;}else ctx.lineTo(cX(i),pY(value));
+    });ctx.stroke();ctx.restore();
+    plotLabels.add({text:'Anchored VWAP estimate',detail:'Selected Fib start · typical price × base volume',col:'#d4b1ff',x:8,y:TOP_PAD+65,priority:65});
   }
 
   // 6. CANDLESTICKS — exact TradingView style
@@ -17763,7 +18087,7 @@ function _drawChartNow() {
       {i:fib.startIndex,p:fib.startPrice,kind:fib.direction==='up'?'LOW':'HIGH',ratio:'0',anchor:1},
       {i:fib.endIndex,p:fib.endPrice,kind:fib.direction==='up'?'HIGH':'LOW',ratio:'1',anchor:2}
     ];
-    if(fibLadder&&fibLadder.provisional)swingMarks.push({i:fibLadder.provisional.endIndex,p:fibLadder.provisional.endPrice,
+    if(ind.preview&&fibLadder&&fibLadder.provisional)swingMarks.push({i:fibLadder.provisional.endIndex,p:fibLadder.provisional.endPrice,
       kind:fib.direction==='up'?'HIGH':'LOW',pending:true});
     ctx.save();
     swingMarks.forEach(function(a){
@@ -17994,9 +18318,9 @@ function _drawChartNow() {
     var aTP2   = aPlan.tp2;
     var aTP3   = aPlan.tp3;
     var aSlPct = aPlan.slPct;
-    var aTp1R  = aPlan.rr1.toFixed(1);
-    var aTp2R  = aPlan.rr2.toFixed(1);
-    var aTp3R  = aPlan.rr3.toFixed(1);
+    var aTp1R  = aPlan.riskKnown?aPlan.rr1.toFixed(1):'N/A ';
+    var aTp2R  = aPlan.riskKnown?aPlan.rr2.toFixed(1):'N/A ';
+    var aTp3R  = aPlan.riskKnown?aPlan.rr3.toFixed(1):'N/A ';
 
     var lows3   = klines.map(function(k){return parseFloat(k[3]);});
     var highs3  = klines.map(function(k){return parseFloat(k[2]);});
@@ -18513,7 +18837,7 @@ function updateChartAnalystBar(d) {
   }
   var entry=p.entry, sl=p.sl, tp1=p.tp1, tp2=p.tp2, tp3=p.tp3;
   var slPct=p.slPct, tp1Pct=p.tp1Pct, tp2Pct=p.tp2Pct, tp3Pct=p.tp3Pct;
-  var rr1=p.rr1.toFixed(1), rr2=p.rr2.toFixed(1), rr3=p.rr3.toFixed(1);
+  var rr1=p.riskKnown&&tp1>0?p.rr1.toFixed(1):'N/A', rr2=p.riskKnown&&tp2>0?p.rr2.toFixed(1):'N/A', rr3=p.riskKnown&&tp3>0?p.rr3.toFixed(1):'N/A';
   var liveP=p.live;
   var fromLive=function(x){return liveP>0?(x-liveP)/liveP*100:0;};
   var sigCol=p.color, sigTxt=p.status;
@@ -18527,7 +18851,7 @@ function updateChartAnalystBar(d) {
     '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--card3);color:var(--t2)">'+p.source+' PLAN</span>' +
     '<span style="font-size:12px;color:var(--t2)">Score: <strong style="color:'+scC+'">'+p.score100+'/100</strong></span>' +
     '<span style="font-size:12px;color:var(--t2)">RSI: <strong>'+d.rsi.toFixed(1)+'</strong></span>' +
-    '<span style="font-size:12px;color:var(--t2)">Vol: <strong>'+d.volR.toFixed(2)+'×</strong></span>' +
+    '<span style="font-size:12px;color:var(--t2)">Vol: <strong>'+(d.volR==null?'Unknown':Number(d.volR).toFixed(2)+'×')+'</strong></span>' +
     '<span style="font-size:12px;color:var(--t2)">Structure: <strong>'+d.struct+'</strong></span>' +
     '<span style="font-size:11px;color:'+sigCol+';margin-left:auto">'+entryNote+'</span>' +
   '</div>' +
@@ -18548,10 +18872,10 @@ function updateChartAnalystBar(d) {
   '<tbody>' +
     tableRow('🎯 Planned entry', fE(entry),    '—',                              pctStr(fromLive(entry)),     '—',   'READY means wait; require a confirmed trigger inside the zone', '#F59E0B', true) +
     tableRow('⚠ Close invalidation',fE(p.thesis),pctStr((p.thesis-entry)/entry*100,true),pctStr(fromLive(p.thesis)), '—', (chartState.tf||TF)+' close below = setup invalidated', '#F59E0B', false) +
-    tableRow('🛡 Protective stop',fE(sl),       pctStr(-slPct,true),              pctStr(fromLive(sl)),        '1×',  'Calculated level — no exchange order placed', '#ef5350', false) +
-    tableRow('💰 TP1 '+(p.tp1Passed?'· PASSED':'(40%)'),fE(tp1),pctStr(tp1Pct),pctStr(fromLive(tp1)),rr1,p.tp1Passed?'Already below live — not a future target':'Take 40%. Move SL to breakeven',p.tp1Passed?'#787b86':'#26a69a',false) +
-    tableRow('💰 TP2 '+(p.tp2Passed?'· PASSED':'(35%)'),fE(tp2),pctStr(tp2Pct),pctStr(fromLive(tp2)),rr2,p.tp2Passed?'Already below live — not a future target':'Take 35%. Trail SL to TP1',p.tp2Passed?'#787b86':'#1a9488',false) +
-    tableRow('🎯 TP3 '+(p.tp3Passed?'· PASSED':'(25%)'),fE(tp3),pctStr(tp3Pct),pctStr(fromLive(tp3)),rr3,p.tp3Passed?'Already below live — not a future target':'Let remainder run. Final exit',p.tp3Passed?'#787b86':'#0f7066',false) +
+    tableRow('🛡 Protective stop',fE(sl),       pctStr(-slPct,true),              pctStr(fromLive(sl)),        p.riskKnown?(-slPct/p.originalRiskPct).toFixed(2)+'R':'N/A',  'Saved / calculated level — fill not confirmed', '#ef5350', false) +
+    tableRow('💰 TP1 '+(p.tp1Passed?'· PASSED':'(40%)'),(tp1>0?fE(tp1):'Not recorded'),pctStr(tp1Pct),pctStr(fromLive(tp1)),rr1,!(tp1>0)?'No target saved':p.tp1Passed?'Already below live — not a future target':'Take 40%. Move SL to breakeven',p.tp1Passed?'#787b86':'#26a69a',false) +
+    tableRow('💰 TP2 '+(p.tp2Passed?'· PASSED':'(35%)'),(tp2>0?fE(tp2):'Not recorded'),pctStr(tp2Pct),pctStr(fromLive(tp2)),rr2,!(tp2>0)?'No target saved':p.tp2Passed?'Already below live — not a future target':'Take 35%. Trail SL to TP1',p.tp2Passed?'#787b86':'#1a9488',false) +
+    tableRow('🎯 TP3 '+(p.tp3Passed?'· PASSED':'(25%)'),(tp3>0?fE(tp3):'Not recorded'),pctStr(tp3Pct),pctStr(fromLive(tp3)),rr3,!(tp3>0)?'No target saved':p.tp3Passed?'Already below live — not a future target':'Let remainder run. Final exit',p.tp3Passed?'#787b86':'#0f7066',false) +
   '</tbody>' +
   '</table>' +
   '</div>' +
@@ -18564,7 +18888,8 @@ function updateChartAnalystBar(d) {
   // Bottom row: position size + goto analysis
   '<div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap">' +
     '<div style="font-size:11px;color:var(--t2);background:var(--card3);border-radius:var(--rad);padding:5px 10px">' +
-      '⚖ <strong>Risk model:</strong> allocation <strong>'+p.allocation.toFixed(1)+'%</strong> (hard cap '+CONFIG.MAX_SPOT_ALLOC_PCT+'%) · SL distance '+slPct.toFixed(2)+'% · actual portfolio risk <strong>'+p.actualRisk.toFixed(2)+'%</strong>' +
+      (p.positionState==='OPEN'?'⚖ Saved position · original R '+(p.riskKnown?'recorded':'unavailable')+' · no replacement size calculated':
+      '⚖ <strong>Risk model:</strong> candidate allocation <strong>'+p.allocation.toFixed(1)+'%</strong> (cap '+CONFIG.MAX_SPOT_ALLOC_PCT+'%) · modeled risk including assumed costs <strong>'+p.actualRisk.toFixed(2)+'%</strong> · other positions not netted') +
     '</div>' +
     '<button onclick="switchMTab(\'ai\')" style="margin-left:auto;padding:5px 14px;border-radius:var(--rad);border:none;background:var(--g);color:#fff;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer;white-space:nowrap">Full Analyst →</button>' +
   '</div>';
@@ -20009,8 +20334,9 @@ var NEWS_SOURCES = [
     { n:'Blockscout', u:'https://www.blockscout.com/', d:'FREE — holder lists, token transfers, labels on supported chains' },
     { n:'GeckoTerminal', u:'https://www.geckoterminal.com/', d:'FREE — DEX liquidity, volume, buys/sells, pools' },
     { n:'CoinGecko Public API', u:'https://www.coingecko.com/', d:'FREE keyless — coin/platform metadata and market data' },
-    { n:'blockchain.com charts', u:'https://www.blockchain.com/charts', d:'FREE primary route — live status above' },
-    { n:'Coin Metrics Community', u:'https://docs.coinmetrics.io/api/v4/', d:'FREE fallback — BTC daily active addresses' }
+    { n:'mempool.space', u:'https://mempool.space/docs/api/rest', d:'FREE — BTC mempool, congestion and recommended fees' },
+    { n:'blockchain.com charts', u:'https://www.blockchain.com/charts', d:'FREE fallback — BTC daily active addresses' },
+    { n:'Coin Metrics Community', u:'https://docs.coinmetrics.io/api/v4/', d:'FREE primary — catalog-verified BTC network, mining and valuation metrics' }
   ]},
   { layer:'Derivatives', free:true, items:[
     { n:'CoinGlass', u:'https://www.coinglass.com/', d:'reference aggregator — not automatically read here' },
@@ -20076,6 +20402,15 @@ function buildSourcesPanel(){
       h += '<div><div style="font-size:14px;font-weight:800;color:'+ocol+'">'+(_onchain.chg7d>=0?'+':'')+_onchain.chg7d.toFixed(1)+'%</div>'
          + '<div style="font-size:10px;color:var(--t3)">BTC active addresses 7d</div></div>';
     }
+    if(_onchain.btcMempool&&_onchain.btcMempool.current){
+      var bm=_onchain.btcMempool,bc=bm.current,bf=bm.recommendedFees||{};
+      h += '<div><div style="font-size:14px;font-weight:800;color:var(--text)">'+Number(bc.count).toLocaleString()+'</div><div style="font-size:10px;color:var(--t3)">BTC pending transactions</div></div>';
+      h += '<div><div style="font-size:14px;font-weight:800;color:var(--text)">'+(bf.hourFee==null?'—':Number(bf.hourFee).toLocaleString()+' sat/vB')+'</div><div style="font-size:10px;color:var(--t3)">estimated 1-hour network fee</div></div>';
+    }
+    if(_onchain.networkActivity&&_onchain.networkActivity.metrics){
+      var mvrv=_onchain.networkActivity.metrics.find(function(m){return m.key==='CapMVRVCur';});
+      if(mvrv)h += '<div><div style="font-size:14px;font-weight:800;color:var(--text)">'+Number(mvrv.value).toFixed(2)+'</div><div style="font-size:10px;color:var(--t3)">BTC MVRV · cycle context</div></div>';
+    }
     h += '</div>';
   }
   h += '<button onclick="runDailyBrief()" style="padding:7px 15px;border-radius:7px;border:none;background:var(--bl);color:#fff;font-weight:700;font-size:11px;cursor:pointer;font-family:inherit">🧠 Brief me on available data</button>';
@@ -20121,6 +20456,13 @@ function runDailyBrief(){
   else missing.push('stablecoin supply');
   if(_onchain.chg7d!=null) have.push('BTC ACTIVE ADDRESSES ('+(_onchain.source||'daily on-chain source')+'): 7d comparison '+_onchain.chg7d.toFixed(1)+'%');
   else missing.push('on-chain activity');
+  if(_onchain.btcMempool&&_onchain.btcMempool.current){
+    var bmc=_onchain.btcMempool.current,bmf=_onchain.btcMempool.recommendedFees||{};
+    have.push('BTC MEMPOOL (mempool.space; network context, NOT buy/sell flow): '+bmc.count+' pending transactions, '+(bmc.vsize/1000000).toFixed(2)+' MB virtual size, '+(bmc.totalFee/100000000).toFixed(4)+' BTC pending fees, estimated 1-hour fee '+(bmf.hourFee==null?'n/a':bmf.hourFee+' sat/vB'));
+  } else missing.push('BTC mempool');
+  if(_onchain.networkActivity&&_onchain.networkActivity.metrics&&_onchain.networkActivity.metrics.length){
+    have.push('BTC DAILY NETWORK METRICS (Coin Metrics Community; context only): '+_onchain.networkActivity.metrics.map(function(m){return m.label+' '+m.value+(m.unit&&m.unit!=='count'?' '+m.unit:'')+'; 7d '+(m.change7d==null?'n/a':m.change7d.toFixed(2)+'%');}).join(', '));
+  }
 
   var reg = _regime || (typeof classifyRegime==='function' ? classifyRegime() : null);
   have.push('SCREENER BOARD: regime '+(reg?reg.mode:'n/a')+(reg&&reg.provisional?' (provisional)':'')
@@ -20964,18 +21306,23 @@ function _blockchainAddressData(j){
 function fetchOnchain(force){
   var cached = null;
   try { cached = JSON.parse(localStorage.getItem('onchain')||'null'); } catch(e){}
-  if(!force&&cached&&(Date.now()-cached.ts)<21600000&&cached.d&&Object.keys(cached.d).length){
-    _onchain=cached.d;return Promise.resolve({state:'ready',source:(_onchain.source||'BTC on-chain')+' · saved',message:'Recent daily cache',updatedAt:cached.ts});
+  if(!force&&cached&&(Date.now()-cached.ts)<300000&&cached.d&&Object.keys(cached.d).length){
+    _onchain=cached.d;return Promise.resolve({state:'ready',source:(_onchain.source||'BTC free data')+' · saved',message:'Recent BTC network cache',updatedAt:cached.ts});
   }
-  return _pfetch('https://api.blockchain.info/charts/n-unique-addresses?timespan=30days&format=json')
+  var legacy=_pfetch('https://api.blockchain.info/charts/n-unique-addresses?timespan=30days&format=json')
     .then(_blockchainAddressData)
-    .catch(function(primaryError){
-      var url='https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=AdrActCnt&frequency=1d&page_size=20';
-      return _pfetch(url,10000).then(function(j){return _btcAddressData(j&&j.data,'Coin Metrics Community');}).catch(function(fallbackError){fallbackError.primary=primaryError;throw fallbackError;});
-    }).then(function(d){
+    .catch(function(){return null;});
+  return Promise.all([_ffNetworkActivity('BTC'),_ffBtcMempool(),legacy]).then(function(r){
+      var network=r[0],mempool=r[1],fallback=r[2],active=network&&network.metrics&&network.metrics.find(function(m){return m.key==='AdrActCnt';});
+      var d={networkActivity:network,btcMempool:mempool,source:'Coin Metrics Community + mempool.space',asOf:Date.now()};
+      if(active){d.addresses=active.value;d.chg7d=active.change7d;d.addressAsOf=active.start;}
+      else if(fallback){d.addresses=fallback.addresses;d.chg7d=fallback.chg7d;d.addressAsOf=fallback.asOf;d.source+=' + Blockchain.com fallback';}
+      var usable=(network&&network.metrics&&network.metrics.length)||(mempool&&mempool.current)||d.addresses!=null;
+      if(!usable)throw new Error('BTC network sources returned no usable measurements');
       _onchain=d;var now=Date.now();
       try { localStorage.setItem('onchain',JSON.stringify({ts:now,d:d})); } catch(e){}
-      return {state:'ready',source:d.source,message:'Daily active-address series loaded',updatedAt:now};
+      var count=(network&&network.metrics&&network.metrics.length)||0;
+      return {state:count&&mempool&&mempool.current?'ready':'partial',source:d.source,message:count+' daily metrics'+(mempool&&mempool.current?' + live mempool':'')+' loaded',updatedAt:now};
     });
 }
 
