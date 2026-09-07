@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="chart-build" content="2026.09.06-r2">
+<meta name="chart-build" content="2026.09.06-r3">
+<meta name="agent-build" content="2026.09.07-r1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -503,6 +504,40 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 @media(max-width:600px){
   #chart-fullscreen-ov.cp-focus #chart-fs-bar{top:max(5px,env(safe-area-inset-top))!important;right:5px!important}
   #chart-fullscreen-ov.cp-focus #chart-fs-bar>.cp-focus-controls>.cp-focus-keep{font-size:10px!important;min-height:38px!important;height:38px!important}
+}
+</style>
+<style id="chart-mobile-layout">
+.cp-mobile-chrome{display:none}
+@media(max-width:820px){
+  #chart-fullscreen-ov{height:100vh;height:100dvh;bottom:auto;box-sizing:border-box;padding-top:env(safe-area-inset-top);padding-bottom:0;padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+  #chart-fullscreen-ov #chart-fs-bar,#chart-fullscreen-ov.cp-focus #chart-fs-bar{display:none!important}
+  #chart-fullscreen-ov #chart-pro-tools-fs,#chart-fullscreen-ov #chart-fs-table{display:none!important}
+  #chart-fullscreen-ov #chart-fs-main{min-height:0;flex:1;position:static}
+  #chart-fullscreen-ov #chart-fs-canvas{min-width:0;min-height:0;touch-action:none}
+  #cp-mobile-header{display:flex;align-items:center;gap:8px;flex:0 0 auto;padding:4px 8px;background:#1e222d;border-bottom:1px solid #343b4b;color:#e2e8f0;font:13px/1.4 -apple-system,sans-serif}
+  #cp-mobile-header>div{flex:1;min-width:0}
+  #cp-mobile-header strong{display:block;font-variant-numeric:tabular-nums}
+  #cp-mobile-status{font-size:11px;color:#c1cbd9;line-height:1.4;max-height:32px;overflow:hidden}
+  #cp-mobile-dock{display:flex;flex:0 0 auto;gap:4px;padding:5px 6px max(5px,env(safe-area-inset-bottom));background:#1e222d;border-top:1px solid #343b4b;z-index:82}
+  #cp-mobile-dock button{flex:1;min-width:0}
+  #chart-fullscreen-ov .cp-mobile-chrome button,#chart-fullscreen-ov #chart-pro-tools-fs button,#chart-fullscreen-ov #chart-pro-tools-fs summary,#chart-fullscreen-ov #chart-pro-tools-fs select,#chart-fullscreen-ov #chart-fs-table button{min-height:44px;min-width:44px;box-sizing:border-box;font:13px -apple-system,sans-serif;background:#263448;color:#e8effb;border:1px solid #4d607c;border-radius:6px;padding:8px;cursor:pointer}
+  #chart-fullscreen-ov button[aria-expanded="true"],#chart-fullscreen-ov button[aria-pressed="true"]{background:#174e7e;border-color:#64b5f6}
+  #chart-fullscreen-ov.cp-mobile-tools #chart-pro-tools-fs,#chart-fullscreen-ov.cp-mobile-plan #chart-fs-table,#chart-fullscreen-ov.cp-mobile-timeframes #cp-mobile-timeframes{display:flex!important;position:absolute!important;left:0!important;right:0!important;top:auto!important;bottom:calc(55px + env(safe-area-inset-bottom))!important;width:100%!important;max-height:65%;height:auto!important;box-sizing:border-box;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;z-index:81;background:#1e2633;border:1px solid #526079;border-radius:16px 16px 0 0;box-shadow:0 -8px 28px #0008;padding:0 12px 12px;font-size:13px;flex:none!important}
+  #chart-fullscreen-ov.cp-mobile-tools #chart-pro-tools-fs{align-content:flex-start;gap:8px}
+  #chart-fullscreen-ov #chart-pro-tools-fs>.cp-mobile-sheet-head,#chart-fullscreen-ov #chart-fs-table>.cp-mobile-sheet-head{display:flex}
+  .cp-mobile-sheet-head{display:flex;flex:0 0 100%;align-items:center;justify-content:space-between;position:sticky;top:0;width:100%;box-sizing:border-box;padding:8px 0;background:#1e2633;color:#e8effb;z-index:3;font:600 15px -apple-system,sans-serif}
+  #cp-mobile-timeframes{flex-direction:column;color:#c1cbd9}
+  .cp-mobile-time-buttons{display:flex;flex-wrap:wrap;gap:8px}
+  #cp-mobile-timeframes p{font:13px/1.6 -apple-system,sans-serif}
+  #chart-fullscreen-ov #chart-pro-tools-fs .cp-ind-menu{position:static;flex:1 1 100%}
+  #chart-fullscreen-ov #chart-pro-tools-fs .cp-ind-menu>div{position:static;width:auto;box-shadow:none;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:8px 0}
+  #chart-fullscreen-ov #chart-pro-tools-fs .cp-ind-menu small,#chart-fullscreen-ov #chart-pro-tools-fs .cp-ind-menu label{grid-column:1/-1}
+  #chart-fullscreen-ov #chart-pro-tools-fs button{white-space:normal}
+  #chart-fullscreen-ov #chart-pro-tools-fs .cp-chart-summary{display:none}
+  #chart-fullscreen-ov #chart-fs-table .cp-card{font-size:14px;line-height:1.6}
+  #chart-fullscreen-ov #chart-fs-table .cp-tab{min-height:44px}
+  #chart-fullscreen-ov #chart-legend-fs{font-size:11px!important;line-height:1.45!important;max-width:calc(100% - 78px)!important;max-height:48px;overflow:hidden;top:4px!important;left:5px!important}
+  #chart-rotate-hint{display:none!important}
 }
 </style>
 <style id="dex-flow-evidence-style">
@@ -5177,7 +5212,7 @@ function checkMonitors(data){
       mon.updates = mon.updates.slice(0, 40);
       changed = true;
       // notify on the material ones only
-      var loud = trigs.filter(function(x){ return x.k==='flip' || x.k==='state' || x.k==='sweep'; });
+      var loud = unifiedAgentEnabled() ? [] : trigs.filter(function(x){ return x.k==='flip' || x.k==='state' || x.k==='sweep'; });
       if(loud.length){
         var msg = '👁 ' + mon.pair + ' — ' + loud.map(function(x){ return x.txt; }).join('; ');
         try { showToast(d, 'strong', msg); } catch(e){}
@@ -6396,7 +6431,205 @@ function buildCascadePanel(){
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// LIVE PIPELINE — TA fires, the analyst decides, catalysts can veto.
+// UNIFIED DECISION AGENT — one conservative path across chart, market,
+// fundamentals, source-backed events and sampled on-chain evidence.
+//
+// The model never creates eligibility. Deterministic, closed-candle gates make
+// the REVIEW_READY decision; AI can only keep or downgrade it. Web-search calls
+// remain manual in Coin Updates. Automatic runs use primary/free feeds and a
+// deliberately small synthesis packet so free keys are not consumed by noise.
+// ═══════════════════════════════════════════════════════════════════════════
+var UA_VERSION=1, _uaRunning=false, _uaLastRun=0;
+function _uaDefaults(){return {version:UA_VERSION,on:false,provider:'auto',dailyBudget:8,requireOnchain:false,notifyReview:true,notifyRisk:true};}
+function unifiedAgentSettings(){
+  var d=_uaDefaults(),x={};try{x=JSON.parse(localStorage.getItem('unified_agent_settings_v1')||'{}')||{};}catch(e){}
+  Object.keys(d).forEach(function(k){if(x[k]===undefined)x[k]=d[k];});
+  x.dailyBudget=Math.max(1,Math.min(24,parseInt(x.dailyBudget,10)||d.dailyBudget));return x;
+}
+function _uaSaveSettings(x){try{localStorage.setItem('unified_agent_settings_v1',JSON.stringify(x));}catch(e){}}
+function unifiedAgentEnabled(){return unifiedAgentSettings().on===true;}
+function toggleUnifiedAgent(on){
+  var s=unifiedAgentSettings();s.on=!!on;_uaSaveSettings(s);
+  if(on){
+    // These older automatic paths cover subsets of the same evidence. Turn
+    // them off to prevent duplicate or contradictory notifications.
+    try{localStorage.setItem('pipeline_on','0');localStorage.removeItem('onchain_catalyst_alerts');}catch(e){}
+    askNotifPerm();setTimeout(function(){runUnifiedDecisionAgent(allData||[],true);},50);
+  }
+  try{renderAgent();}catch(e){}try{renderMarketRead();}catch(e){}
+}
+function setUnifiedAgentProvider(v){var s=unifiedAgentSettings();s.provider=['auto','gemini','groq'].indexOf(v)>=0?v:'auto';_uaSaveSettings(s);try{renderAgent();}catch(e){}}
+function setUnifiedAgentBudget(v){var s=unifiedAgentSettings();s.dailyBudget=Math.max(1,Math.min(24,parseInt(v,10)||8));_uaSaveSettings(s);try{renderAgent();}catch(e){}}
+function setUnifiedRequireOnchain(on){var s=unifiedAgentSettings();s.requireOnchain=!!on;_uaSaveSettings(s);try{renderAgent();}catch(e){}}
+function setUnifiedNotify(k,on){var s=unifiedAgentSettings();if(k==='review')s.notifyReview=!!on;if(k==='risk')s.notifyRisk=!!on;_uaSaveSettings(s);}
+function enableUnifiedNotifications(){
+  if(!('Notification' in window)){alert('This browser does not support system notifications. Telegram alerts can still be used.');return;}
+  Notification.requestPermission().then(function(){try{renderAgent();}catch(e){}});
+}
+function _uaState(){try{return JSON.parse(localStorage.getItem('unified_agent_state_v1')||'{}')||{};}catch(e){return {};}}
+function _uaSaveState(x){try{localStorage.setItem('unified_agent_state_v1',JSON.stringify(x));}catch(e){}}
+function _uaDay(){return new Date().toISOString().slice(0,10);}
+function _uaUsage(){var x={};try{x=JSON.parse(localStorage.getItem('unified_agent_usage_v1')||'{}')||{};}catch(e){}if(x.day!==_uaDay())x={day:_uaDay(),calls:0};return x;}
+function _uaUseCall(){var x=_uaUsage(),s=unifiedAgentSettings();if(x.calls>=s.dailyBudget)return false;x.calls++;try{localStorage.setItem('unified_agent_usage_v1',JSON.stringify(x));}catch(e){}return true;}
+function _uaHasAI(){
+  var s=unifiedAgentSettings(),main=(localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key')||'').trim(),g=groqKey(),gem=(!/^sk-(?:ant|or-)/.test(main)&&main)||(_crGeminiKey?_crGeminiKey():'');
+  if(s.provider==='gemini')return !!gem;
+  if(s.provider==='groq')return /^gsk_/.test(g);
+  return !!main||!!gem||/^gsk_/.test(g);
+}
+function _uaProvider(){
+  var s=unifiedAgentSettings(),main=(localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key')||'').trim(),gem=(!/^sk-(?:ant|or-)/.test(main)&&main)||(_crGeminiKey?_crGeminiKey():'');
+  if(s.provider==='gemini')return 'gemini';if(s.provider==='groq')return 'groq';
+  if(main)return /^sk-ant/.test(main)?'anthropic':/^sk-or-/.test(main)?'openrouter':'gemini';if(gem)return 'gemini';
+  return canVerify()?'groq':'none';
+}
+function _uaTechnicalTrigger(d){
+  if(!d)return null;
+  if(d.resFlipHeld)return {k:'level_flip',text:'Broken resistance '+fE(d.resFlipLevel)+' was retested and held'};
+  if(d.tlRetestHeld)return {k:'trendline_flip',text:'Broken resistance trendline was retested and held'};
+  if(d.liq==='buy_sweep')return {k:'liquidity_reclaim',text:'Liquidity sweep was reclaimed on a closed candle'};
+  if(d.emaRetest&&d.emaRetest.state==='retest_completed')return {k:'ema_retest',text:'EMA pullback completed and held'};
+  if(d.breakout&&d.breakout.state==='confirmed'&&d.strongClose&&(d.volR||0)>=1.2)return {k:'breakout',text:'Structure breakout closed with volume confirmation'};
+  return null; // Early Watch is deliberately never sufficient on its own.
+}
+function _uaFreshChart(d,now){var m=d&&d.catalystMarket;return !!(m&&m.closed===true&&m.barEnd&&m.tfMs&&now-m.barEnd>=0&&now-m.barEnd<=m.tfMs+10*60000);}
+function _uaRiskEvents(d,c,now){
+  var out=[],events=c&&c.events||[];
+  events.forEach(function(e){
+    if(e.coin!==_freeSym(d.pair||d.sym)||e.status==='Cancelled'||e.status==='Completed')return;
+    var recent=_catFresh(e.announcedAt||e.checkedAt,7*CAT_DAY,now),negative=e.riskOpen||e.impact==='Negative';
+    if(recent&&negative)out.push(e.title);
+  });
+  if(d.catalysts)d.catalysts.forEach(function(e){(e.types||[]).forEach(function(t){if(t==='exploit'||t==='delist')out.push(e.title);});});
+  return out.filter(function(v,i,a){return v&&a.indexOf(v)===i;}).slice(0,3);
+}
+function _uaEvidence(d,c,oc,now){
+  now=now||Date.now();var settings=unifiedAgentSettings(),coin=_freeSym(d&&d.pair||d&&d.sym),btc=coin==='BTC';
+  var trigger=_uaTechnicalTrigger(d),fresh=_uaFreshChart(d,now),daily=window._dailyTrend&&window._dailyTrend[d.sym];
+  var regime=_regime&&_regime.mode||'unknown',ext=d&&d.ema20>0?(d.price-d.ema20)/d.ema20*100:null;
+  var catRisk=_uaRiskEvents(d,c,now),legacy=_catalystVeto(d),risks=(legacy.vetoes||[]).concat(catRisk).filter(function(v,i,a){return a.indexOf(v)===i;});
+  var ocBias=oc?_freeOnchainBias(oc):{bias:'UNKNOWN',biasReason:'Not fetched; the agent only spends on-chain requests on candidates or manual checks.'};
+  if(oc&&ocBias.bias==='BEARISH')risks.push('Sampled on-chain/DEX evidence is sell-dominated');
+  var liquid=(d.vol24usd||d.vol24||0)>=5000000,rr=!!(d.rrOK||d.rrRatio>=1),marketOK=btc?(btcState==='bullish'||btcState==='stable'):
+    (regime!=='risk_off'&&regime!=='btc_season'&&(btcState==='bullish'||btcState==='stable'));
+  var dailyOK=TF==='1d'||TF==='1w'?true:daily===true,volumeOK=(d.volR||0)>=1,notExtended=ext==null||ext<=5;
+  var layers={
+    chart:{state:risks.length?'RISK':fresh?(trigger?'PASS':'WATCH'):'UNKNOWN',detail:!fresh?'Closed chart snapshot is stale or unavailable':trigger?trigger.text:'No validated structure trigger; Early Watch alone is not actionable'},
+    market:{state:marketOK?'PASS':regime==='unknown'?'UNKNOWN':'BLOCK',detail:'BTC '+btcState+' · regime '+regime+' · daily trend '+(daily===true?'up':daily===false?'down':'unknown')},
+    fundamental:{state:liquid?'PASS':'BLOCK',detail:'Rank '+(d.coinRank&&d.coinRank<999?d.coinRank:'unknown')+' · 24h quote turnover '+(d.vol24usd?'$'+Number(d.vol24usd).toLocaleString(undefined,{maximumFractionDigits:0}):'unknown')},
+    news:{state:risks.length?'RISK':c&&_catFresh(c.checkedAt,CAT_EVIDENCE_TTL,now)?'CHECKED':'UNKNOWN',detail:risks.length?risks[0]:(c?'Primary/free sources checked; no active veto found':'Evidence not refreshed')},
+    onchain:{state:ocBias.bias==='BEARISH'?'RISK':ocBias.bias==='BULLISH'?'SUPPORT':ocBias.bias==='NEUTRAL'?'NEUTRAL':'UNKNOWN',detail:ocBias.biasReason||'Coverage unavailable'}
+  };
+  var missing=[];if(!fresh)missing.push('fresh closed chart');if(daily===undefined&&TF!=='1d'&&TF!=='1w')missing.push('daily trend');
+  if(!c)missing.push('source-backed event check');if(!oc||ocBias.bias==='UNKNOWN')missing.push('eligible on-chain direction');if(!d.turnover&&!d.coinRank)missing.push('market-cap/turnover context');
+  var blockers=[];if(!trigger)blockers.push('validated chart trigger');if(!marketOK)blockers.push('supportive BTC/regime');if(!dailyOK)blockers.push('higher-timeframe uptrend');
+  if(!volumeOK)blockers.push('closed-candle volume ≥1.0×');if(!liquid)blockers.push('24h quote turnover ≥$5M');if(!rr)blockers.push('reward/risk ≥1R');if(!notExtended)blockers.push('price no more than 5% above EMA20');
+  if(settings.requireOnchain&&ocBias.bias!=='BULLISH')blockers.push('eligible bullish on-chain evidence');
+  var status=risks.length?'RISK':!fresh?'WAIT':!trigger?'WATCH':blockers.length?'WAIT':'REVIEW_READY';
+  var confidence=(status==='REVIEW_READY'&&ocBias.bias==='BULLISH'&&c&&missing.length<=1)?'HIGH':status==='RISK'||missing.length>2?'LOW':'MEDIUM';
+  var why=risks.length?risks.slice(0,3):status==='REVIEW_READY'?[trigger.text,'Closed-candle, market, liquidity and reward/risk gates passed']:
+    status==='WATCH'?['No validated entry trigger yet']:[].concat(blockers.slice(0,3));
+  return {version:UA_VERSION,sym:d.sym,pair:d.pair,status:status,confidence:confidence,checkedAt:now,trigger:trigger,layers:layers,
+    reasons:why,risks:risks.slice(0,4),missing:missing.slice(0,5),blockers:blockers.slice(0,6),earlyWatch:d.earlyState||null,
+    levels:{price:d.price,support:d.sup,resistance:d.res,ema20:d.ema20,ema50:d.ema50,invalidation:d.sup?d.sup-(d.price*(d.atrPct||2)/100*.3):null},
+    metrics:{rsi:d.rsi,volumeRatio:d.volR,atrPct:d.atrPct,rrRatio:d.rrRatio,rank:d.coinRank,quoteTurnover24h:d.vol24usd||d.vol24,regime:regime,dailyTrend:daily,extensionPct:ext},
+    sources:{catalyst:c&&c.health?c.health.filter(function(x){return x.status==='CHECKED';}).map(function(x){return x.label;}).slice(0,4):[],onchain:oc&&oc.sources?(oc.sources||[]).slice(0,5):[]}};
+}
+function _uaAIJSON(text){
+  var s=String(text||'').replace(/^\s*```(?:json)?\s*/i,'').replace(/\s*```\s*$/,'').trim(),a=s.indexOf('{'),b=s.lastIndexOf('}');if(a<0||b<a)throw Error('AI did not return JSON.');
+  var j=JSON.parse(s.slice(a,b+1)),allowed=['REVIEW_READY','WATCH','WAIT','RISK'];if(allowed.indexOf(j.decision)<0)throw Error('AI returned an unsupported decision.');
+  function list(x){return (Array.isArray(x)?x:[]).map(function(v){return _crText(v,180);}).filter(Boolean).slice(0,4);}
+  return {decision:j.decision,confidence:['LOW','MEDIUM','HIGH'].indexOf(j.confidence)>=0?j.confidence:'LOW',summary:_crText(j.summary,260),reasons:list(j.reasons),risks:list(j.risks),missing:list(j.missing),entryCondition:_crText(j.entryCondition,180),invalidation:_crText(j.invalidation,180)};
+}
+function _uaClamp(base,ai){
+  if(!ai)return base.status;var rank={RISK:-3,WAIT:-2,WATCH:-1,REVIEW_READY:0};
+  return rank[ai.decision]<rank[base.status]?ai.decision:base.status;
+}
+function _uaAICall(e){
+  var provider=_uaProvider(),packet={decision:e.status,confidence:e.confidence,layers:e.layers,reasons:e.reasons,risks:e.risks,missing:e.missing,blockers:e.blockers,levels:e.levels,metrics:e.metrics,sourceNames:e.sources};
+  var sys='You are a conservative SPOT crypto review assistant. The deterministic engine decides eligibility. You may KEEP or DOWNGRADE its decision, never upgrade it. Missing data is unknown, never positive. Early Watch is not a buy trigger. Do not predict price or invent facts, URLs, levels, whale actions, or probabilities. Return JSON only with: decision REVIEW_READY|WATCH|WAIT|RISK, confidence LOW|MEDIUM|HIGH, summary, reasons (max 3), risks (max 3), missing (max 3), entryCondition, invalidation. REVIEW_READY means notify the human to review; it is not a buy instruction.';
+  var user='Evaluate this compact evidence packet for '+e.pair+': '+JSON.stringify(packet).slice(0,4800);
+  if(provider==='gemini'){
+    var mainKey=(localStorage.getItem('ai_api_key')||'').trim(),key=(!/^sk-(?:ant|or-)/.test(mainKey)&&mainKey)||(_crGeminiKey?_crGeminiKey():'');
+    return fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+encodeURIComponent(key),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({systemInstruction:{parts:[{text:sys}]},contents:[{role:'user',parts:[{text:user}]}],generationConfig:{temperature:0.1,maxOutputTokens:700,thinkingConfig:{thinkingBudget:0},responseMimeType:'application/json'}})}).then(function(r){if(!r.ok)throw Error('Gemini HTTP '+r.status);return r.json();}).then(function(j){if(j.error)throw Error(j.error.message||'Gemini error');return _uaAIJSON((j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts||[]).map(function(p){return p.text||'';}).join(''));});
+  }
+  if(provider==='groq'){
+    var g=groqKey();return fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+g},body:JSON.stringify({model:'groq/compound-mini',messages:[{role:'system',content:sys},{role:'user',content:user}],temperature:0.1,max_completion_tokens:700,response_format:{type:'json_object'}})}).then(function(r){if(!r.ok)throw Error('Groq HTTP '+r.status);return r.json();}).then(function(j){if(j.error)throw Error(j.error.message||'Groq error');return _uaAIJSON(j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content);});
+  }
+  if(provider==='anthropic'||provider==='openrouter')return _aiCallModel(sys,[{role:'user',content:user}],null).then(_uaAIJSON);
+  return Promise.resolve(null);
+}
+function _uaSignature(e){return [e.status,e.trigger&&e.trigger.k||'none',e.risks.join('|'),e.metrics.dailyTrend,e.metrics.regime,Math.round((e.metrics.volumeRatio||0)*10)].join(':');}
+function _uaNotify(d,e,previous){
+  var s=unifiedAgentSettings(),sig=_uaSignature(e),now=Date.now();if(previous&&previous.lastAlertSig===sig&&now-(previous.lastAlertAt||0)<12*3600000)return previous;
+  if(e.status!=='REVIEW_READY'&&e.status!=='RISK')return previous||{};
+  if(e.status==='REVIEW_READY'&&e.previousStatus==='REVIEW_READY')return previous||{};
+  if(e.status==='REVIEW_READY'&&!s.notifyReview||e.status==='RISK'&&!s.notifyRisk)return previous||{};
+  var title=e.status==='RISK'?'⛔ '+e.pair+' — new risk':'🔔 '+e.pair+' — setup ready for review';
+  var line=(e.ai&&e.ai.summary)||e.reasons[0]||e.blockers[0]||'Open the agent evidence card.';
+  var msg=title+'\n'+line+'\nThis is a review alert, not an order.';
+  try{showToast(d,e.status==='RISK'?'sweep':'strong',msg);}catch(x){}try{addAlHistory(d,'unified_agent',msg);}catch(x){}try{sendBrowserNotif(d,msg);}catch(x){}
+  previous=previous||{};previous.lastAlertSig=sig;previous.lastAlertAt=now;return previous;
+}
+function _uaAnalyseOne(d,manual){
+  var now=Date.now(),pre=_uaEvidence(d,_catLoad(_freeSym(d.pair||d.sym)),null,now);
+  // Event feeds are checked for every monitored coin (cached for 30 minutes),
+  // because a new risk matters even when the chart has no long trigger.
+  var catP=collectCatalystEvidence(d,!!manual);
+  return catP.then(function(c){var mid=_uaEvidence(d,c,null,Date.now()),needOC=manual||mid.status==='REVIEW_READY'||unifiedAgentSettings().requireOnchain;
+    return (needOC?_agentOnchain({sym:d.pair||d.sym,price:d.price,force:!!manual}):Promise.resolve(null)).then(function(oc){
+      var e=_uaEvidence(d,c,oc,Date.now()),shouldAI=manual||e.status==='REVIEW_READY'||e.status==='RISK';
+      if(!shouldAI||!_uaHasAI()||!_uaUseCall())return e;
+      return _uaAICall(e).then(function(ai){e.ai=ai;e.status=_uaClamp(e,ai);return e;}).catch(function(err){e.aiError=_catError(err);return e;});
+    });
+  });
+}
+function runUnifiedDecisionAgent(data,manual){
+  if((!unifiedAgentEnabled()&&!manual)||_uaRunning)return Promise.resolve([]);var now=Date.now();if(!manual&&now-_uaLastRun<300000)return Promise.resolve([]);
+  var mons=loadMonitors(),rows=mons.slice(0,6).map(function(m){return (data||[]).find(function(d){return d.sym===m.sym;});}).filter(Boolean);if(!rows.length)return Promise.resolve([]);
+  _uaRunning=true;_uaLastRun=now;var state=_uaState(),results=[];
+  return rows.reduce(function(p,d){return p.then(function(){return _uaAnalyseOne(d,!!manual).then(function(e){var old=state[d.sym]||{};e.previousStatus=old.result&&old.result.status||null;e.updatedAt=Date.now();old.result=e;old=_uaNotify(d,e,old);state[d.sym]=old;results.push(e);_uaSaveState(state);});});},Promise.resolve())
+    .then(function(){try{renderAgent();}catch(e){}return results;}).finally(function(){_uaRunning=false;});
+}
+function unifiedAgentRunNow(sym){
+  var d=(allData||[]).find(function(x){return x.sym===sym;});if(!d)return;
+  var el=document.getElementById('ua-status-'+sym);if(el)el.textContent='Checking chart, events, fundamentals and on-chain evidence…';
+  if(_uaRunning){if(el)el.textContent='Another evidence check is already running. Try again when it finishes.';return;}
+  _uaRunning=true;_uaAnalyseOne(d,true).then(function(e){var state=_uaState(),old=state[d.sym]||{};e.previousStatus=old.result&&old.result.status||null;e.updatedAt=Date.now();old.result=e;old=_uaNotify(d,e,old);state[d.sym]=old;_uaSaveState(state);renderAgent();})
+    .catch(function(e){if(el)el.textContent='Agent failed: '+_catError(e);}).finally(function(){_uaRunning=false;});
+}
+function _uaEsc(v){return _catEsc(v==null?'':v);}
+function _uaResultCard(e){
+  if(!e)return '<span style="color:var(--t3)">Waiting for the first agent check.</span>';
+  var col=e.status==='REVIEW_READY'?'var(--g)':e.status==='RISK'?'var(--r)':e.status==='WAIT'?'var(--am)':'var(--t2)',h='<div style="margin-top:7px;border-top:.5px solid var(--bd);padding-top:7px">';
+  h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="color:'+col+'">'+_uaEsc(e.status.replace('_',' '))+'</b><span style="font-size:9px;color:var(--t3)">'+_uaEsc(e.confidence)+' confidence · '+new Date(e.updatedAt||e.checkedAt).toLocaleTimeString()+'</span></div>';
+  if(e.ai&&e.ai.summary)h+='<div style="font-size:10px;line-height:1.5;margin-top:4px">'+_uaEsc(e.ai.summary)+'</div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:5px;margin-top:6px">';Object.keys(e.layers||{}).forEach(function(k){var x=e.layers[k],c=x.state==='PASS'||x.state==='SUPPORT'?'var(--g)':x.state==='RISK'||x.state==='BLOCK'?'var(--r)':'var(--t3)';h+='<div style="background:var(--card3);border-radius:6px;padding:6px"><b style="font-size:9px;text-transform:capitalize">'+k+'</b><div style="font-size:9px;color:'+c+'">'+_uaEsc(x.state)+'</div></div>';});h+='</div>';
+  var next=e.status==='REVIEW_READY'?'Review the chart, entry condition and invalidation before any order.':e.risks&&e.risks.length?e.risks[0]:(e.blockers||[]).join(' · ');
+  h+='<div style="font-size:9px;color:var(--t2);margin-top:6px"><b>Next:</b> '+_uaEsc(next||'Wait for a material change.')+'</div>';
+  if(e.missing&&e.missing.length)h+='<details style="margin-top:5px"><summary style="font-size:9px;color:var(--t3);cursor:pointer">Evidence details</summary><div style="font-size:9px;color:var(--t3);line-height:1.5;margin-top:4px">Missing: '+e.missing.map(_uaEsc).join(' · ')+'<br>Sources: '+_uaEsc([].concat(e.sources&&e.sources.catalyst||[],e.sources&&e.sources.onchain||[]).join(' · ')||'none')+(e.aiError?'<br>AI: '+_uaEsc(e.aiError):'')+'</div></details>';
+  return h+'</div>';
+}
+function buildUnifiedAgentPanel(compact){
+  var s=unifiedAgentSettings(),u=_uaUsage(),state=_uaState(),mons=loadMonitors(),perm=!('Notification' in window)?'unsupported':Notification.permission;
+  var h='<section style="background:var(--card2);border:1px solid var(--bd);border-radius:var(--rad-lg);padding:1rem;margin-bottom:1rem">';
+  h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="font-size:14px">🧠 Unified Decision Agent</b><span style="font-size:10px;color:'+(s.on?'var(--g)':'var(--t3)')+'">'+(s.on?'WATCHING '+mons.length+' COIN'+(mons.length===1?'':'S'):'OFF')+'</span><span style="margin-left:auto;font-size:8px;color:var(--t3)">2026.09.07-r1</span></div>';
+  h+='<div style="font-size:10px;color:var(--t2);line-height:1.55;margin:5px 0 8px">One conservative decision from closed-candle chart structure, BTC/regime, liquidity/fundamentals, source-backed events and sampled on-chain data. It notifies a human review—never places an order.</div>';
+  h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><label style="font-size:10px"><input type="checkbox" '+(s.on?'checked':'')+' onchange="toggleUnifiedAgent(this.checked)"> Run automatically</label>';
+  h+='<label style="font-size:9px;color:var(--t2)">AI <select onchange="setUnifiedAgentProvider(this.value)" style="background:var(--card);color:var(--text);border:.5px solid var(--bd);border-radius:5px;padding:4px"><option value="auto"'+(s.provider==='auto'?' selected':'')+'>Auto</option><option value="gemini"'+(s.provider==='gemini'?' selected':'')+'>Gemini</option><option value="groq"'+(s.provider==='groq'?' selected':'')+'>Groq</option></select></label>';
+  h+='<label style="font-size:9px;color:var(--t2)">AI calls/day <input type="number" min="1" max="24" value="'+s.dailyBudget+'" onchange="setUnifiedAgentBudget(this.value)" style="width:48px;background:var(--card);color:var(--text);border:.5px solid var(--bd);border-radius:5px;padding:4px"></label>';
+  h+='<button onclick="enableUnifiedNotifications()" style="padding:5px 9px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:9px;cursor:pointer">Notifications: '+_uaEsc(perm)+'</button></div>';
+  h+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:7px;font-size:9px;color:var(--t2)"><label><input type="checkbox" '+(s.notifyReview?'checked':'')+' onchange="setUnifiedNotify(\'review\',this.checked)"> review-ready alerts</label><label><input type="checkbox" '+(s.notifyRisk?'checked':'')+' onchange="setUnifiedNotify(\'risk\',this.checked)"> new-risk alerts</label><label title="Strict mode can leave native coins waiting when directional on-chain coverage does not exist"><input type="checkbox" '+(s.requireOnchain?'checked':'')+' onchange="setUnifiedRequireOnchain(this.checked)"> require bullish on-chain</label></div>';
+  h+='<div style="font-size:9px;color:var(--t3);margin-top:6px">AI budget '+u.calls+'/'+s.dailyBudget+' today · checks up to 6 monitored coins every ~5 minutes while this page is open · web search stays manual in Coin Updates.</div>';
+  if(!compact&&mons.length)mons.forEach(function(m){var e=state[m.sym]&&state[m.sym].result;h+='<div style="margin-top:8px;padding:8px;border:.5px solid var(--bd);border-radius:8px"><div style="display:flex;gap:7px;align-items:center"><b>'+_uaEsc(m.pair)+'</b><button onclick="unifiedAgentRunNow(\''+_uaEsc(m.sym)+'\')" style="margin-left:auto;padding:4px 8px;border-radius:5px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:9px;cursor:pointer">Check all evidence now</button></div><div id="ua-status-'+_uaEsc(m.sym)+'">'+_uaResultCard(e)+'</div></div>';});
+  if(!mons.length)h+='<div style="font-size:10px;color:var(--am);margin-top:7px">Add coins below. The agent does not scan the entire market automatically.</div>';
+  h+='<details style="margin-top:8px"><summary style="font-size:9px;color:var(--t3);cursor:pointer">Rules and limitations</summary><div style="font-size:9px;color:var(--t3);line-height:1.55;margin-top:5px">Early Watch is watch-only. A recent exploit, delisting, material unlock or bearish Wyckoff state vetoes readiness. AI cannot upgrade a deterministic WAIT. Unknown data never becomes bullish. Browser/Telegram delivery requires this page to remain open; true closed-page push needs a server and push service.</div></details>';
+  return h+'</section>';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LEGACY LIVE PIPELINE — kept only for users who have not enabled the unified
+// agent. The unified engine supersedes this path and prevents duplicate alerts.
 // ═══════════════════════════════════════════════════════════════════════════
 function pipelineEnabled(){ return localStorage.getItem('pipeline_on') === '1'; }
 function togglePipeline(on){
@@ -6441,6 +6674,7 @@ function _catalystVeto(d){
 }
 
 function runPipeline(data){
+  if(unifiedAgentEnabled()){runUnifiedDecisionAgent(data,false);return;}
   if(!pipelineEnabled() || !data || !data.length) return;
   var key = localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key');
   if(!key) return;
@@ -6975,6 +7209,7 @@ function renderAgent(){
   if(!body) return;
   var mons = loadMonitors();
   var h = '';
+  h += buildUnifiedAgentPanel(false);
 
   // ── add a coin ──
   h += '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:.8rem">';
@@ -6990,8 +7225,8 @@ function renderAgent(){
   var esKey=_provKey('etherscan'),heKey=_provKey('helius'),cgKey=_provKey('coingecko');
   var ocSaved = _onchainSavedStatus();
   var lastTest=null; try{lastTest=JSON.parse(localStorage.getItem('onchain_provider_test')||'null');}catch(e){}
-  h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:9px 10px;margin-bottom:8px">';
-  h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">🔑 On-chain provider keys</b><span style="font-size:9px;color:var(--t3)">save once · reused for every coin</span></div>';
+  h += '<details style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:9px 10px;margin-bottom:8px">';
+  h += '<summary style="cursor:pointer;font-size:11px;font-weight:700">🔑 Optional provider keys and diagnostics <span style="font-size:9px;color:var(--t3);font-weight:400">advanced</span></summary>';
   h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:7px;margin-top:8px">';
   h += '<label style="font-size:9px;color:var(--t2)">Blockscout Pro key (optional free tier)<input id="onchain-blockscout-key" type="password" value="'+_escProviderHtml(_provKey('blockscout'))+'" placeholder="proapi_… — optional EVM holder data" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"><a href="https://dev.blockscout.com" target="_blank" rel="noopener noreferrer">Get a free key</a></label>';
   h += '<label style="font-size:9px;color:var(--t2)">Etherscan V2 key <span style="color:'+(ocSaved.etherscan?'var(--g)':'var(--t3)')+'">'+(ocSaved.etherscan?'● saved':'○ not saved')+'</span><input id="onchain-etherscan-key" type="password" value="'+_escProviderHtml(esKey)+'" placeholder="Raw EVM transfers · up to latest 1,000" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"><a href="https://etherscan.io/myapikey" target="_blank" rel="noopener noreferrer">Get a key</a></label>';
@@ -7015,9 +7250,9 @@ function renderAgent(){
   h += '<div id="onchain-test-out"></div>';
   if(lastTest&&lastTest.ts) h += '<div style="font-size:8px;color:var(--t3);margin-top:5px">Last provider test: '+new Date(lastTest.ts).toLocaleString()+' · '+_escProviderHtml(lastTest.coin||'')+'</div>';
   h += '<div style="font-size:8px;color:var(--am);margin-top:6px;line-height:1.45">Direct browser mode. Optional keys are saved in this browser, never embedded in your HTML or sent to a public proxy. Etherscan and Helius keys are URL credentials required by those providers; CoinGecko Demo uses its request header. Keys are excluded from displayed errors and result caches. Raw transfers are not exchange flow or whale proof. The dedicated Gemini key only interprets evidence and remains separate from Coin Updates.</div>';
-  h += '</div>';
+  h += '</details>';
   var _ocaOn = _onchainCatalystAlertsEnabled();
-  h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:9px 10px;margin-bottom:8px">';
+  h += '<div style="background:var(--card2);border:.5px solid var(--bd);border-radius:8px;padding:9px 10px;margin-bottom:8px;'+(unifiedAgentEnabled()?'display:none':'')+'">';
   h += '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b style="font-size:11px">🔔 On-chain + Catalyst convergence alert</b><span style="font-size:9px;color:var(--g)">automatic</span></div>';
   h += '<label style="display:flex;gap:7px;align-items:center;margin-top:7px;font-size:10px;color:var(--t2);cursor:pointer">';
   h += '<input type="checkbox" '+(_ocaOn?'checked':'')+' onchange="toggleOnchainCatalystAlerts(this.checked)" style="cursor:pointer">';
@@ -9819,7 +10054,7 @@ function _ffNetworkEmpty(sym,status,reason){return {version:2,symbol:sym,source:
 function _ffNetworkMetrics(rows,asset,metrics,now){
   var day=86400000,end=Math.floor(now/day)*day,seen={},conflict={};
   if(!Array.isArray(rows))throw Error('Network metrics response has no rows');
-  rows.forEach(function(r){var t=Date.parse(r&&r.time||'');if(!r||r.asset!==asset||!Number.isFinite(t)||t%day||t>=end||t<end-35*day)return;
+  rows.forEach(function(r){var t=Date.parse(r&&r.time||'');if(!r||r.asset!==asset||!Number.isFinite(t)||t%day||t>=end||t<end-14*day)return;
     if(seen[t]&&JSON.stringify(seen[t])!==JSON.stringify(r))conflict[t]=true;else seen[t]=r;
   });
   var clean=Object.keys(seen).map(Number).filter(function(t){return !conflict[t];}).sort(function(a,b){return b-a;});
@@ -13466,6 +13701,7 @@ function _catOnchainReady(oc,now){
 }
 var _onchainCatLastRun=0, _onchainCatRunning=false;
 function checkOnchainCatalystAlerts(data){
+  if(typeof unifiedAgentEnabled==='function'&&unifiedAgentEnabled())return;
   if(!_onchainCatalystAlertsEnabled()||_onchainCatRunning)return;
   var now=Date.now();if(now-_onchainCatLastRun<300000)return;
   var mons=loadMonitors();if(!mons.length)return;
@@ -16122,25 +16358,83 @@ var chartState = {
 
 // Chart presentation settings are local preferences, never trading authority.
 var CHART_VIEWS={
-  clean:{ema:false,emaLong:false,vol:true,rsi:false,sr:true,analyst:false,fib:false,wyckoff:false,profile:false,preview:false,history:false,avwap:false},
-  analysis:{ema:true,emaLong:false,vol:true,rsi:false,sr:true,analyst:false,fib:true,wyckoff:true,profile:false,preview:false,history:false,avwap:false},
-  plan:{ema:false,emaLong:false,vol:true,rsi:false,sr:false,analyst:true,fib:false,wyckoff:false,profile:false,preview:false,history:false,avwap:false}
+  clean:{ema:false,ema50:false,emaLong:false,vol:true,rsi:false,sr:true,analyst:false,fib:false,wyckoff:false,profile:false,preview:false,history:false,avwap:false},
+  analysis:{ema:true,ema50:true,emaLong:false,vol:true,rsi:false,sr:true,analyst:false,fib:true,wyckoff:true,profile:false,preview:false,history:false,avwap:false},
+  plan:{ema:false,ema50:false,emaLong:false,vol:true,rsi:false,sr:false,analyst:true,fib:false,wyckoff:false,profile:false,preview:false,history:false,avwap:false}
 };
 function saveChartPreferences(){
-  try{localStorage.setItem('chart_pro_preferences_v1',JSON.stringify({view:chartState.viewMode,
+  try{localStorage.setItem(chartState.preferenceLayout==='mobile'?'chart_mobile_preferences_v1':'chart_pro_preferences_v1',JSON.stringify({view:chartState.viewMode,
     trend:chartState.trendMode,indicators:chartState.indicators,magnet:chartState.magnet,
     fibConnector:!!chartState.fibConnector,fibScope:chartState.fibScope||'major',fibRetirement:chartState.fibRetirement||'extension',tab:chartState.sideTab}));}catch(e){}
 }
 function restoreChartPreferences(){
-  var p={};try{p=JSON.parse(localStorage.getItem('chart_pro_preferences_v1')||'{}');}catch(e){}
+  var mobile=chartIsMobile();chartState.preferenceLayout=mobile?'mobile':'desktop';
+  var p={};try{p=JSON.parse(localStorage.getItem(mobile?'chart_mobile_preferences_v1':'chart_pro_preferences_v1')||'{}');}catch(e){}
   chartState.viewMode=CHART_VIEWS[p.view]?p.view:'clean';
   chartState.indicators=Object.assign({},CHART_VIEWS[chartState.viewMode]);
   Object.keys(chartState.indicators).forEach(function(k){if(p.indicators&&typeof p.indicators[k]==='boolean')chartState.indicators[k]=p.indicators[k];});
+  if(!mobile&&p.indicators&&p.indicators.ema50==null)chartState.indicators.ema50=!!p.indicators.ema;
+  if(mobile&&!p.indicators)chartState.indicators.ema=true;
   chartState.trendMode=['auto','manual','both','off'].includes(p.trend)?p.trend:'auto';
   chartState.sideTab=['overview','plan','evidence'].includes(p.tab)?p.tab:'overview';
   chartState.magnet=p.magnet!==false;chartState.fibConnector=!!p.fibConnector;
   chartState.fibScope=['major','recent','manual'].includes(p.fibScope)?p.fibScope:'major';
   chartState.fibRetirement=p.fibRetirement==='origin'?'origin':'extension';
+}
+function chartIsMobile(){
+  return !!(window.matchMedia&&window.matchMedia('(max-width:820px)').matches);
+}
+function chartMobilePanel(panel){
+  var ov=document.getElementById('chart-fullscreen-ov');if(!ov)return;
+  var next=chartState.mobilePanel===panel?'':panel;
+  chartState.mobilePanel=next;
+  ['tools','timeframes','plan'].forEach(function(p){ov.classList.toggle('cp-mobile-'+p,next===p);});
+  document.querySelectorAll('[data-mobile-panel]').forEach(function(b){b.setAttribute('aria-expanded',String(b.getAttribute('data-mobile-panel')===next));});
+  if(next==='plan')setChartTab('plan');
+  var target=document.getElementById(next==='tools'?'cp-mobile-tools-close':next==='plan'?'cp-mobile-plan-close':next==='timeframes'?'cp-mobile-time-close':'cp-mobile-'+(chartState.lastMobilePanel||'tools')+'-button');
+  if(next)chartState.lastMobilePanel=next;
+  if(target&&target.focus)target.focus();
+}
+function chartMobileTimeframe(tf){
+  chartMobilePanel('');loadChart(tf);
+}
+function chartReturnLive(){
+  chartState.crosshair=null;chartState.offset=Math.max(0,(chartState.klines||[]).length-chartState.zoom);
+  chartMobilePanel('');drawChart();
+}
+function syncChartMobileViewport(){
+  var layout=chartIsMobile()?'mobile':'desktop';
+  if(!chartState.preferenceLayout||chartState.preferenceLayout===layout)return;
+  saveChartPreferences();restoreChartPreferences();
+  chartState.zoom=layout==='mobile'?42:80;
+  chartState.offset=Math.max(0,(chartState.klines||[]).length-chartState.zoom);
+  chartState.crosshair=null;chartMobilePanel('');syncChartProUI();
+}
+function installChartMobileUI(){
+  var ov=document.getElementById('chart-fullscreen-ov');if(!ov||document.getElementById('cp-mobile-header'))return;
+  var head=document.createElement('div');head.id='cp-mobile-header';head.className='cp-mobile-chrome';
+  head.innerHTML='<div><strong id="cp-mobile-quote"></strong><div id="cp-mobile-status"></div></div><button onclick="collapseChartFull()" aria-label="Close chart">✕</button>';
+  ov.prepend(head);
+  var dock=document.createElement('div');dock.id='cp-mobile-dock';dock.className='cp-mobile-chrome';
+  dock.innerHTML=[['timeframes','Timeframe'],['tools','Layers'],['plan','Plan']].map(function(p){return '<button id="cp-mobile-'+p[0]+'-button" data-mobile-panel="'+p[0]+'" aria-expanded="false" onclick="chartMobilePanel(\''+p[0]+'\')">'+p[1]+'</button>';}).join('')+'<button onclick="chartReturnLive()">Live ↗</button>';
+  ov.appendChild(dock);
+  var times=document.createElement('section');times.id='cp-mobile-timeframes';times.className='cp-mobile-chrome';times.setAttribute('aria-label','Chart timeframe');
+  times.innerHTML='<div class="cp-mobile-sheet-head"><strong>Timeframe</strong><button id="cp-mobile-time-close" onclick="chartMobilePanel(\'\')" aria-label="Close timeframes">✕</button></div><div class="cp-mobile-time-buttons">'+['15m','1h','4h','1d','1w'].map(function(tf){return '<button data-mobile-tf="'+tf+'" onclick="chartMobileTimeframe(\''+tf+'\')">'+tf+'</button>';}).join('')+'<p>Drag to pan · Pinch to zoom · Hold to inspect a candle.<br>Dates use your device timezone. Analysis uses the full candle history.</p>';
+  ov.appendChild(times);
+  [['chart-pro-tools-fs','tools','Chart controls'],['chart-fs-table','plan','Plan & evidence']].forEach(function(p){
+    var host=document.getElementById(p[0]);if(!host)return;
+    var bar=document.createElement('div');bar.className='cp-mobile-chrome cp-mobile-sheet-head';
+    bar.innerHTML='<strong>'+p[2]+'</strong><button id="cp-mobile-'+p[1]+'-close" onclick="chartMobilePanel(\'\')" aria-label="Close '+p[2]+'">✕</button>';host.prepend(bar);
+  });
+}
+function updateChartMobileHeader(plan){
+  var quote=document.getElementById('cp-mobile-quote'),status=document.getElementById('cp-mobile-status');
+  if(quote)quote.textContent=(chartState.d&&chartState.d.pair||chartState.sym||'')+' · '+chartState.tf+' · '+(chartState.loading?'Loading…':chartState.livePrice>0?fmtPrice(chartState.livePrice):'Quote pending');
+  if(status){
+    var fresh=chartState.lastPriceAt&&Date.now()-chartState.lastPriceAt<15000;
+    status.textContent=chartState.loading?'Loading candles':chartState.loadError||(fresh?'Live · ':'Quote stale · ')+(plan?plan.status+' · ':'')+(chartState.wyckoff&&chartState.wyckoff.status||'No established base');
+  }
+  document.querySelectorAll('[data-mobile-tf]').forEach(function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-mobile-tf')===chartState.tf));});
 }
 function setChartView(mode){
   if(!CHART_VIEWS[mode])return;
@@ -16261,16 +16555,16 @@ function installChartProUI(){
     '<label class="cp-select-label">Fib <select data-chart-fib-scope onchange="setChartFibScope(this.value)" title="Major includes internal pullbacks; Recent measures the latest local leg. Manual preserves your chosen anchors."><option value="major">Major swing</option><option value="recent">Recent swing</option><option value="manual">Manual / locked</option></select></label>'+
     '<details class="cp-ind-menu"><summary>Fib anchors</summary><div><button onclick="editChartFib()">Edit anchors</button><button onclick="lockChartFib()">Lock / unlock Fib</button><label>Retire swing <select data-chart-fib-retirement onchange="setChartFibRetirement(this.value)"><option value="extension">2 closes past 1.618 or origin break</option><option value="origin">Origin break only</option></select></label><small>Retirement is a custom app rule, not a Fibonacci law. Unlocked manual anchors can be dragged. Manual Fib is visual only.</small></div></details>'+
     '<details class="cp-ind-menu"><summary>Layers</summary><div>'+Object.keys(CHART_VIEWS.clean).map(function(k){
-      var names={ema:'EMA 20 / 50',emaLong:'EMA 100 / 200',vol:'Volume bars',rsi:'RSI',sr:'Horizontal levels',analyst:'Trade levels',fib:'Confirmed Fib',wyckoff:'Historical Wyckoff base',profile:'Estimated volume profile',preview:'Developing Fib preview',history:'Past events / lines',avwap:'Anchored VWAP estimate'};
+      var names={ema:'EMA 20',ema50:'EMA 50',emaLong:'EMA 100 / 200',vol:'Volume bars',rsi:'RSI',sr:'Horizontal levels',analyst:'Trade levels',fib:'Confirmed Fib',wyckoff:'Historical Wyckoff base',profile:'Estimated volume profile',preview:'Developing Fib preview',history:'Past events / lines',avwap:'Anchored VWAP estimate'};
       return '<button data-chart-ind="'+k+'" onclick="toggleInd(\''+k+'\')">'+names[k]+'</button>';
     }).join('')+'<button data-chart-fib-connector onclick="toggleFibConnector()">Fib anchor connector</button></div></details>'+
     '<details class="cp-ind-menu"><summary>View</summary><div><button onclick="chartFit(\'swing\')">Fit selected swing</button><button onclick="chartFit(\'all\')">Fit all</button><button onclick="chartState.offset=Math.max(0,(chartState.klines||[]).length-chartState.zoom);drawChart()">Return to live</button></div></details>'+
     '<button onclick="editChartExecution()">Execution</button><button onclick="recordChartDecision()" title="Save the current data, settings and decision for later review">Record decision</button>'+
     '<details class="cp-ind-menu"><summary>Edit lines</summary><div><button onclick="toggleDrawMode()">Draw two anchors</button><button data-chart-magnet onclick="toggleChartMagnet()">Snap to candle</button><button onclick="editSelectedDrawing(\'lock\')">Lock / unlock selected</button><button onclick="editSelectedDrawing(\'extend\')">Extend selected right</button><button onclick="editSelectedDrawing(\'delete\')">Delete selected</button><small>Click a manual line to select. Drag an unlocked anchor. Manual lines are visual only.</small></div></details>';
-    el.innerHTML+='<span class="cp-build" title="Release 2026-09-06 · verify this label after uploading">Chart 2026.09.06-r2</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
+    el.innerHTML+='<span class="cp-build" title="Release 2026-09-06 · verify this label after uploading">Chart 2026.09.06-r3</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
     if(suffix){var top=document.getElementById('chart-fs-bar');if(top)top.after(el);}
     else{var wrap=document.getElementById('chart-canvas-wrap');if(wrap)wrap.before(el);}
-  });syncChartProUI();
+  });installChartMobileUI();syncChartProUI();
 }
 
 function getChartWyckoffContext(sym){
@@ -16534,7 +16828,7 @@ function buildChartTab(d) {
       if(!full||!full.classList.contains('show')||/INPUT|SELECT|TEXTAREA/.test((e.target&&e.target.tagName)||''))return;
       if (e.key === 'Escape') {
         e.stopImmediatePropagation();
-        if(full.classList.contains('cp-focus'))toggleChartFocus(false);else collapseChartFull();
+        if(chartState.mobilePanel)chartMobilePanel('');else if(full.classList.contains('cp-focus'))toggleChartFocus(false);else collapseChartFull();
       } else if(e.key==='f'||e.key==='F'){
         e.preventDefault();e.stopImmediatePropagation();toggleChartFocus();
       }
@@ -16547,7 +16841,7 @@ function buildChartTab(d) {
   chartState.livePrice = null;
   chartState.liveChange = 0;
   chartState.lastPriceAt = 0;
-  chartState.zoom   = 80;
+  chartState.zoom   = chartIsMobile()?42:80;
   chartState.offset = 0;
   chartState.fullscreen = false;
   installChartProUI();
@@ -16581,6 +16875,8 @@ function expandChartFull() {
   chartState.fullscreen = true;
   chartState.canvasId   = 'chart-canvas-fs';
   chartState.legendId   = 'chart-legend-fs';
+  syncChartMobileViewport();
+  chartMobilePanel('');
   document.body.style.overflow = 'hidden';
 
   var d = chartState.d;
@@ -16602,69 +16898,7 @@ function expandChartFull() {
       canvas.style.height = fsC.clientHeight + 'px';
     }
     // Wire mouse/touch events on fullscreen canvas
-    if (canvas && !canvas._fsEventsInit) {
-      canvas._fsEventsInit = true;
-      installManualChartEvents(canvas);
-      canvas.addEventListener('mousemove', function(e) {
-        var rect = canvas.getBoundingClientRect();
-        // FIX: store CSS-pixel coords + cssW/cssH — the exact shape the crosshair
-        // renderer expects (it was getting device pixels with no cssW → NaN →
-        // no price tag in fullscreen while the normal chart worked fine).
-        chartState.crosshair = { x: e.clientX - rect.left, y: e.clientY - rect.top,
-                                 cssW: rect.width, cssH: rect.height };
-        updateChartCursorReadout(canvas, chartState.crosshair.x, chartState.crosshair.y);
-        if (chartState.dragging) {
-          var dx  = e.clientX - chartState.dragStartX;
-          var cW  = chartState._map?chartState._map.candleW:(canvas.getBoundingClientRect().width - 96) / chartState.zoom;
-          chartState.offset = Math.max(0, Math.min(
-            chartState.klines.length - chartState.zoom,
-            chartState.dragStartOffset - Math.round(dx / Math.max(1, cW))
-          ));
-        }
-        if (chartState.klines) drawChart();
-      });
-      canvas.addEventListener('mousedown', function(e) {
-        if (chartState.drawMode) {
-          var _r = canvas.getBoundingClientRect();
-          _drawClick(e.clientX - _r.left, e.clientY - _r.top);
-          return;
-        }
-        chartState.dragging = true;
-        chartState.dragStartX = e.clientX;
-        chartState.dragStartOffset = chartState.offset;
-      });
-      canvas.addEventListener('mouseup',    function() { chartState.dragging = false; });
-      canvas.addEventListener('mouseleave', function() {
-        chartState.dragging = false; chartState.crosshair = null;
-        hideChartCursorReadout(canvas);
-        if (chartState.klines) drawChart();
-      });
-      canvas.addEventListener('wheel', function(e) {
-        e.preventDefault();
-        var nz2 = Math.max(20, Math.min(300, chartState.zoom + (e.deltaY > 0 ? 8 : -8)));
-        zoomAtCursor(canvas, e.clientX, nz2);   // anchored to the cursor
-      }, {passive:false});
-      // Touch
-      var tsX = null, tsOff = 0, pinchD0 = 0, pinchZ0 = 0;
-      canvas.addEventListener('touchstart', function(e) {
-        if (e.touches.length === 1) { tsX = e.touches[0].clientX; tsOff = chartState.offset; }
-        else if (e.touches.length === 2) { pinchD0 = Math.abs(e.touches[0].clientX - e.touches[1].clientX); pinchZ0 = chartState.zoom; }
-      });
-      canvas.addEventListener('touchmove', function(e) {
-        e.preventDefault();
-        if (e.touches.length === 1 && tsX !== null) {
-          var dx2 = e.touches[0].clientX - tsX;
-          var cW2 = chartState._map?chartState._map.candleW:(canvas.getBoundingClientRect().width - 96) / chartState.zoom;
-          chartState.offset = Math.max(0, Math.min(chartState.klines.length - chartState.zoom, tsOff - Math.round(dx2 / Math.max(1,cW2))));
-          if (chartState.klines) drawChart();
-        } else if (e.touches.length === 2) {
-          var d2 = Math.abs(e.touches[0].clientX - e.touches[1].clientX);
-          if (d2 > 0) chartState.zoom = Math.max(20, Math.min(300, Math.round(pinchZ0 * pinchD0 / d2)));
-          if (chartState.klines) drawChart();
-        }
-      }, {passive:false});
-      canvas.addEventListener('touchend', function() { tsX = null; });
-    }
+    initChartEvents(); // one shared mouse / pan / pinch / long-press implementation
     if (chartState.klines) drawChart();
   }, 30);
 }
@@ -16828,7 +17062,7 @@ function calculateAnchoredVWAP(rows,start){
 
 function recordChartDecision(){
   if(!chartState.d||!chartState.snapshot||!chartState.snapshot.usable){window.alert('Wait for a usable closed-candle snapshot before recording a decision.');return;}
-  var record={version:'2026.09.06-r2',recordedAt:new Date().toISOString(),snapshot:chartState.snapshot,
+  var record={version:'2026.09.06-r3',recordedAt:new Date().toISOString(),snapshot:chartState.snapshot,
     symbol:chartState.sym,timeframe:chartState.tf,quote:{price:chartState.livePrice,source:chartState.quoteSource,time:chartState.lastPriceAt},
     plan:buildCanonicalChartPlan(chartState.d),metrics:chartMetrics(chartState.d),
     fib:chartState.autoFib,trendlines:chartState.trendlines,wyckoff:chartState.wyckoff,
@@ -17035,7 +17269,7 @@ function buildCanonicalChartPlan(d) {
   var score100 = Math.max(0, Math.min(100, Math.round((d.score || 0) / 97 * 100)));
   var freshSec = chartState.lastPriceAt ? Math.round((Date.now()-chartState.lastPriceAt)/1000) : null;
 
-  return {version:'2026.09.06-r2',source:source, entry:entry, zoneLow:zoneLow, zoneHigh:zoneHigh,
+  return {version:'2026.09.06-r3',source:source, entry:entry, zoneLow:zoneLow, zoneHigh:zoneHigh,
     thesis:thesis, sl:sl, tp1:tp1, tp2:tp2, tp3:tp3, live:live,
     slPct:slPct, tp1Pct:tp1Pct, tp2Pct:tp2Pct, tp3Pct:tp3Pct,
     rr1:rr1, rr2:rr2, rr3:rr3, netRR1:netRR1, liveVsEntry:liveVsEntry,
@@ -17178,6 +17412,7 @@ function populateFSTable(d) {
 
 
 function toggleFSTable() {
+  if(chartIsMobile()){chartMobilePanel('plan');return;}
   var tbl = document.getElementById('chart-fs-table');
   var btn = document.getElementById('fs-table-toggle');
   if (!tbl) return;
@@ -17206,6 +17441,7 @@ function toggleFSTable() {
 }
 function resizeFullscreenChart(){
   if(!chartState.fullscreen)return;
+  syncChartMobileViewport();
   function fit(){
     var fsC=document.getElementById('chart-fs-canvas'),canvas=document.getElementById('chart-canvas-fs');
     if(fsC&&canvas){canvas.style.width=fsC.clientWidth+'px';canvas.style.height=fsC.clientHeight+'px';}
@@ -17227,6 +17463,7 @@ function toggleChartFocus(force){
   resizeFullscreenChart();return focus;
 }
 function collapseChartFull() {
+  chartMobilePanel('');
   var fsOv = document.getElementById('chart-fullscreen-ov');
   if (fsOv){fsOv.classList.remove('show','cp-focus');}
   chartState.fullscreenFocus=false;
@@ -17260,8 +17497,8 @@ function chartZoom(dir) {
 }
 
 function chartReset() {
-  chartState.zoom = 80;
-  chartState.offset = Math.max(0,(chartState.klines||[]).length-80);
+  chartState.zoom = chartIsMobile()?42:80;
+  chartState.offset = Math.max(0,(chartState.klines||[]).length-chartState.zoom);
   if (chartState.klines) drawChart();
 }
 
@@ -17287,6 +17524,8 @@ function loadChart(tf) {
   var loading = document.getElementById('chart-loading');
   if (loading) loading.style.display = 'flex';
   chartState.loading = true;
+  chartState.loadError=null;
+  updateChartMobileHeader(null);
   if(chartState.fullscreen){
     var pendingLevels=document.getElementById('fs-levels');
     if(pendingLevels)pendingLevels.textContent='Loading '+tf+' candles — waiting for confirmed chart levels.';
@@ -17311,6 +17550,7 @@ function loadChart(tf) {
     })
     .catch(function() {
       if(chartState.loadRequestId!==requestId)return;
+      chartState.loading=false;chartState.loadError='Could not load candles · choose the timeframe to retry';updateChartMobileHeader(null);
       var loading = document.getElementById('chart-loading');
       if (loading) loading.innerHTML = '<div style="text-align:center;color:var(--r)">⚠ Failed to load chart data. Check connection.</div>';
     });
@@ -17325,8 +17565,7 @@ function loadChart(tf) {
 function zoomAtCursor(canvas, clientX, newZoom) {
   if (!chartState.klines) return;
   var rect = canvas.getBoundingClientRect();
-  var RIGHT_PAD = 96;
-  var chartWcss = Math.max(1, rect.width - RIGHT_PAD);
+  var chartWcss = Math.max(1, chartState._map?chartState._map.chartW:rect.width-(rect.width<600?72:126));
   var mouseX = Math.max(0, Math.min(chartWcss, clientX - rect.left));
   var frac = mouseX / chartWcss;                       // 0..1 across the chart
   var oldZoom = chartState.zoom;
@@ -17429,6 +17668,7 @@ function initChartEvents() {
     updateChartCursorReadout(canvas,x,y);
   }
   canvas.addEventListener('touchstart', function(e) {
+    if(!chartState.klines||chartState.loading)return;
     if (e.touches.length === 1) {
       touchStart = e.touches[0].clientX;
       tStartY = e.touches[0].clientY;
@@ -17444,12 +17684,14 @@ function initChartEvents() {
       }, 300);
     } else if (e.touches.length === 2) {
       clearTimeout(lpTimer); chMode = false;
-      pinchStart = Math.abs(e.touches[0].clientX - e.touches[1].clientX);
+      touchStart=null;chartState.crosshair=null;
+      pinchStart = Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
       pinchZoom = chartState.zoom;
     }
   }, {passive: true});
   canvas.addEventListener('touchmove', function(e) {
     e.preventDefault();
+    if(!chartState.klines||chartState.loading)return;
     if (e.touches.length === 1 && touchStart !== null) {
       var t = e.touches[0];
       if (chMode) {
@@ -17467,10 +17709,8 @@ function initChartEvents() {
       ));
       if (chartState.klines) drawChart();
     } else if (e.touches.length === 2) {
-      var dist = Math.abs(e.touches[0].clientX - e.touches[1].clientX);
-      var ratio = pinchStart / dist;
-      chartState.zoom = Math.max(20, Math.min(200, Math.round(pinchZoom * ratio)));
-      if (chartState.klines) drawChart();
+      var dist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+      if(dist>0&&pinchStart>0)zoomAtCursor(canvas,(e.touches[0].clientX+e.touches[1].clientX)/2,Math.max(20,Math.min(200,Math.round(pinchZoom*pinchStart/dist))));
     }
   }, {passive: false});
   canvas.addEventListener('touchend', function() {
@@ -17483,13 +17723,19 @@ function initChartEvents() {
       if (chartState.klines) drawChart();
     }
   });
+  canvas.addEventListener('touchcancel',function(){
+    clearTimeout(lpTimer);touchStart=null;chMode=false;pinchStart=0;
+    chartState.crosshair=null;chartState.dragging=false;chartState.manualDrag=null;hideChartCursorReadout(canvas);
+    if(chartState.klines)drawChart();
+  });
 }
 
 function getCandleWidth() {
   var canvas = document.getElementById(chartState.canvasId || 'chart-canvas');
   if (!canvas) return 8;
-  var chartW = canvas.width - 70;
-  return Math.max(2, chartW / chartState.zoom);
+  if(chartState._map)return chartState._map.candleW;
+  var width=canvas.getBoundingClientRect().width;
+  return Math.max(2,(width-(width<600?72:126))/(chartState.zoom+Math.max(6,Math.ceil(chartState.zoom*.14))));
 }
 
 // ── rAF-COALESCED PAINT (research: the #1 performance fix) ───────────────────
@@ -17536,6 +17782,7 @@ function updateChartSummary(){
     (w&&w.rangeHigh?(chartState.livePrice>w.rangeHigh?'Above prior base':chartState.livePrice<w.rangeLow?'Below prior base':'Inside prior base'):'No established base')+' · '+
     (fl&&fl.provisional?'New swing developing · ':'')+(s.usable?'Closed data ready':'DATA WAIT');
   if(chartState.d){var plan=buildCanonicalChartPlan(chartState.d);compact+=' · '+plan.status;}
+  updateChartMobileHeader(plan);
   var anchorText='';
   if(chartState.indicators.fib&&f&&f.valid){
     var m=chartState._map||{},first=m.offset==null?chartState.offset:m.offset,count=m.visibleCount||chartState.zoom||0;
@@ -17614,9 +17861,10 @@ function _drawChartNow() {
   var W = wrap ? wrap.clientWidth : 700;
   var showVol = ind.vol;
   var showRSI = ind.rsi;
-  var RIGHT_PAD = W < 600 ? 110 : 126; // room for "TP · R · %" without clipping
+  var mobilePlot=W<=820;
+  var RIGHT_PAD = mobilePlot ? 72 : 126;
   var LEFT_PAD  = 0;    // no left pad — candles go edge to edge
-  var TOP_PAD   = 4;
+  var TOP_PAD   = mobilePlot ? 68 : 4; // reserve OHLC and EMA rows above candles
   var BOTTOM_PAD = 28;  // time labels
   var CANDLE_H  = Math.max(300, Math.min(520, W * 0.62));   // (overridden in fullscreen, below)
   var VOL_H     = showVol ? 56 : 0;
@@ -17997,8 +18245,8 @@ function _drawChartNow() {
   }
 
   // 5. EMA lines
-  if (ind.ema || ind.emaLong) {
-    (ind.emaLong?[[ema200s,C.ema200,1],[ema100s,C.ema100,1]]:[]).concat(ind.ema?[[ema50s,C.ema50,1],[ema20s,C.ema20,1]]:[]).forEach(function(e) {
+  if (ind.ema || ind.ema50 || ind.emaLong) {
+    (ind.emaLong?[[ema200s,C.ema200,1],[ema100s,C.ema100,1]]:[]).concat(ind.ema50?[[ema50s,C.ema50,1]]:[]).concat(ind.ema?[[ema20s,C.ema20,1]]:[]).forEach(function(e) {
       var arr = e[0], col = e[1];
       ctx.strokeStyle = col;
       ctx.lineWidth = e[2];
@@ -18132,8 +18380,8 @@ function _drawChartNow() {
   })();
 
   // 7. EMA legend (top-left, exactly like TV)
-  if (ind.ema || ind.emaLong) {
-    var lx = 8, ly = TOP_PAD + 30;   // row 2 — OHLC info owns row 1, no overlap
+  if (ind.ema || ind.ema50 || ind.emaLong) {
+    var lx = 8, ly = mobilePlot ? 61 : TOP_PAD + 30;   // row 2 — OHLC info owns row 1, no overlap
     var emaLabels = [
       {name:'EMA 20', col:C.ema20,  val: ema20s[offset+visible.length-1]},
       {name:'EMA 50', col:C.ema50,  val: ema50s[offset+visible.length-1]},
@@ -18141,7 +18389,7 @@ function _drawChartNow() {
       {name:'EMA 200',col:C.ema200, val: ema200s[offset+visible.length-1]},
     ];
     ctx.font = 'bold 11px -apple-system,sans-serif';
-    emaLabels.filter(function(el){return /100|200/.test(el.name)?ind.emaLong:ind.ema;}).forEach(function(el) {
+    emaLabels.filter(function(el){return /100|200/.test(el.name)?ind.emaLong:el.name==='EMA 50'?ind.ema50:ind.ema;}).forEach(function(el) {
       var txt = el.name + (el.val ? '  ' + fmtPrice(el.val) : '');
       ctx.fillStyle = el.col;
       ctx.textAlign = 'left';
@@ -18274,16 +18522,21 @@ function _drawChartNow() {
   ctx.fillStyle = C.text2;
   ctx.font = '10px -apple-system,sans-serif';
   ctx.textAlign = 'center';
-  var tStep = Math.max(1, Math.round(zoom / 7)),lastAxisDay=null;
+  var axisCount=mobilePlot?Math.max(2,Math.min(4,Math.floor(chartW/76))):7;
+  var tStep = Math.max(1, Math.ceil(zoom / axisCount)),lastAxisDay=null,lastAxisRight=-10;
+  var axisCursorX=chartState.crosshair?chartState.crosshair.x*W/(chartState.crosshair.cssW||W):-1;
+  var inspectDate=mobilePlot&&axisCursorX>=0&&axisCursorX<chartW&&!!visible[Math.floor(axisCursorX/candleW)];
   for (var i = 0; i < visible.length; i += tStep) {
+    if(inspectDate)break; // the exact touch date owns this row until the finger lifts
     var ts = parseInt(visible[i][0]);
     var dt = new Date(ts);
     var dayKey=dt.getFullYear()+'-'+dt.getMonth()+'-'+dt.getDate(),intraday=chartState.tf!=='1d'&&chartState.tf!=='1w';
     var clock=dt.getHours().toString().padStart(2,'0')+':'+dt.getMinutes().toString().padStart(2,'0');
     var tl=intraday?(dayKey!==lastAxisDay?(dt.getMonth()+1)+'/'+dt.getDate()+' '+clock:clock):(dt.getMonth()+1)+'/'+dt.getDate();
-    lastAxisDay=dayKey;
-    var tx = cX(i);
-    if (tx > 20 && tx < chartW - 20) ctx.fillText(tl, tx, timeY);
+    if(mobilePlot)tl=(dt.getMonth()+1)+'/'+dt.getDate()+(chartState.tf==='15m'||chartState.tf==='1h'?' '+clock:'');
+    var half=ctx.measureText(tl).width/2;
+    var tx = Math.max(half+4,Math.min(cX(i),chartW-half-4));
+    if(tx-half>lastAxisRight+10&&tx+half<chartW-2){ctx.fillText(tl,tx,timeY);lastAxisRight=tx+half;lastAxisDay=dayKey;}
   }
 
   // Thin border between chart and axis
@@ -18606,14 +18859,15 @@ function _drawChartNow() {
 
       // Pill
       ctx.font = 'bold 10px -apple-system,BlinkMacSystemFont,sans-serif';
-      var tw = Math.max(ctx.measureText(lv.name).width + 12, RIGHT_PAD - 2);
+      var axisName=mobilePlot?lv.name.split(' ')[0]+' '+fmtPrice(lv.price):lv.name;
+      var tw = Math.min(RIGHT_PAD,Math.max(ctx.measureText(axisName).width + 12, RIGHT_PAD - 2));
       ctx.fillStyle = lv.col;
       if (ctx.roundRect) ctx.roundRect(chartW, y - 10, tw, 20, 3);
       else ctx.rect(chartW, y - 10, tw, 20);
       ctx.fill();
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'left';
-      ctx.fillText(lv.name, chartW + 6, y + 3.5);
+      ctx.fillText(axisName, chartW + 4, y + 3.5, RIGHT_PAD-8);
       ctx.restore();
     });
 
@@ -21302,11 +21556,17 @@ function fetchOnchain(force){
   var legacy=_pfetch('https://api.blockchain.info/charts/n-unique-addresses?timespan=30days&format=json')
     .then(_blockchainAddressData)
     .catch(function(){return null;});
-  return Promise.all([_ffNetworkActivity('BTC'),_ffBtcMempool(),legacy]).then(function(r){
+  var networkP=typeof _ffNetworkActivity==='function'?_ffNetworkActivity('BTC'):
+    _pfetch('https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=AdrActCnt&frequency=1d&page_size=40')
+      .then(function(j){var a=_btcAddressData(j&&j.data,'Coin Metrics Community');return {source:'Coin Metrics Community',metrics:[{key:'AdrActCnt',label:'Active addresses',value:a.addresses,change7d:a.chg7d,start:a.asOf,status:'REPORTED'}],eligible:false};})
+      .catch(function(){return null;});
+  var mempoolP=typeof _ffBtcMempool==='function'?_ffBtcMempool():Promise.resolve(null);
+  return Promise.all([networkP,mempoolP,legacy]).then(function(r){
       var network=r[0],mempool=r[1],fallback=r[2],active=network&&network.metrics&&network.metrics.find(function(m){return m.key==='AdrActCnt';});
-      var d={networkActivity:network,btcMempool:mempool,source:'Coin Metrics Community + mempool.space',asOf:Date.now()};
+      var d={networkActivity:network,btcMempool:mempool,source:network&&network.metrics&&network.metrics.length?'Coin Metrics Community':'BTC free data',asOf:Date.now()};
+      if(mempool&&mempool.current)d.source+=' + mempool.space';
       if(active){d.addresses=active.value;d.chg7d=active.change7d;d.addressAsOf=active.start;}
-      else if(fallback){d.addresses=fallback.addresses;d.chg7d=fallback.chg7d;d.addressAsOf=fallback.asOf;d.source+=' + Blockchain.com fallback';}
+      else if(fallback){d.addresses=fallback.addresses;d.chg7d=fallback.chg7d;d.addressAsOf=fallback.asOf;d.source=network?'Coin Metrics Community + Blockchain.com fallback':'Blockchain.com';}
       var usable=(network&&network.metrics&&network.metrics.length)||(mempool&&mempool.current)||d.addresses!=null;
       if(!usable)throw new Error('BTC network sources returned no usable measurements');
       _onchain=d;var now=Date.now();
@@ -22689,6 +22949,7 @@ detectProxy().then(function(){}).catch(function(){}).then(function(){
     _resizeTmr=setTimeout(function(){
       var nowMobile=window.innerWidth<=820;
       if(nowMobile!==_wasMobile){ _wasMobile=nowMobile; if(allData.length) render(); }
+      syncChartMobileViewport();
       // If the fullscreen chart is open (e.g. user rotated phone), resize+redraw it
       var fsOv=document.getElementById('chart-fullscreen-ov');
       if(fsOv && fsOv.classList.contains('show')){
