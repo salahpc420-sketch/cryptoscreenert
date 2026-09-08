@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="chart-build" content="2026.09.07-sweeps-r1">
-<meta name="agent-build" content="2026.09.07-r1">
+<meta name="agent-build" content="2026.09.07-keyless-r2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -6439,11 +6439,14 @@ function buildCascadePanel(){
 // remain manual in Coin Updates. Automatic runs use primary/free feeds and a
 // deliberately small synthesis packet so free keys are not consumed by noise.
 // ═══════════════════════════════════════════════════════════════════════════
-var UA_VERSION=1, _uaRunning=false, _uaLastRun=0;
-function _uaDefaults(){return {version:UA_VERSION,on:false,provider:'auto',dailyBudget:8,requireOnchain:false,notifyReview:true,notifyRisk:true};}
+var UA_VERSION=2, _uaRunning=false, _uaLastRun=0;
+function _uaDefaults(){return {version:UA_VERSION,on:false,provider:'none',dailyBudget:8,requireOnchain:false,notifyReview:true,notifyRisk:true};}
 function unifiedAgentSettings(){
   var d=_uaDefaults(),x={};try{x=JSON.parse(localStorage.getItem('unified_agent_settings_v1')||'{}')||{};}catch(e){}
+  // This release defaults to the requested no-key path; other saved keys remain untouched.
+  if(x.version!==UA_VERSION){x.provider='none';x.version=UA_VERSION;}
   Object.keys(d).forEach(function(k){if(x[k]===undefined)x[k]=d[k];});
+  if(['none','auto','gemini','groq'].indexOf(x.provider)<0)x.provider='none';
   x.dailyBudget=Math.max(1,Math.min(24,parseInt(x.dailyBudget,10)||d.dailyBudget));return x;
 }
 function _uaSaveSettings(x){try{localStorage.setItem('unified_agent_settings_v1',JSON.stringify(x));}catch(e){}}
@@ -6458,7 +6461,7 @@ function toggleUnifiedAgent(on){
   }
   try{renderAgent();}catch(e){}try{renderMarketRead();}catch(e){}
 }
-function setUnifiedAgentProvider(v){var s=unifiedAgentSettings();s.provider=['auto','gemini','groq'].indexOf(v)>=0?v:'auto';_uaSaveSettings(s);try{renderAgent();}catch(e){}}
+function setUnifiedAgentProvider(v){var s=unifiedAgentSettings();s.provider=['none','auto','gemini','groq'].indexOf(v)>=0?v:'none';_uaSaveSettings(s);try{renderAgent();}catch(e){}}
 function setUnifiedAgentBudget(v){var s=unifiedAgentSettings();s.dailyBudget=Math.max(1,Math.min(24,parseInt(v,10)||8));_uaSaveSettings(s);try{renderAgent();}catch(e){}}
 function setUnifiedRequireOnchain(on){var s=unifiedAgentSettings();s.requireOnchain=!!on;_uaSaveSettings(s);try{renderAgent();}catch(e){}}
 function setUnifiedNotify(k,on){var s=unifiedAgentSettings();if(k==='review')s.notifyReview=!!on;if(k==='risk')s.notifyRisk=!!on;_uaSaveSettings(s);}
@@ -6472,12 +6475,14 @@ function _uaDay(){return new Date().toISOString().slice(0,10);}
 function _uaUsage(){var x={};try{x=JSON.parse(localStorage.getItem('unified_agent_usage_v1')||'{}')||{};}catch(e){}if(x.day!==_uaDay())x={day:_uaDay(),calls:0};return x;}
 function _uaUseCall(){var x=_uaUsage(),s=unifiedAgentSettings();if(x.calls>=s.dailyBudget)return false;x.calls++;try{localStorage.setItem('unified_agent_usage_v1',JSON.stringify(x));}catch(e){}return true;}
 function _uaHasAI(){
+  if(unifiedAgentSettings().provider==='none')return false;
   var s=unifiedAgentSettings(),main=(localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key')||'').trim(),g=groqKey(),gem=(!/^sk-(?:ant|or-)/.test(main)&&main)||(_crGeminiKey?_crGeminiKey():'');
   if(s.provider==='gemini')return !!gem;
   if(s.provider==='groq')return /^gsk_/.test(g);
   return !!main||!!gem||/^gsk_/.test(g);
 }
 function _uaProvider(){
+  if(unifiedAgentSettings().provider==='none')return 'none';
   var s=unifiedAgentSettings(),main=(localStorage.getItem('ai_api_key')||localStorage.getItem('anthropic_api_key')||'').trim(),gem=(!/^sk-(?:ant|or-)/.test(main)&&main)||(_crGeminiKey?_crGeminiKey():'');
   if(s.provider==='gemini')return 'gemini';if(s.provider==='groq')return 'groq';
   if(main)return /^sk-ant/.test(main)?'anthropic':/^sk-or-/.test(main)?'openrouter':'gemini';if(gem)return 'gemini';
@@ -16365,11 +16370,13 @@ var CHART_VIEWS={
 function saveChartPreferences(){
   try{localStorage.setItem(chartState.preferenceLayout==='mobile'?'chart_mobile_preferences_v1':'chart_pro_preferences_v1',JSON.stringify({view:chartState.viewMode,
     trend:chartState.trendMode,indicators:chartState.indicators,magnet:chartState.magnet,
-    fibConnector:!!chartState.fibConnector,fibScope:chartState.fibScope||'major',fibRetirement:chartState.fibRetirement||'extension',tab:chartState.sideTab}));}catch(e){}
+    fvgMode:chartState.fvgMode||'relevant',fvgMinAtr:chartState.fvgMinAtr==null?.1:chartState.fvgMinAtr,fibConnector:!!chartState.fibConnector,fibScope:chartState.fibScope||'major',fibRetirement:chartState.fibRetirement||'extension',tab:chartState.sideTab}));}catch(e){}
 }
 function restoreChartPreferences(){
   var mobile=chartIsMobile();chartState.preferenceLayout=mobile?'mobile':'desktop';
   var p={};try{p=JSON.parse(localStorage.getItem(mobile?'chart_mobile_preferences_v1':'chart_pro_preferences_v1')||'{}');}catch(e){}
+  chartState.fvgMode=['off','relevant','all'].includes(p.fvgMode)?p.fvgMode:'relevant';
+  chartState.fvgMinAtr=[0,.1,.25,.5].includes(p.fvgMinAtr)?p.fvgMinAtr:.1;
   chartState.viewMode=CHART_VIEWS[p.view]?p.view:'clean';
   chartState.indicators=Object.assign({},CHART_VIEWS[chartState.viewMode]);
   Object.keys(chartState.indicators).forEach(function(k){if(p.indicators&&typeof p.indicators[k]==='boolean')chartState.indicators[k]=p.indicators[k];});
@@ -16536,6 +16543,8 @@ function chartFit(kind){
 function toggleChartMagnet(){chartState.magnet=!chartState.magnet;saveChartPreferences();syncChartProUI();}
 function toggleFibConnector(){chartState.fibConnector=!chartState.fibConnector;saveChartPreferences();syncChartProUI();drawChart();}
 function syncChartProUI(){
+  document.querySelectorAll('[data-chart-fvg]').forEach(function(b){b.value=chartState.fvgMode||'relevant';});
+  document.querySelectorAll('[data-chart-fvg-min]').forEach(function(b){b.value=String(chartState.fvgMinAtr==null?.1:chartState.fvgMinAtr);});
   document.querySelectorAll('[data-chart-view]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.chartView===chartState.viewMode));});
   document.querySelectorAll('[data-chart-trend]').forEach(function(b){b.value=chartState.trendMode;});
   document.querySelectorAll('[data-chart-fib-scope]').forEach(function(b){b.value=chartState.fibScope||'major';});
@@ -16557,11 +16566,11 @@ function installChartProUI(){
     '<details class="cp-ind-menu"><summary>Layers</summary><div>'+Object.keys(CHART_VIEWS.clean).map(function(k){
       var names={ema:'EMA 20',ema50:'EMA 50',emaLong:'EMA 100 / 200',vol:'Volume bars',rsi:'RSI',sr:'Horizontal levels',analyst:'Trade levels',fib:'Confirmed Fib',wyckoff:'Historical Wyckoff base',profile:'Estimated volume profile',preview:'Developing Fib preview',history:'Past events / lines',avwap:'Anchored VWAP estimate',sweeps:'Liquidity sweeps / reclaim'};
       return '<button data-chart-ind="'+k+'" onclick="toggleInd(\''+k+'\')">'+names[k]+'</button>';
-    }).join('')+'<button data-chart-fib-connector onclick="toggleFibConnector()">Fib anchor connector</button></div></details>'+
+    }).join('')+'<label>FVG <select data-chart-fvg onchange="setChartFVG(this.value)"><option value="off">Off</option><option value="relevant">Relevant · max 2</option><option value="all">All recent zones</option></select></label><label>Minimum gap / ATR <select data-chart-fvg-min onchange="setChartFVG(null,this.value)"><option value="0">No size filter</option><option value="0.1">0.10 ATR</option><option value="0.25">0.25 ATR</option><option value="0.5">0.50 ATR</option></select></label><small>Closed candles · last 240 bars. Size filter is a display rule, not a proven trading edge. Relevant hides filled / failed zones.</small><button data-chart-fib-connector onclick="toggleFibConnector()">Fib anchor connector</button></div></details>'+
     '<details class="cp-ind-menu"><summary>View</summary><div><button onclick="chartFit(\'swing\')">Fit selected swing</button><button onclick="chartFit(\'all\')">Fit all</button><button onclick="chartState.offset=Math.max(0,(chartState.klines||[]).length-chartState.zoom);drawChart()">Return to live</button></div></details>'+
     '<button onclick="editChartExecution()">Execution</button><button onclick="recordChartDecision()" title="Save the current data, settings and decision for later review">Record decision</button>'+
     '<details class="cp-ind-menu"><summary>Edit lines</summary><div><button onclick="toggleDrawMode()">Draw two anchors</button><button data-chart-magnet onclick="toggleChartMagnet()">Snap to candle</button><button onclick="editSelectedDrawing(\'lock\')">Lock / unlock selected</button><button onclick="editSelectedDrawing(\'extend\')">Extend selected right</button><button onclick="editSelectedDrawing(\'delete\')">Delete selected</button><small>Click a manual line to select. Drag an unlocked anchor. Manual lines are visual only.</small></div></details>';
-    el.innerHTML+='<span class="cp-build" title="Liquidity sweep and reclaim layer · verify this label after uploading">Chart 2026.09.07-sweeps-r1</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
+    el.innerHTML+='<span class="cp-build" title="FVG layer · verify this label after uploading">Chart 2026.09.08-fvg-r1</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
     if(suffix){var top=document.getElementById('chart-fs-bar');if(top)top.after(el);}
     else{var wrap=document.getElementById('chart-canvas-wrap');if(wrap)wrap.before(el);}
   });installChartMobileUI();syncChartProUI();
@@ -17397,7 +17406,7 @@ function populateFSTable(d) {
         'Candidate allocation <strong>'+p.allocation.toFixed(1)+'%</strong> · modeled risk <strong>'+p.actualRisk.toFixed(2)+'%</strong>'+(p.sizeQuote!=null?'<p>Indicative size '+p.sizeQuote.toFixed(2)+' quote units before venue lot-size checks.</p>':'')+'<p class="cp-muted">Fees and slippage included. Portfolio exposure is not automatically netted. Not an order.</p>')+
       card('Execution assumptions','Fee '+p.execution.feePctEach.toFixed(3)+'% per side · entry slippage '+p.execution.entrySlipPct.toFixed(3)+'% · exit stress '+p.execution.exitSlipPct.toFixed(3)+'%.<p class="cp-muted">Each fee applies to its own modeled execution price. Assumptions are not measured fills; gaps can exceed them.</p><button onclick="editChartExecution()">Edit / inspect book</button>');
   }else{
-    html+=card('Liquidity sweep · reclaim status',chartSweepEvidence())+trendCard+card('Wyckoff · evidence',wxText)+card('Auto Fib · '+esc(chartState.tf||TF),fibBody)+referenceCard+
+    html+=card('Fair value gaps · closed candles',chartFVGEvidence())+card('Liquidity sweep · reclaim status',chartSweepEvidence())+trendCard+card('Wyckoff · evidence',wxText)+card('Auto Fib · '+esc(chartState.tf||TF),fibBody)+referenceCard+
       card('Volume methods','Vertical bars show traded base volume by candle direction, not aggressor buying. The optional estimated profile puts each visible candle’s volume in its high/low midpoint bin; zoom changes that visual estimate only. Anchored VWAP uses typical candle price × base volume from the selected Fib start. Both are estimates, excluded from confirmation gates.')+
       card('Confirmation checklist',p.confirmations.map(function(c){return '<div class="cp-check"><span>'+(c.state==='Passed'?'✓ ':'○ ')+esc(c.label)+'</span><strong style="color:'+(c.state==='Passed'?'#26a69a':'#f0b90b')+'">'+esc(c.state)+' · '+esc(c.value)+'</strong></div>';}).join(''))+
       card('Closed-candle metrics','<div class="cp-pair"><span>Trend / structure</span><strong>'+esc(d.trend)+' / '+esc(d.struct)+'</strong></div><div class="cp-pair"><span>RSI</span><strong>'+Number(d.rsi).toFixed(1)+'</strong></div><div class="cp-pair"><span>Volume / prior 20 bars</span><strong>'+Number(d.volR).toFixed(2)+'×</strong></div><p class="cp-muted">Current '+esc(chartState.tf||TF)+' chart calculations. Developing candle closes in '+_chartCountdown(p.candleClosesAt)+'.</p>');
@@ -17757,6 +17766,70 @@ function drawChart() {
 
 // Price-action proxy only: never infers actual resting orders or liquidation volume.
 // Input must be completed candles. Replay is independent of chart zoom/pan.
+// FVG is descriptive chart context only. No signal, score or agent vote.
+function setChartFVG(mode,minAtr){
+  if(['off','relevant','all'].includes(mode))chartState.fvgMode=mode;
+  if(minAtr!=null&&[0,.1,.25,.5].includes(Number(minAtr)))chartState.fvgMinAtr=Number(minAtr);
+  saveChartPreferences();syncChartProUI();drawChart();
+}
+function calcChartFVG(closed,minAtr,interval){
+  var all=closed||[],bars=all.slice(-257),base=all.length-bars.length,zones=[];
+  minAtr=[0,.1,.25,.5].includes(Number(minAtr))?Number(minAtr):.1;
+  if(bars.length<18)return [];
+  if(bars.some(function(k,i){return ![0,1,2,3,4].every(function(j){return k[j]!=null&&k[j]!==''&&isFinite(Number(k[j]));})||Number(k[3])<=0||Number(k[2])<Math.max(Number(k[1]),Number(k[4]))||Number(k[3])>Math.min(Number(k[1]),Number(k[4]))||(i&&Number(k[0])<=Number(bars[i-1][0]));}))return [];
+  function stamp(i){return Number(bars[i][6])||Number(bars[i][0]);}
+  function event(z,type,i){z.events.push({type:type,index:base+i,time:stamp(i)});}
+  for(var i=0;i<bars.length;i++){
+    var b=bars[i],hi=Number(b[2]),lo=Number(b[3]),c=Number(b[4]);
+    // Do not infer fills or holding across missing candles.
+    if(i&&interval>0&&Number(b[0])-Number(bars[i-1][0])!==interval){zones.forEach(function(z){if(z.reaction!=='Failed'&&z.reaction!=='Unknown'){z.reaction='Unknown';z.endedIndex=base+i-1;event(z,'Data gap · tracking stopped',i);}});}
+    zones.forEach(function(z){
+      if(z.reaction==='Failed'||z.reaction==='Unknown')return;
+      var bull=z.side==='bullish',overlap=hi>=z.low&&lo<=z.high;
+      if(overlap){
+        var depth=bull?(z.high-Math.max(lo,z.low))/(z.high-z.low):(Math.min(hi,z.high)-z.low)/(z.high-z.low);
+        var old=z.fill;z.fill=Math.max(z.fill,Math.min(1,Math.max(0,depth)));z.touched=true;
+        z.fillState=z.fill>=1?'Fully filled':z.fill>0?'Partly filled':'Touched';
+        if(z.fill!==old||z.testIndex==null)event(z,z.fillState,i);
+        z.testIndex=base+i;
+        if(z.fill>=1&&z.filledIndex==null)z.filledIndex=base+i;
+      }
+      var fail=bull?c<z.low:c>z.high;
+      var held=z.touched&&(bull?c>z.high:c<z.low);
+      var next=fail?'Failed':held?'Held':z.touched?'Testing':'Awaiting retest';
+      if(next!==z.reaction){z.reaction=next;event(z,next,i);}
+      if(fail)z.endedIndex=base+i;
+    });
+    // ATR uses 14 true ranges strictly before the three-bar formation.
+    if(i<17||base+i<all.length-240)continue;
+    if(interval>0){var continuous=true;for(var g=i-16;g<=i;g++)if(Number(bars[g][0])-Number(bars[g-1][0])!==interval){continuous=false;break;}if(!continuous)continue;}
+    var atr=0;for(var j=i-16;j<=i-3;j++){atr+=Math.max(Number(bars[j][2])-Number(bars[j][3]),Math.abs(Number(bars[j][2])-Number(bars[j-1][4])),Math.abs(Number(bars[j][3])-Number(bars[j-1][4])));}
+    atr/=14;
+    var first=bars[i-2],middle=bars[i-1],side=lo>Number(first[2])?'bullish':hi<Number(first[3])?'bearish':null;
+    if(!side)continue;
+    var low=side==='bullish'?Number(first[2]):hi,high=side==='bullish'?lo:Number(first[3]);
+    // Exclude disconnected session/data gaps: the middle candle traded through the zone.
+    if(Number(middle[3])>low||Number(middle[2])<high||high-low<atr*minAtr)continue;
+    zones.push({id:side+':'+b[0],side:side,low:low,high:high,atr:atr,minAtr:minAtr,confirmedIndex:base+i,confirmedTime:stamp(i),fill:0,fillState:'Untouched',reaction:'Awaiting retest',touched:false,testIndex:null,filledIndex:null,endedIndex:null,events:[{type:'Confirmed',index:base+i,time:stamp(i)}]});
+  }
+  return zones;
+}
+function chartFVGSelection(zones,price,mode){
+  if(mode==='off')return [];
+  if(mode==='all')return zones.slice().sort(function(a,b){return b.confirmedIndex-a.confirmedIndex;});
+  function distance(z){return price<z.low?z.low-price:price>z.high?price-z.high:0;}
+  return zones.filter(function(z){return z.fill<1&&z.reaction!=='Failed'&&z.reaction!=='Unknown';}).sort(function(a,b){return distance(a)-distance(b)||b.confirmedIndex-a.confirmedIndex;}).slice(0,2);
+}
+function chartFVGEvidence(){
+  var s=chartState.snapshot||{},zones=chartState.fvgZones||[],bars=chartState.klines||[];
+  var note='<p class="cp-muted">Three-candle wick gap, confirmed at candle 3 close. Last 240 closed candles; 14 prior true ranges for size filter. No proof of institutional orders or guaranteed fill. Fully filled describes wick penetration; Held requires a close back beyond the entry edge after a touch; Failed requires a close beyond the far edge. Failure is terminal for this zone. Missing candles stop tracking. Not used in trade scores or alerts.</p>';
+  if(!s.valid)return '<p>Unavailable · valid closed candle history required.</p>'+note;
+  var selected=chartFVGSelection(zones,bars.length>1?Number(bars[bars.length-2][4]):0,'relevant');
+  function row(z){return '<p><strong>'+z.side+' FVG · '+fmtPrice(z.low)+'–'+fmtPrice(z.high)+'</strong><br>'+z.fillState+' ('+Math.round(z.fill*100)+'%) · '+z.reaction+'<br>Confirmed '+new Date(z.confirmedTime).toISOString().slice(0,16)+' UTC<details><summary>History</summary>'+z.events.map(function(e){return e.type+' · '+new Date(e.time).toISOString().slice(0,16)+' UTC';}).join('<br>')+'</details></p>';}
+  var rest=zones.filter(function(z){return selected.indexOf(z)<0;}).reverse();
+  return (!s.usable?'<p>Historical snapshot · data not ready.</p>':'')+(selected.length?selected.map(row).join(''):'<p>No active FVG meets the size filter in loaded history.</p>')+(rest.length?'<details><summary>Other / historical zones ('+rest.length+')</summary>'+rest.map(row).join('')+'</details>':'')+note;
+}
+
 function calcChartSweeps(closed){
   var bars=(closed||[]).slice(-240),base=(closed||[]).length-bars.length,levels=[];
   if(bars.length<8)return [];
@@ -18040,6 +18113,10 @@ function _drawChartNow() {
         breakoutUp:snapshot.usable&&d.analysisSnapshot&&d.analysisSnapshot.signature===snapshot.signature&&!!d.breakoutUp});
     }
   }
+  var fvgKey=snapshot.signature+'|'+chartState.fvgMinAtr;
+  if(chartState._fvgKey!==fvgKey){
+    chartState.fvgZones=snapshot.valid?calcChartFVG(wxK,chartState.fvgMinAtr,_chartTFDuration(chartState.tf)):[];chartState._fvgKey=fvgKey;
+  }
   d=chartMetrics(d);
   var fib = resolveChartFib(wxH,wxL,wxC,wxAtr,wxTrend);
   var fibLadder = calcFibLadder(fib,klines,chartState.livePrice,wxAtr);
@@ -18151,6 +18228,19 @@ function _drawChartNow() {
     }
     // Full Fib status lives in the responsive summary outside the plot.
   }
+
+  // Faint FVG zones are painted below candles. Original bounds never shrink.
+  chartFVGSelection(chartState.fvgZones||[],wxC[wxC.length-1],chartState.fvgMode||'relevant').forEach(function(z){
+    var end=z.endedIndex!=null?z.endedIndex:z.filledIndex, sx=Math.max(0,cX(z.confirmedIndex-offset));
+    var ex=end!=null?Math.min(chartW,cX(end-offset)+candleW/2):chartW;
+    var top=pY(z.high),bottom=pY(z.low);
+    if(sx>=ex||bottom<TOP_PAD||top>TOP_PAD+CANDLE_H)return;
+    var col=z.reaction==='Failed'||z.reaction==='Unknown'?'#8892a5':z.side==='bullish'?'#26a69a':'#ce849f';
+    ctx.save();ctx.beginPath();ctx.rect(0,TOP_PAD,chartW,CANDLE_H);ctx.clip();
+    ctx.fillStyle=col;ctx.globalAlpha=.07;ctx.fillRect(sx,top,ex-sx,bottom-top);
+    ctx.globalAlpha=.45;ctx.strokeStyle=col;ctx.lineWidth=1;ctx.setLineDash([3,4]);ctx.strokeRect(sx,top,ex-sx,bottom-top);ctx.restore();
+    plotLabels.add({text:chartState.tf+' '+z.side+' FVG · '+z.fillState,col:col,x:Math.max(sx+3,ex-(mobilePlot?160:245)),y:Math.max(TOP_PAD+6,top+4),priority:25});
+  });
 
   // 3b. WYCKOFF RANGE + PHASE/EVENT OVERLAY
   if(ind.wyckoff && wx && wx.rangeHigh && wx.rangeLow) {
