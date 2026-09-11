@@ -443,6 +443,16 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 .m-sort-bar{display:flex;gap:6px;overflow-x:auto;padding:8px 0;margin-bottom:4px;-webkit-overflow-scrolling:touch}
 .m-sort-btn{flex:0 0 auto;font-size:12px;font-weight:600;padding:7px 14px;border-radius:20px;border:.5px solid var(--bd);background:var(--card2);color:var(--t2);cursor:pointer;white-space:nowrap;font-family:inherit}
 .m-sort-btn.active{background:var(--bl);color:#fff;border-color:var(--bl)}
+
+.cp-tools-menu>div{width:260px;max-height:65vh;overflow:auto}
+.cp-tools-menu .cp-ind-menu>div{position:static;width:auto;box-shadow:none;padding:6px 0;border:0}
+.cp-ind-menu:not(.cp-tools-menu)>div{max-height:65vh;overflow:auto}
+.cp-summary-details>summary{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cp-market-heading{font-size:17px;line-height:1.35;margin:0 0 10px;color:#e1e9f4}
+.cp-market-meta{display:grid;grid-template-columns:1fr;gap:6px}
+.cp-market-meta strong{color:#e1e9f4}
+.cp-overview-note{border-left:2px solid #6e9fec;padding-left:9px;line-height:1.6}
+.cp-card details>summary{cursor:pointer;padding:5px 0}
 </style>
 <style id="chart-pro-style">
 #chart-fs-bar{height:auto!important;min-height:42px;flex-wrap:wrap;gap:6px!important}
@@ -16363,18 +16373,19 @@ var chartState = {
 
 // Chart presentation settings are local preferences, never trading authority.
 var CHART_VIEWS={
-  clean:{ema:false,ema50:false,emaLong:false,vol:true,rsi:false,sr:true,analyst:false,fib:false,wyckoff:false,profile:false,preview:false,history:false,avwap:false,sweeps:true},
+  clean:{ema:true,ema50:false,emaLong:false,vol:true,rsi:false,sr:true,analyst:false,fib:false,wyckoff:false,profile:false,preview:false,history:false,avwap:false,sweeps:true},
   analysis:{ema:true,ema50:true,emaLong:false,vol:true,rsi:false,sr:true,analyst:false,fib:true,wyckoff:true,profile:false,preview:false,history:false,avwap:false,sweeps:true},
   plan:{ema:false,ema50:false,emaLong:false,vol:true,rsi:false,sr:false,analyst:true,fib:false,wyckoff:false,profile:false,preview:false,history:false,avwap:false,sweeps:false}
 };
 function saveChartPreferences(){
-  try{localStorage.setItem(chartState.preferenceLayout==='mobile'?'chart_mobile_preferences_v1':'chart_pro_preferences_v1',JSON.stringify({view:chartState.viewMode,
+  try{localStorage.setItem(chartState.preferenceLayout==='mobile'?'chart_mobile_preferences_v1':'chart_pro_preferences_v1',JSON.stringify({readabilityVersion:1,view:chartState.viewMode,
     trend:chartState.trendMode,indicators:chartState.indicators,magnet:chartState.magnet,
     fvgMode:chartState.fvgMode||'relevant',fvgMinAtr:chartState.fvgMinAtr==null?.1:chartState.fvgMinAtr,fibConnector:!!chartState.fibConnector,fibScope:chartState.fibScope||'major',fibRetirement:chartState.fibRetirement||'extension',tab:chartState.sideTab}));}catch(e){}
 }
 function restoreChartPreferences(){
   var mobile=chartIsMobile();chartState.preferenceLayout=mobile?'mobile':'desktop';
   var p={};try{p=JSON.parse(localStorage.getItem(mobile?'chart_mobile_preferences_v1':'chart_pro_preferences_v1')||'{}');}catch(e){}
+  if(p.readabilityVersion!==1){p.view='clean';p.tab='overview';p.indicators=null;}
   chartState.fvgMode=['off','relevant','all'].includes(p.fvgMode)?p.fvgMode:'relevant';
   chartState.fvgMinAtr=[0,.1,.25,.5].includes(p.fvgMinAtr)?p.fvgMinAtr:.1;
   chartState.viewMode=CHART_VIEWS[p.view]?p.view:'clean';
@@ -16446,7 +16457,7 @@ function updateChartMobileHeader(plan){
 function setChartView(mode){
   if(!CHART_VIEWS[mode])return;
   chartState.viewMode=mode;chartState.indicators=Object.assign({},CHART_VIEWS[mode]);
-  chartState.sideTab=mode==='plan'?'plan':mode==='analysis'?'evidence':'overview';
+  chartState.sideTab=mode==='plan'?'plan':'overview';
   saveChartPreferences();syncChartProUI();drawChart();
 }
 function setChartTrendMode(mode){
@@ -16570,7 +16581,14 @@ function installChartProUI(){
     '<details class="cp-ind-menu"><summary>View</summary><div><button onclick="chartFit(\'swing\')">Fit selected swing</button><button onclick="chartFit(\'all\')">Fit all</button><button onclick="chartState.offset=Math.max(0,(chartState.klines||[]).length-chartState.zoom);drawChart()">Return to live</button></div></details>'+
     '<button onclick="editChartExecution()">Execution</button><button onclick="recordChartDecision()" title="Save the current data, settings and decision for later review">Record decision</button>'+
     '<details class="cp-ind-menu"><summary>Edit lines</summary><div><button onclick="toggleDrawMode()">Draw two anchors</button><button data-chart-magnet onclick="toggleChartMagnet()">Snap to candle</button><button onclick="editSelectedDrawing(\'lock\')">Lock / unlock selected</button><button onclick="editSelectedDrawing(\'extend\')">Extend selected right</button><button onclick="editSelectedDrawing(\'delete\')">Delete selected</button><small>Click a manual line to select. Drag an unlocked anchor. Manual lines are visual only.</small></div></details>';
-    el.innerHTML+='<span class="cp-build" title="FVG layer · verify this label after uploading">Chart 2026.09.08-fvg-r1</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
+    el.innerHTML+='<span class="cp-build" title="Readable Overview · verify this label after uploading">Chart 2026.09.11-overview-r1</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
+    var toolsMenu=document.createElement('details');toolsMenu.className='cp-ind-menu cp-tools-menu';
+    toolsMenu.innerHTML='<summary>Tools</summary><div></div>';
+    Array.from(el.children).forEach(function(node){
+      var isMenu=node.classList.contains('cp-ind-menu'),title=isMenu&&node.querySelector('summary');
+      if(node.classList.contains('cp-select-label')||node.tagName==='BUTTON'||(isMenu&&title&&title.textContent!=='Layers'))toolsMenu.lastElementChild.appendChild(node);
+    });
+    el.insertBefore(toolsMenu,el.querySelector('.cp-build'));
     if(suffix){var top=document.getElementById('chart-fs-bar');if(top)top.after(el);}
     else{var wrap=document.getElementById('chart-canvas-wrap');if(wrap)wrap.before(el);}
   });installChartMobileUI();syncChartProUI();
@@ -16802,7 +16820,7 @@ function buildChartTab(d) {
           '<button onclick="undoDrawing()" title="Undo last drawing" style="font-size:10px;padding:0 8px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">↶</button>' +
           '<button onclick="clearDrawings()" title="Clear all drawings on this chart" style="font-size:10px;padding:0 8px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">🗑</button>' +
           '<button onclick="chartReset()"  style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">Reset</button>' +
-          '<button onclick="toggleFSTable()" id="fs-table-toggle" style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#d1d4dc;cursor:pointer;font-family:inherit">📊 Trade Plan</button>' +
+          '<button onclick="toggleFSTable()" id="fs-table-toggle" style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#d1d4dc;cursor:pointer;font-family:inherit">📊 Details</button>' +
           '<button onclick="toggleChartFocus()" id="fs-focus-toggle" class="cp-focus-keep" aria-pressed="false" title="Hide or show the sidebar and upper chart controls" style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #536887;background:#263651;color:#e2ecff;cursor:pointer;font-family:inherit;font-weight:700">⛶ Chart only</button>' +
           '<button onclick="collapseChartFull()" id="fs-focus-close" class="cp-focus-keep" style="font-size:12px;padding:0 14px;height:26px;border-radius:3px;border:none;background:#f23645;color:#fff;cursor:pointer;font-family:inherit;font-weight:700">✕ Close</button>' +
         '</div>' +
@@ -16820,7 +16838,7 @@ function buildChartTab(d) {
         // Compact trade table — right sidebar
         '<div id="chart-fs-table" style="width:244px;flex:0 0 244px;background:#1e222d;border-left:1px solid #2a2e39;display:flex;flex-direction:column;font-family:-apple-system,sans-serif;overflow-y:auto">' +
           '<div style="padding:10px 12px;border-bottom:1px solid #2a2e39">' +
-            '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#787b86;margin-bottom:6px">Trade Plan</div>' +
+            '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#787b86;margin-bottom:6px">Setup readiness</div>' +
             '<div id="fs-signal-badge" style="font-size:11px;font-weight:700;padding:4px 8px;border-radius:4px;text-align:center"></div>' +
           '</div>' +
           '<div id="fs-levels" style="padding:8px 0"></div>' +
@@ -17308,10 +17326,40 @@ function buildCanonicalChartPlan(d) {
     ].map(function(g){g.required=g.required!==false;g.state=!g.required?'Not required':g.ok==null?'Unknown':g.ok?'Passed':'Failed';return g;})};
 }
 
+function chartMarketOverview(){
+  var snapshot=chartState.snapshot||{},bars=(chartState.klines||[]).slice(0,-1),m=chartState.metrics||{};
+  var out={headline:'Waiting for valid candles',trend:'Unknown',location:'Unknown',support:null,resistance:null,ema:'Unknown',method:'Description uses the last 20 closed candles, EMA20/50 and ATR. It is not a trading signal.'};
+  if(!snapshot.valid||bars.length<21)return out;
+  var close=Number(bars[bars.length-1][4]),start=Number(bars[bars.length-21][4]),atr=Number(chartState.chartAtr)||0;
+  var recent=bars.slice(-20),high=Math.max.apply(null,recent.map(function(k){return Number(k[2]);})),low=Math.min.apply(null,recent.map(function(k){return Number(k[3]);}));
+  out.trend=m.trend==='up'?'Uptrend':m.trend==='down'?'Downtrend':'Mixed';
+  var threshold=Math.max(atr*.5,close*.001);
+  out.headline=atr>0&&close-start>2*atr&&high-close>threshold?'Pullback after a strong advance':
+    atr>0&&start-close>2*atr&&close-low>threshold?'Rebound after a strong decline':
+    out.trend==='Uptrend'?'Uptrend · watching the next test':out.trend==='Downtrend'?'Downtrend · watching the next test':'Mixed trend · direction unconfirmed';
+  var levels=(chartState.sweepLevels||[]).filter(function(l){return l.takenIndex==null;}).map(function(l){return {price:l.price,label:l.side==='low'?'Swing low':'Swing high'};});
+  if(Number(m.sup)>0)levels.push({price:Number(m.sup),label:'Mapped support'});
+  if(Number(m.res)>0)levels.push({price:Number(m.res),label:'Mapped resistance'});
+  var ref=Number(chartState.livePrice)>0?Number(chartState.livePrice):close;
+  out.support=levels.filter(function(l){return l.price<ref;}).sort(function(a,b){return b.price-a.price;})[0]||null;
+  out.resistance=levels.filter(function(l){return l.price>ref;}).sort(function(a,b){return a.price-b.price;})[0]||null;
+  var nearest=levels.slice().sort(function(a,b){return Math.abs(a.price-ref)-Math.abs(b.price-ref);})[0];
+  out.location=nearest&&Math.abs(nearest.price-ref)<=threshold?'Testing '+nearest.label.toLowerCase()+' '+fmtPrice(nearest.price):out.support&&out.resistance?'Between nearby reference levels':out.support?'Above nearest mapped level':out.resistance?'Below nearest mapped level':'No nearby levels mapped';
+  out.ema=Number(m.ema20)>0?(Math.abs(ref-m.ema20)<=threshold?'Near':ref>m.ema20?'Above':'Below')+' EMA20 · '+fmtPrice(m.ema20):'EMA20 unavailable';
+  if(!snapshot.usable)out.headline='Historical view · '+out.headline;
+  out.method+=' Strong advance/decline = net 20-bar move over 2 ATR; pullback/rebound and nearby = max(0.5 ATR, 0.1% price). Levels are price references, not guaranteed support or resistance.';
+  return out;
+}
+function chartFVGDisplaySelection(zones,price){
+  var mode=chartState.fvgMode||'relevant',selected=chartFVGSelection(zones,price,mode);
+  return chartState.viewMode==='clean'&&mode==='relevant'?selected.slice(0,1):selected;
+}
+
 function populateFSTable(d) {
   d=chartMetrics(d);if(!d)return;
   var p=buildCanonicalChartPlan(d),tab=chartState.sideTab||'overview',fl=p.fibLadder,wx=p.wyckoff;
   var badge=document.getElementById('fs-signal-badge');
+  if(badge&&badge.parentElement)badge.parentElement.style.display=tab==='overview'?'none':'';
   if(badge){badge.textContent=p.status;badge.style.color=p.color;badge.style.background=p.color+'18';badge.style.border='1px solid '+p.color+'55';}
   var root=document.getElementById('fs-levels');if(!root)return;
   function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
@@ -17386,14 +17434,15 @@ function populateFSTable(d) {
   var trigger=waiting.length?waiting.join('; '):'Confirmation checks pass; entry still must be within the planned zone.';
   var html=tabs;
   if(p.positionState==='OPEN'&&p.riskState!=='WITHIN SAVED STOP')html+=card('OPEN · '+esc(p.riskState),'<p>'+esc(p.action)+'</p>','cp-risk-alert');
-  html+=live;
+  if(tab!=='overview')html+=live;
   if(chartState.snapshot&&!chartState.snapshot.usable)html+=card('Data health','<p>'+esc(chartState.snapshot.message)+'. New setup confirmation withheld.</p>');
   if(tab==='overview'){
-    html+=card('Setup · '+esc(p.source),'<p>'+esc(p.action)+'</p>')+
-      card('What must happen',esc(trigger))+
-      card('Where the setup fails',invalid)+
-      card('Nearby Fib levels',fibBody)+trendCard+
-      card('Wyckoff evidence',wxText);
+    var ov=chartMarketOverview();
+    html+=card('Market overview · '+esc(chartState.tf||TF),'<h3 class="cp-market-heading">'+esc(ov.headline)+'</h3><div class="cp-market-meta"><span>Trend · <strong>'+esc(ov.trend)+'</strong> · closed candles</span><span>Location · <strong>'+esc(ov.location)+'</strong></span><span>'+esc(ov.ema)+'</span></div>')+live+
+      card('Nearest important levels',(ov.resistance?row(esc(ov.resistance.label),ov.resistance.price,'#ef9b9b','Above displayed price'): '<p>Above price · none mapped</p>')+(ov.support?row(esc(ov.support.label),ov.support.price,'#64c6b6','Below displayed price'):'<p>Below price · none mapped</p>'))+
+      card('What remains unconfirmed','<p class="cp-overview-note">'+esc(trigger)+'</p>'+(ov.resistance?'<p>Strength to watch: close above '+fE(ov.resistance.price)+', followed by a held retest.</p>':'')+(ov.support?'<p>Weakness to watch: close below '+fE(ov.support.price)+', followed by a failed reclaim.</p>':'')+'<p class="cp-muted">Read reactions after the '+esc(chartState.tf||TF)+' candle closes. A developing candle does not confirm a break or reclaim.</p>')+
+      card('Setup readiness · '+esc(p.status),'<p>'+esc(p.action)+'</p><details><summary>Where the setup fails</summary>'+invalid+'</details><button onclick="setChartTab(\'plan\')">Open trade plan</button>')+
+      card('Supporting evidence','<details><summary>FVG · nearest zones</summary>'+chartFVGEvidence()+'</details><details><summary>Selected Fib · '+esc(selectedFib&&selectedFib.valid?(selectedFib.manual?'Manual ':selectedFib.scope==='major'?'Major ':'Recent ')+(selectedFib.direction==='down'?'downward swing':'upward swing'):'Unavailable')+'</summary>'+fibBody+'</details><details><summary>Trendlines</summary>'+trendBody+'</details><details><summary>Wyckoff · historical context</summary>'+wxText+'</details><details><summary>How this overview is calculated</summary><p>'+esc(ov.method)+'</p></details>');
   }else if(tab==='plan'){
     html+=card('Plan · '+esc(p.source),'<p>'+esc(p.action)+'</p>')+
       card('Entry zone',row('Planned entry',p.entry,'#f0b90b',fE(p.zoneLow)+' – '+fE(p.zoneHigh)))+
@@ -17825,7 +17874,7 @@ function chartFVGEvidence(){
   var note='<p class="cp-muted">Three-candle wick gap, confirmed at candle 3 close. Last 240 closed candles; 14 prior true ranges for size filter. No proof of institutional orders or guaranteed fill. Fully filled describes wick penetration; Held requires a close back beyond the entry edge after a touch; Failed requires a close beyond the far edge. Failure is terminal for this zone. Missing candles stop tracking. Not used in trade scores or alerts.</p>';
   if(!s.valid)return '<p>Unavailable · valid closed candle history required.</p>'+note;
   var selected=chartFVGSelection(zones,bars.length>1?Number(bars[bars.length-2][4]):0,'relevant');
-  function row(z){return '<p><strong>'+z.side+' FVG · '+fmtPrice(z.low)+'–'+fmtPrice(z.high)+'</strong><br>'+z.fillState+' ('+Math.round(z.fill*100)+'%) · '+z.reaction+'<br>Confirmed '+new Date(z.confirmedTime).toISOString().slice(0,16)+' UTC<details><summary>History</summary>'+z.events.map(function(e){return e.type+' · '+new Date(e.time).toISOString().slice(0,16)+' UTC';}).join('<br>')+'</details></p>';}
+  function row(z){var lastTest=z.events.filter(function(e){return e.type===z.reaction;}).slice(-1)[0];var reaction=z.reaction==='Held'?'Last test held'+(lastTest?' · '+new Date(lastTest.time).toISOString().slice(0,16)+' UTC':''):z.reaction;return '<div><strong>'+z.side+' FVG · '+fmtPrice(z.low)+'–'+fmtPrice(z.high)+'</strong><br>'+z.fillState+' ('+Math.round(z.fill*100)+'%) · '+reaction+'<br>Confirmed '+new Date(z.confirmedTime).toISOString().slice(0,16)+' UTC<details><summary>History</summary>'+z.events.map(function(e){return e.type+' · '+new Date(e.time).toISOString().slice(0,16)+' UTC';}).join('<br>')+'</details></div>';}
   var rest=zones.filter(function(z){return selected.indexOf(z)<0;}).reverse();
   return (!s.usable?'<p>Historical snapshot · data not ready.</p>':'')+(selected.length?selected.map(row).join(''):'<p>No active FVG meets the size filter in loaded history.</p>')+(rest.length?'<details><summary>Other / historical zones ('+rest.length+')</summary>'+rest.map(row).join('')+'</details>':'')+note;
 }
@@ -17907,21 +17956,20 @@ function updateChartSummary(){
   if(w&&w.rebuilt)health+=' · provider correction / gap: history recalculated';
   if(tl.rebuilt)health+=' · trendline history recalculated for rule version 3 or revised candles';
   if(chartState.labelsHidden)health+=' · '+chartState.labelsHidden+' crowded labels hidden; full values in Evidence';
-  var compact=(chartState.metrics&&chartState.metrics.trend||'Trend unknown')+' trend · '+
-    (w&&w.rangeHigh?(chartState.livePrice>w.rangeHigh?'Above prior base':chartState.livePrice<w.rangeLow?'Below prior base':'Inside prior base'):'No established base')+' · '+
-    (fl&&fl.provisional?'New swing developing · ':'')+(s.usable?'Closed data ready':'DATA WAIT');
-  if(chartState.d){var plan=buildCanonicalChartPlan(chartState.d);compact+=' · '+plan.status;}
+  var ov=chartMarketOverview();
+  var compact=ov.headline+' · '+ov.location+' · '+(s.usable?'Closed data ready':'DATA WAIT');
+  var plan=chartState.d?buildCanonicalChartPlan(chartState.d):null;
   updateChartMobileHeader(plan);
   var anchorText='';
   if(chartState.indicators.fib&&f&&f.valid){
     var m=chartState._map||{},first=m.offset==null?chartState.offset:m.offset,count=m.visibleCount||chartState.zoom||0;
     var off=[f.startIndex,f.endIndex].some(function(i){return i<first||i>=first+count;})||
       (m.pMin!=null&&[f.startPrice,f.endPrice].some(function(p){return p<m.pMin||p>m.pMin+m.pRange;}));
-    anchorText='<div class="cp-fib-anchor-strip">'+esc((f.scope==='major'?'Major':f.manual?'Manual':'Recent')+' Fib · 0: '+fmtPrice(f.startPrice)+' → 1: '+fmtPrice(f.endPrice))+
-      (off?' <strong>· Anchor outside view</strong>':'')+' <button onclick="chartFit(\'swing\')">Fit anchors</button></div>';
+    anchorText='<div class="cp-fib-anchor-strip">'+esc((f.manual?'Manual':f.scope==='major'?'Major':'Recent')+' Fib · 0: '+fmtPrice(f.startPrice)+' → 1: '+fmtPrice(f.endPrice))+
+      ' · '+(f.direction==='down'?(off?'Historical downward swing':'Downward swing'):(off?'Historical upward swing':'Upward swing'))+(off?' <strong>· Anchor outside view</strong>':'')+' <button onclick="chartFit(\'swing\')">Fit anchors</button></div>';
   }
   var reason=plan&&plan.status==='BLOCKED'?'<div class="cp-muted">'+esc(plan.action)+'</div>':'';
-  var html=anchorText+'<details class="cp-summary-details"><summary>'+esc(compact)+' · Details</summary><div>'+lines.join('')+'<div class="cp-health">'+esc(health)+'</div></div></details>'+reason;
+  var html='<details class="cp-summary-details"><summary>'+esc(compact)+' · Details</summary><div>'+anchorText+lines.join('')+'<div class="cp-health">'+esc(health)+'</div></div></details>'+reason;
   ['chart-summary','chart-summary-fs'].forEach(function(id){var el=document.getElementById(id);if(el&&el.innerHTML!==html){var wasOpen=el.querySelector&&el.querySelector('details[open]');el.innerHTML=html;if(wasOpen)el.querySelector('details').open=true;}});
 }
 function createChartLabelLayer(ctx,bounds){
@@ -17936,7 +17984,7 @@ function createChartLabelLayer(ctx,bounds){
       var bestCost=Infinity;
       for(var j=0;j<(a.fixed?1:35);j++){
         var yy=a.fixed?a.y:y+(j%2?1:-1)*Math.ceil(j/2)*17;
-        if(yy<bounds.top+38||yy+h>bounds.bottom-2)continue;
+        if(yy<bounds.top+38||yy+h>bounds.bottom-2||(a.maxShift!=null&&Math.abs(yy-a.y)>a.maxShift))continue;
         (a.fixed?[0]:[0,-.55,.55,-1,1,-1.5,1.5]).forEach(function(dx){
           var xx=Math.max(4,Math.min(bounds.width-w-4,x+dx*w)),trial={x:xx,y:yy,w:w,h:h};
           var cost=Math.abs(yy-y)+Math.abs(xx-x)*.6;
@@ -18153,7 +18201,7 @@ function _drawChartNow() {
   }
   ctx.restore();
 
-  var _srLbls = [], _fibLbls = [];
+  var _srLbls = [], _fibLbls = [];chartState.srAxisLabels=[];
   var plotLabels=createChartLabelLayer(ctx,{top:TOP_PAD,bottom:TOP_PAD+CANDLE_H,width:chartW,candles:visible.map(function(k,i){
     return {x:cX(i)-Math.max(2,bodyW/2),y:pY(Math.max(Number(k[1]),Number(k[4]))),w:Math.max(4,bodyW),h:Math.max(3,Math.abs(pY(Number(k[1]))-pY(Number(k[4]))))};})});
 
@@ -18230,7 +18278,7 @@ function _drawChartNow() {
   }
 
   // Faint FVG zones are painted below candles. Original bounds never shrink.
-  chartFVGSelection(chartState.fvgZones||[],wxC[wxC.length-1],chartState.fvgMode||'relevant').forEach(function(z){
+  chartFVGDisplaySelection(chartState.fvgZones||[],wxC[wxC.length-1]).forEach(function(z){
     var end=z.endedIndex!=null?z.endedIndex:z.filledIndex, sx=Math.max(0,cX(z.confirmedIndex-offset));
     var ex=end!=null?Math.min(chartW,cX(end-offset)+candleW/2):chartW;
     var top=pY(z.high),bottom=pY(z.low);
@@ -18239,7 +18287,7 @@ function _drawChartNow() {
     ctx.save();ctx.beginPath();ctx.rect(0,TOP_PAD,chartW,CANDLE_H);ctx.clip();
     ctx.fillStyle=col;ctx.globalAlpha=.07;ctx.fillRect(sx,top,ex-sx,bottom-top);
     ctx.globalAlpha=.45;ctx.strokeStyle=col;ctx.lineWidth=1;ctx.setLineDash([3,4]);ctx.strokeRect(sx,top,ex-sx,bottom-top);ctx.restore();
-    plotLabels.add({text:chartState.tf+' '+z.side+' FVG · '+z.fillState,col:col,x:Math.max(sx+3,ex-(mobilePlot?160:245)),y:Math.max(TOP_PAD+6,top+4),priority:25});
+    plotLabels.add({text:chartState.tf+' '+z.side+' FVG · '+z.fillState,col:col,x:Math.max(sx+3,ex-(mobilePlot?160:245)),y:Math.max(TOP_PAD+6,top+4),priority:25,maxShift:25,anchor:{x:Math.min(ex-2,sx+8),y:Math.max(TOP_PAD,top)}});
   });
 
   // 3b. WYCKOFF RANGE + PHASE/EVENT OVERLAY
@@ -18280,7 +18328,7 @@ function _drawChartNow() {
   // Compact liquidity layer; all labels use the shared collision-aware layout.
   if(ind.sweeps){
     var sweepVisible=(chartState.sweepLevels||[]).filter(function(L){return L.price>=pMin&&L.price<=pMax&&L.confirmedIndex<offset+visible.length;});
-    chartSweepSelection(sweepVisible,wxC[wxC.length-1],mobilePlot?2:4).forEach(function(L){
+    chartSweepSelection(chartState.viewMode==='clean'?sweepVisible.filter(function(l){return l.takenIndex==null;}):sweepVisible,wxC[wxC.length-1],mobilePlot||chartState.viewMode==='clean'?2:3).forEach(function(L){
       var taken=L.takenIndex!=null,col=taken?(L.reclaimed?'#26c6b0':'#ef9c52'):'#9da9c4';
       var sy=pY(L.price),sx=Math.max(0,cX(L.confirmedIndex-offset));
       ctx.save();ctx.beginPath();ctx.rect(0,TOP_PAD,chartW,CANDLE_H);ctx.clip();
@@ -18289,7 +18337,7 @@ function _drawChartNow() {
       var ix=L.events.length?L.events[L.events.length-1].index:L.confirmedIndex,x=cX(ix-offset);
       if(x>=0&&x<=chartW){ctx.fillStyle=col;ctx.beginPath();ctx.arc(x,sy,3,0,Math.PI*2);ctx.fill();}
       ctx.restore();
-      plotLabels.add({text:(L.sweep?'SWEEP ':L.side==='low'?'LOW ':'HIGH ')+fmtPrice(L.price)+' · '+(taken?L.state:'UNSWEPT'),col:col,x:Math.max(sx,chartW-240),y:sy-22,priority:48,anchor:{x:Math.max(0,Math.min(chartW,x)),y:sy}});
+      plotLabels.add({text:(L.sweep?'SWEEP ':L.side==='low'?'LOW ':'HIGH ')+fmtPrice(L.price)+' · '+(taken?L.state:'UNSWEPT'),col:col,x:Math.max(sx,chartW-240),y:sy-22,priority:48,maxShift:26,anchor:{x:Math.max(0,Math.min(chartW,x)),y:sy}});
     });
   }
 
@@ -18517,26 +18565,27 @@ function _drawChartNow() {
   // collision avoidance, so AI TP/SL/SUP/RES/PDH labels never overwrite each other.
   (function flushSRLabels(){
     if (!_srLbls.length) return;
-    _srLbls.sort(function(a,b){ return a.y - b.y; });
-    var minGap = 13;
-    for (var i = 1; i < _srLbls.length; i++) {
-      if (_srLbls[i].y - _srLbls[i-1].y < minGap) _srLbls[i].y = _srLbls[i-1].y + minGap;
-    }
-    var maxY = TOP_PAD + CANDLE_H - 2;
-    for (var j = _srLbls.length - 1; j >= 0; j--) {
-      if (_srLbls[j].y > maxY) _srLbls[j].y = maxY;
-      maxY = _srLbls[j].y - minGap;
-    }
+    var occupied=[];
+    if(chartState.livePrice>=pMin&&chartState.livePrice<=pMax)occupied.push(pY(chartState.livePrice));
+    if(chartState.crosshair){var cy=chartState.crosshair.y*(TOTAL_H/(chartState.crosshair.cssH||TOTAL_H));if(cy>=TOP_PAD&&cy<=TOP_PAD+CANDLE_H)occupied.push(cy);}
+    _srLbls.forEach(function(l){
+      l.actualY=l.y;var chosen=null;
+      for(var delta=0;delta<=48&&chosen==null;delta+=2){[l.actualY-delta,l.actualY+delta].some(function(y){if(y<TOP_PAD+12||y>TOP_PAD+CANDLE_H-12||occupied.some(function(v){return Math.abs(v-y)<23;}))return false;chosen=y;return true;});}
+      l.hidden=chosen==null;if(!l.hidden){l.y=chosen;occupied.push(chosen);}
+    });
+    _srLbls=_srLbls.filter(function(l){return !l.hidden;});
+    chartState.srAxisLabels=_srLbls.map(function(l){return {text:l.lbl,y:l.y,actualY:l.actualY};});
     ctx.save();
     ctx.font = 'bold 9px -apple-system,sans-serif'; ctx.textAlign = 'left';
     _srLbls.forEach(function(L){
-      var w = ctx.measureText(L.lbl).width + 8;
+      var w = Math.min(RIGHT_PAD-2,ctx.measureText(L.lbl).width + 8);
       var x = chartW + 1, y = L.y;
+      if(Math.abs(L.actualY-y)>2){ctx.strokeStyle=L.col;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(chartW-4,L.actualY);ctx.lineTo(chartW+2,y-3);ctx.stroke();}
       ctx.fillStyle = L.col;
       if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y - 9, w, 13, 3); ctx.fill(); }
       else ctx.fillRect(x, y - 9, w, 13);
       ctx.fillStyle = '#fff';
-      ctx.fillText(L.lbl, x + 4, y + 1);
+      ctx.fillText(L.lbl, x + 4, y + 1,RIGHT_PAD-8);
     });
     ctx.restore();
     _srLbls = [];
@@ -18985,7 +19034,7 @@ function _drawChartNow() {
 
     // The live quote has priority on the price axis. Place plan tags around it
     // without moving their horizontal lines; connectors preserve exact prices.
-    var occupiedY=[];
+    var occupiedY=(chartState.srAxisLabels||[]).map(function(l){return l.y;});
     if(chartState.livePrice>=pMin&&chartState.livePrice<=pMax)occupiedY.push(pY(chartState.livePrice));
     if(chartState.crosshair){
       var reservedCrosshairY=chartState.crosshair.y*(TOTAL_H/(chartState.crosshair.cssH||TOTAL_H));
