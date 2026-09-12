@@ -9924,12 +9924,12 @@ var FREE_CG_PLATFORM_TO_NETWORK = {
   ethereum:'ethereum', 'base':'base', 'arbitrum-one':'arbitrum_one',
   'optimistic-ethereum':'optimism', 'polygon-pos':'polygon_pos',
   'binance-smart-chain':'bsc', 'avalanche':'avalanche', 'gnosis':'gnosis',
-  'linea':'linea', 'scroll':'scroll', 'zksync':'zksync', 'celo':'celo', 'solana':'solana'
+  'linea':'linea', 'scroll':'scroll', 'zksync':'zksync', 'celo':'celo', 'solana':'solana', 'near-protocol':'near'
 };
 var FREE_GT_NETWORK = {
   ethereum:'eth', base:'base', arbitrum_one:'arbitrum', optimism:'optimism',
   polygon_pos:'polygon_pos', bsc:'bsc', avalanche:'avax', gnosis:'gnosis',
-  linea:'linea', scroll:'scroll', zksync:'zksync', celo:'celo', solana:'solana'
+  linea:'linea', scroll:'scroll', zksync:'zksync', celo:'celo', solana:'solana', near:'near'
 };
 var FREE_EXCHANGE_WORDS = /binance|coinbase|kraken|okx|bybit|bitfinex|bitstamp|kucoin|gate\.io|gemini|crypto\.com|bitget|mexc|upbit|bithumb|robinhood|deribit/i;
 var _freeOnchainCache = {};
@@ -9974,7 +9974,7 @@ var FF_COIN_IDS={BTC:'bitcoin',ETH:'ethereum',SOL:'solana',BNB:'binancecoin',AVA
   FIL:'filecoin',ALGO:'algorand',WBTC:'wrapped-bitcoin',WETH:'weth'};
 var FF_NATIVE=['BTC','ETH','SOL','BNB','AVAX','XRP','DOGE','ADA','LTC','DOT','SUI','APT','NEAR','ATOM','XLM','BCH','ETC','FIL','ALGO'];
 var FF_DS_CHAINS={ethereum:'ethereum',base:'base',arbitrum_one:'arbitrum',optimism:'optimism',polygon_pos:'polygon',
-  bsc:'bsc',avalanche:'avalanche',gnosis:'gnosischain',linea:'linea',scroll:'scroll',zksync:'zksync',celo:'celo',solana:'solana',sui:'sui',aptos:'aptos'};
+  bsc:'bsc',avalanche:'avalanche',gnosis:'gnosischain',linea:'linea',scroll:'scroll',zksync:'zksync',celo:'celo',solana:'solana',sui:'sui',aptos:'aptos',near:'near'};
 var FF_BLOCKSCOUT_CHAINS={ethereum:1,base:8453,arbitrum_one:42161,optimism:10,polygon_pos:137,bsc:56,avalanche:43114,gnosis:100,linea:59144,scroll:534352,zksync:324,celo:42220};
 function _ffStatus(error){
   var s=String(error&&error.message||error||'');
@@ -10230,6 +10230,7 @@ function _freeFindCoin(sym){
   // Source: https://solana.com/docs/tokens/basics/sync-native
   if(sym==='SOL')return Promise.resolve({id:'solana',name:'Solana',symbol:'SOL',wrappedProxy:true,
     platforms:{solana:'So11111111111111111111111111111111111111112'},representation:'WSOL on Solana (wrapped SOL DEX representation)',identitySource:'Solana official WSOL mint'});
+  if(sym==='NEAR')return Promise.resolve({id:'near',name:'NEAR Protocol',symbol:'NEAR',platforms:{},identitySource:'NEAR native asset registry; official wrap.near DEX identity'});
   var key='cgidentity_v4_'+sym, now=Date.now();
   if(_freeOnchainCache[key] && now-_freeOnchainCache[key].ts<86400000) return Promise.resolve(_freeOnchainCache[key].d);
   // Known IDs skip the search request. Persist only verified identities, never live prices.
@@ -10260,7 +10261,7 @@ function _freeFindCoin(sym){
 
 function _freePickPlatform(meta){
   var p=meta&&meta.platforms||{};
-  var preferred=['ethereum','base','arbitrum-one','optimistic-ethereum','polygon-pos','binance-smart-chain','avalanche','gnosis','linea','scroll','zksync','celo','solana'];
+  var preferred=['ethereum','base','arbitrum-one','optimistic-ethereum','polygon-pos','binance-smart-chain','avalanche','gnosis','linea','scroll','zksync','celo','solana','near-protocol'];
   for(var i=0;i<preferred.length;i++) if(p[preferred[i]]) return {platform:preferred[i],address:p[preferred[i]],network:FREE_CG_PLATFORM_TO_NETWORK[preferred[i]]};
   return null;
 }
@@ -10288,6 +10289,13 @@ function _freeDiscoverNetworks(platforms){
   _freeOnchainCache.gtNetworksV4={ts:now,promise:promise};return promise;
 }
 function _freeDexMeta(meta){
+  // Official NEAR DEX documentation: https://docs.near.org/primitives/dex
+  // Native NEAR swaps use NEP-141 wrap.near. Do not substitute bridged NEAR.
+  if(meta&&meta.symbol==='NEAR'){
+    if(meta.id!=='near')return Promise.reject(Error('NEAR identity mismatch; wrapped routing refused.'));
+    return Promise.resolve(Object.assign({},meta,{platforms:{'near-protocol':'wrap.near'},wrappedProxy:true,
+      representation:'wNEAR on NEAR (wrap.near; wrapped NEAR DEX proxy)',identitySource:'NEAR official DEX documentation'}));
+  }
   // Native coins need an explicitly named wrapped representation for DEX swaps.
   // Wrapped-token evidence is NOT a native holder or native transfer snapshot.
   var wraps={ETH:{id:'weth',symbol:'WETH',platform:'ethereum'},
@@ -10315,12 +10323,16 @@ function _freeDexAcross(meta){
     if(first)picks.sort(function(a,b){return Number(b.platform===first.platform)-Number(a.platform===first.platform);});
     var attempts=[],limit=Math.min(picks.length,3);
     function next(i){
-      if(i>=limit){var m=_dexUnavailable('No verified DEX pool found in '+limit+' checked network(s). Unsupported chains and additional networks are not assumed covered.');m.resolutionAttempts=attempts;return {market:m,pick:null};}
+      if(i>=limit){
+        var reason=limit?'No verified DEX pool found in '+limit+' checked network(s). '+attempts.map(function(a){return a.network+': '+a.reason;}).join(' | '):
+          'No supported network/token route was resolved; no pool request was made. This does not mean the coin has no DEX activity.';
+        var m=_dexUnavailable(reason);m.resolutionAttempts=attempts;m.representation=dm.representation;m.wrappedProxy=!!dm.wrappedProxy;return {market:m,pick:null};
+      }
       var p=picks[i];return _freeDex(p.network,p.address,meta.symbol).then(function(m){
-        attempts.push({network:p.network,address:p.address,available:!!m.identityVerified,reason:m.flowNote});
+        attempts.push({network:p.network,address:p.address,available:!!m.identityVerified,reason:m.flowNote,providerNotes:m.providerNotes||[]});
         if(m.identityVerified){m.representation=dm.representation||meta.symbol+' token';m.wrappedProxy=!!dm.wrappedProxy;m.resolutionAttempts=attempts;
           m.selection+=' First verified available network (up to 3 checked), not a global best-pool comparison.';return {market:m,pick:dm.wrappedProxy?null:p};}
-        if(/429|401|403|rate.limit|forbidden/i.test(m.flowNote||'')){m.resolutionAttempts=attempts;return {market:m,pick:null};}
+        if(/429|401|403|rate.limit|forbidden/i.test(m.flowNote||'')){m.resolutionAttempts=attempts;m.representation=dm.representation;m.wrappedProxy=!!dm.wrappedProxy;return {market:m,pick:null};}
         return next(i+1);
       });
     }
@@ -10861,8 +10873,9 @@ function _renderDexMarket(m,symbol){
   function share(v){return v==null?'Unknown':v<100&&v>99.99?'>99.99%':v>0&&v<.01?'<0.01%':v.toFixed(2)+'%';}
   var h='<section class="dex-evidence"><div class="dex-evidence-title">DEX activity · '+esc(symbol)+'</div>'+
     '<div class="dex-scope">ONE SELECTED POOL · not all exchanges, all pools, or unique traders</div>';
+  if(m.representation)h+='<div class="dex-source">Representation: '+esc(m.representation)+'</div>';
+  if(symbol==='NEAR')h+='<div class="dex-source">NEAR DEX routing · 2026.09.12-r1 · exact wrap.near identity</div>';
   if(m.identityVerified){
-    if(m.representation)h+='<div class="dex-source">Representation: '+esc(m.representation)+'</div>';
     h+='<div class="dex-source"><strong>'+esc(m.pool)+'</strong> · '+esc(m.network)+' · watched token is pool '+esc(m.tokenSide)+'<br>'+
       'Liquidity '+_dexMoney(m.liquidity)+' · provider 24H volume '+_dexMoney(m.volume24h);
     if(/^https:\/\/(www\.geckoterminal\.com|dexscreener\.com)\//.test(m.poolUrl||''))h+=' · <a href="'+esc(m.poolUrl)+'" target="_blank" rel="noopener noreferrer">Open source pool ↗</a>';
@@ -10873,6 +10886,8 @@ function _renderDexMarket(m,symbol){
       ' · Tx ratio '+_dexRatioText(m.buys,m.sells)+
       '<br><span class="dex-muted">Reference counters may differ from the recent-trade sample because of endpoint limits or snapshot timing.</span></div>';
   }else h+='<div class="dex-warning">'+esc(m.flowNote||'Token identity unavailable.')+'</div>';
+  var attempts=m.resolutionAttempts||[],notes=m.providerNotes||[];
+  if(attempts.length||notes.length)h+='<details class="dex-window-note"><summary>DEX source checks</summary>'+attempts.map(function(a){return esc(a.network)+' · '+esc(a.address)+' · '+(a.available?'Pool verified':esc(a.reason))+(a.providerNotes&&a.providerNotes.length?'<br>'+a.providerNotes.map(esc).join('<br>'):'');}).join('<br>')+(notes.length?'<br>'+notes.map(esc).join('<br>'):'')+'</details>';
   if(m.directionConflict)h+='<div class="dex-warning">COUNTER / TRADE CONFLICT — the 24H summary disagrees with address-normalized trades. Directional bias is disabled; counts have not been changed to force agreement.</div>';
   h+='<div class="dex-flow-grid">';
   ['1h','4h','1d'].forEach(function(k){
@@ -11354,7 +11369,7 @@ function _freeProviderEnrichment(sym,baseOut){
 function _agentOnchain(f){
   f=f||{}; var sym=_freeSym(f.sym||f.symbol||'');
   if(!sym) return Promise.resolve({symbol:'',status:'unknown',sources:[],errors:['No symbol supplied.'],warnings:[],bias:'UNKNOWN'});
-  var pair=_spotPair(f.sym||f.symbol),cacheKey='freeoc_v7_'+(pair?pair.symbol:sym), now=Date.now();
+  var pair=_spotPair(f.sym||f.symbol),cacheKey='freeoc_v8_'+(pair?pair.symbol:sym), now=Date.now();
   if(!f.force&&_freeOnchainCache[cacheKey] && now-_freeOnchainCache[cacheKey].ts<300000) return Promise.resolve(_freeOnchainCache[cacheKey].d);
   if(_ffPending[cacheKey])return _ffPending[cacheKey];
   var core=_agentOnchainCore(f).catch(function(e){return {symbol:sym,status:'error',sources:[],errors:[String(e.message||e)],providerErrors:[],warnings:[],market:_dexUnavailable('On-chain services failed; exchange coverage is separate.'),bias:'UNKNOWN'};});
@@ -11383,10 +11398,11 @@ function _agentOnchainCore(f){
       out.market=result.market;
       if(result.market.identityVerified)out.sources.push(result.market.source||'GeckoTerminal keyless DEX API');
       if(result.market.tradeSource)out.sources.push(result.market.tradeSource+' timestamped pool trades');
-      else out.warnings.push('DEX coverage unavailable or unresolved; exchange volume remains a separate source.');
+      else if(!result.market.identityVerified)out.warnings.push('DEX coverage unavailable or unresolved; exchange volume remains a separate source.');
+      else if(!result.market.flowTradeCount)out.warnings.push('DEX pool verified; timestamped trade history is unavailable. Provider counters are shown separately where available.');
       if(result.market.wrappedProxy)out.warnings.push('DEX evidence uses '+result.market.representation+'. Wrapped-token holders/transfers are not used as native-coin holders/transfers.');
       // Holder enrichment may still work when the DEX provider is unavailable.
-      var pick=result.pick||(result.market.wrappedProxy||['SOL','ETH','BNB','AVAX'].indexOf(sym)>=0?null:_freePickPlatform(meta));
+      var pick=result.pick||(result.market.wrappedProxy||['SOL','ETH','BNB','AVAX','NEAR'].indexOf(sym)>=0?null:_freePickPlatform(meta));
       if(!pick)return finish(out);
       var chain=FF_BLOCKSCOUT_CHAINS[pick.network];
       var base=chain&&_provKey('blockscout')?'https://api.blockscout.com/'+chain:null;out.network=pick.network;out.contract=pick.address;
