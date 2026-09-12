@@ -453,6 +453,20 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 .cp-market-meta strong{color:#e1e9f4}
 .cp-overview-note{border-left:2px solid #6e9fec;padding-left:9px;line-height:1.6}
 .cp-card details>summary{cursor:pointer;padding:5px 0}
+.oc-dashboard{font-size:13px;line-height:1.55;color:var(--t1);padding:12px;background:var(--card);border:1px solid var(--bd);border-radius:10px}
+.oc-dashboard .dex-source,.oc-dashboard .dex-muted,.oc-dashboard .dex-guard,.oc-dashboard .dex-window-note{font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.oc-dashboard .dex-evidence-title{font-size:14px}.oc-dashboard .dex-flow-row{font-size:12px;gap:12px}
+.oc-dashboard summary{cursor:pointer;font-weight:600;padding:10px 0;min-height:24px}
+.oc-dashboard .oc-section{border-top:1px solid var(--bd);margin-top:10px;padding-top:6px}
+.oc-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0}
+.oc-summary-grid>div{background:var(--card3);border:1px solid var(--bd);border-radius:8px;padding:10px;overflow-wrap:anywhere}
+.oc-summary-grid strong{display:block;margin:4px 0}.oc-summary-grid small{color:var(--t3)}
+.oc-actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.oc-actions button,.oc-dashboard button{font:inherit;min-height:36px;border:1px solid var(--bd);border-radius:6px;background:var(--card);color:var(--t2);padding:6px 10px;cursor:pointer}
+.oc-dashboard input{font:inherit;max-width:120px;background:var(--card);color:var(--t1);border:1px solid var(--bd);padding:7px;border-radius:5px}
+.oc-dashboard th,.oc-dashboard td{text-align:left;padding:7px;border-bottom:1px solid var(--bd);font-size:12px;white-space:nowrap}
+.oc-dashboard table{width:100%;border-collapse:collapse}.oc-status{color:var(--t3);font-size:12px}.oc-dashboard .oc-book{white-space:pre-line;margin-top:8px}
+@media(max-width:680px){.oc-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.oc-dashboard{padding:10px;font-size:14px}.oc-dashboard button{min-height:44px}.oc-dashboard .dex-flow-grid{grid-template-columns:1fr}.oc-dashboard .dex-flow-row{font-size:13px}.oc-dashboard input{font-size:16px}}
+
 </style>
 <style id="chart-pro-style">
 #chart-fs-bar{height:auto!important;min-height:42px;flex-wrap:wrap;gap:6px!important}
@@ -5259,41 +5273,14 @@ function runOnchainAI(sym, existing){
 }
 
 function monitorOnchain(sym){
-  var d=(allData||[]).find(function(x){return x.sym===sym;});
-  var out=document.getElementById('mon-chain-'+sym);
-  if(!out) return;
-  if(!d){out.innerHTML='<span style="color:var(--r);font-size:10px">Coin data not loaded.</span>';return;}
-  out.innerHTML='<div style="font-size:10px;color:var(--t3)">⛓ Combining free on-chain sources…</div>';
-  _agentOnchain({sym:d.pair||d.sym, price:d.price,force:true}).then(function(x){
-    var h='', esc=function(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');};
-    h+='<div style="font-size:10px;line-height:1.55;background:var(--card3);border-radius:6px;padding:8px 9px">';
-    h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:5px"><b>⛓ On-chain intelligence — '+esc(x.symbol||d.pair)+'</b><span style="color:var(--t3)">'+new Date().toLocaleTimeString()+'</span></div>';
-    h+='<div style="font-size:9px;color:var(--t3);margin-bottom:6px">Sources: '+esc((x.sources||[]).join(' · ')||'none')+'</div>';
-    h+=_renderFreeCoverage(x);
-    h+=_renderSpotFlow(x.spotFlow,x.symbol||d.pair);
-    h+=_renderBtcMempool(x.btcMempool);
-    if(x.symbol!=='BTC')h+=_renderDexMarket(x.market,x.symbol||d.pair);
-    h+=_renderNetworkActivity(x.networkActivity);
-    h+='<details class="dex-evidence"><summary style="cursor:pointer;font-weight:700">Advanced: holder balances, exchange transfers and saved history</summary>';
-    if(x.holderRoute)h+='<div class="dex-source">Holder connection: '+esc(x.holderRoute.status)+' · '+esc(x.holderRoute.note)+'</div>';
-    h+=_renderOnchainEvidence(x)+'</details>';
-    if(x.holders&&!x.onchainEvidence){
-      h+='<div style="margin-top:6px"><b>🐋 Holder / whale structure</b>';
-      if(x.holders.count!=null) h+='<div style="font-size:9px;color:var(--t3)">Holders: '+Number(x.holders.count).toLocaleString()+'</div>';
-      if(x.holders.top10Pct!=null) h+='<div style="font-size:9px;color:var(--t3)">Top 10 concentration: '+Number(x.holders.top10Pct).toFixed(2)+'%</div>';
-      if(x.holders.top25Pct!=null) h+='<div style="font-size:9px;color:var(--t3)">Top 25 concentration: '+Number(x.holders.top25Pct).toFixed(2)+'%</div>';
-      if(x.holders.topHolders&&x.holders.topHolders.length){
-        x.holders.topHolders.slice(0,5).forEach(function(o,i){h+='<div style="font-size:9px;color:var(--t3);margin-top:2px">#'+(i+1)+' '+esc(o.label||o.address||'wallet')+(o.pct!=null?' · '+Number(o.pct).toFixed(2)+'%':'')+'</div>';});
-      }
-      h+='</div>';
-    }
-    if(x.transfers&&!x.onchainEvidence){
-      h+='<div style="margin-top:6px"><b>🔄 Recent large transfers</b>';
-      if(x.transfers.largeCount!=null) h+='<div style="font-size:9px;color:var(--t3)">Large transfers observed: '+x.transfers.largeCount+' (latest free-indexed transfers)</div>';
-      if(x.transfers.exchangeIn!=null||x.transfers.exchangeOut!=null) h+='<div style="font-size:9px;color:var(--t3)">Known exchange in $'+Number(x.transfers.exchangeIn||0).toLocaleString(undefined,{maximumFractionDigits:0})+' · out $'+Number(x.transfers.exchangeOut||0).toLocaleString(undefined,{maximumFractionDigits:0})+' · net '+(Number(x.transfers.exchangeOut||0)-Number(x.transfers.exchangeIn||0)>=0?'outflow':'inflow')+'</div>';
-      if(x.transfers.note) h+='<div style="font-size:9px;color:var(--t3)">'+esc(x.transfers.note)+'</div>';
-      h+='</div>';
-    }
+  var d=(allData||[]).find(function(x){return x.sym===sym;}),out=document.getElementById('mon-chain-'+sym);
+  if(!out)return;if(!d){out.textContent='Coin data not loaded.';return;}
+  var token={};out._ocRun=token;out.innerHTML='<div class="oc-dashboard">Loading sources independently…</div>';
+  function paint(x){
+    if(out._ocRun!==token||!out.isConnected)return;
+    var opened={};out.querySelectorAll('details[data-oc-section]').forEach(function(el){opened[el.dataset.ocSection]=el.open;});
+    var esc=_escProviderHtml,h=_renderOnchainDashboard(x,sym);
+    h+='<details class="dex-evidence" data-oc-section="providers"><summary>Source details and optional providers</summary>';
     if(x.warnings&&x.warnings.length) h+='<div style="margin-top:6px;color:var(--am)"><b>Source notes</b><br>'+x.warnings.map(function(e){return '• '+esc(e);}).join('<br>')+'</div>';
     if(x.errors&&x.errors.length) h+='<div style="margin-top:6px;color:var(--r)"><b>Provider diagnostics</b><br>'+x.errors.map(function(e){return '• '+esc(e);}).join('<br>')+'</div>';
     if(x.providerErrors&&x.providerErrors.length) h+='<div style="margin-top:6px;color:var(--am)"><b>Optional provider diagnostics</b><br>'+x.providerErrors.map(function(e){return '• '+esc(e);}).join('<br>')+'</div>';
@@ -5307,13 +5294,16 @@ function monitorOnchain(sym){
     if(x.etherscan){var ew=x.etherscan.windows&&x.etherscan.windows['7d']||{};h+='<div style="margin-top:6px"><b>🔵 Etherscan V2 — raw transfer context</b><div style="font-size:9px;color:var(--t3)">'+esc(x.etherscan.coverage)+' · 7D returned sample: '+(ew.observedTransfers!=null?ew.observedTransfers:'—')+' transfers · '+(ew.mintCount||0)+' mint / '+(ew.burnCount||0)+' burn zero-address movements</div><div style="font-size:9px;color:var(--am)">'+esc(x.etherscan.note)+'</div></div>';}
     if(x.helius) h+='<div style="margin-top:6px"><b>🟣 Helius — Solana token context</b><div style="font-size:9px;color:var(--t3)">Current supply: '+esc(x.helius.supplyRaw||'—')+' raw units · '+(x.helius.largestTokenAccounts||[]).length+' largest token accounts returned</div><div style="font-size:9px;color:var(--am)">'+esc(x.helius.note)+'</div></div>';
     if(x.anomalies&&x.anomalies.length) h+='<div style="margin-top:6px;color:var(--am)"><b>🚨 On-chain anomalies</b><br>'+x.anomalies.map(function(a){return '• '+esc(a.text);}).join('<br>')+'</div>';
-    var bias=x.bias||'UNKNOWN';
-    h+='<div style="margin-top:7px;padding-top:6px;border-top:.5px solid var(--bd)"><b>On-chain bias:</b> <span style="font-weight:800;color:'+(bias==='BULLISH'?'var(--g)':bias==='BEARISH'?'var(--r)':'var(--t2)')+'">'+esc(bias)+'</span>'+(x.biasReason?'<div style="font-size:9px;color:var(--t3);margin-top:2px">'+esc(x.biasReason)+'</div>':'')+'</div>';
-    h+='<div style="margin-top:5px;color:var(--t3);font-size:9px">Evidence only — not an automatic BUY/SELL signal. Free-source data can be incomplete.</div>';
-    h+='<div style="margin-top:7px;padding-top:7px;border-top:.5px solid var(--bd)"><div style="display:flex;align-items:center;gap:6px"><b>🤖 Dedicated On-chain AI</b><button onclick="runOnchainAI(\''+esc(sym)+'\')" style="padding:4px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);cursor:pointer;font-size:9px">Analyze on-chain</button></div><div id="mon-chain-ai-'+esc(sym)+'" style="margin-top:5px;font-size:9px;color:var(--t3)">'+(_onchainAIKey()?'Ready — separate Gemini key':'Enter a dedicated On-chain Gemini key above')+'</div></div></div>';
+
+    h+='</details>';
+    if(!x.loading)h+='<div class="oc-actions"><button data-oc-refresh>Refresh evidence</button><button data-oc-ai>Explain evidence · optional AI</button></div><div id="mon-chain-ai-'+esc(sym)+'"></div>';
     out.innerHTML=h;
-    if(_onchainAIKey()) runOnchainAI(sym,x);
-  }).catch(function(e){out.innerHTML='<div style="font-size:10px;color:var(--r)">On-chain error: '+String(e.message||e).replace(/</g,'&lt;')+'</div>';});
+    Object.keys(opened).forEach(function(k){var el=Array.from(out.querySelectorAll('details[data-oc-section]')).find(function(e){return e.dataset.ocSection===k;});if(el)el.open=opened[k];});
+    _ocBindPanel(out,x,sym);
+    var refresh=out.querySelector('[data-oc-refresh]');if(refresh)refresh.onclick=function(){monitorOnchain(sym);};
+    var ai=out.querySelector('[data-oc-ai]');if(ai)ai.onclick=function(){runOnchainAI(sym,x);};
+  }
+  _agentOnchain({sym:d.pair||d.sym,price:d.price,force:true,onProgress:paint}).then(paint).catch(function(e){if(out._ocRun===token)out.textContent='On-chain error: '+String(e.message||e);});
 }
 
 function setOnchainKey(provider){
@@ -6479,7 +6469,7 @@ function enableUnifiedNotifications(){
   if(!('Notification' in window)){alert('This browser does not support system notifications. Telegram alerts can still be used.');return;}
   Notification.requestPermission().then(function(){try{renderAgent();}catch(e){}});
 }
-function _uaState(){try{return JSON.parse(localStorage.getItem('unified_agent_state_v1')||'{}')||{};}catch(e){return {};}}
+function _uaState(){try{var state=JSON.parse(localStorage.getItem('unified_agent_state_v1')||'{}')||{};Object.keys(state).forEach(function(k){var r=state[k]&&state[k].result;if(r&&!r.evidenceScopeVersion){state[k].result=null;}});return state;}catch(e){return {};}}
 function _uaSaveState(x){try{localStorage.setItem('unified_agent_state_v1',JSON.stringify(x));}catch(e){}}
 function _uaDay(){return new Date().toISOString().slice(0,10);}
 function _uaUsage(){var x={};try{x=JSON.parse(localStorage.getItem('unified_agent_usage_v1')||'{}')||{};}catch(e){}if(x.day!==_uaDay())x={day:_uaDay(),calls:0};return x;}
@@ -6524,7 +6514,7 @@ function _uaEvidence(d,c,oc,now){
   var regime=_regime&&_regime.mode||'unknown',ext=d&&d.ema20>0?(d.price-d.ema20)/d.ema20*100:null;
   var catRisk=_uaRiskEvents(d,c,now),legacy=_catalystVeto(d),risks=(legacy.vetoes||[]).concat(catRisk).filter(function(v,i,a){return a.indexOf(v)===i;});
   var ocBias=oc?_freeOnchainBias(oc):{bias:'UNKNOWN',biasReason:'Not fetched; the agent only spends on-chain requests on candidates or manual checks.'};
-  if(oc&&ocBias.bias==='BEARISH')risks.push('Sampled on-chain/DEX evidence is sell-dominated');
+  if(oc&&ocBias.bias==='BEARISH')risks.push('Selected DEX pool is sell-dominated; broader wallet flows are not established');
   var liquid=(d.vol24usd||d.vol24||0)>=5000000,rr=!!(d.rrOK||d.rrRatio>=1),marketOK=btc?(btcState==='bullish'||btcState==='stable'):
     (regime!=='risk_off'&&regime!=='btc_season'&&(btcState==='bullish'||btcState==='stable'));
   var dailyOK=TF==='1d'||TF==='1w'?true:daily===true,volumeOK=(d.volR||0)>=1,notExtended=ext==null||ext<=5;
@@ -6533,18 +6523,18 @@ function _uaEvidence(d,c,oc,now){
     market:{state:marketOK?'PASS':regime==='unknown'?'UNKNOWN':'BLOCK',detail:'BTC '+btcState+' · regime '+regime+' · daily trend '+(daily===true?'up':daily===false?'down':'unknown')},
     fundamental:{state:liquid?'PASS':'BLOCK',detail:'Rank '+(d.coinRank&&d.coinRank<999?d.coinRank:'unknown')+' · 24h quote turnover '+(d.vol24usd?'$'+Number(d.vol24usd).toLocaleString(undefined,{maximumFractionDigits:0}):'unknown')},
     news:{state:risks.length?'RISK':c&&_catFresh(c.checkedAt,CAT_EVIDENCE_TTL,now)?'CHECKED':'UNKNOWN',detail:risks.length?risks[0]:(c?'Primary/free sources checked; no active veto found':'Evidence not refreshed')},
-    onchain:{state:ocBias.bias==='BEARISH'?'RISK':ocBias.bias==='BULLISH'?'SUPPORT':ocBias.bias==='NEUTRAL'?'NEUTRAL':'UNKNOWN',detail:ocBias.biasReason||'Coverage unavailable'}
+    onchain:{state:ocBias.bias==='BEARISH'?'RISK':ocBias.bias==='BULLISH'?'POOL BUYING':ocBias.bias==='NEUTRAL'?'NEUTRAL':'UNKNOWN',detail:ocBias.biasReason||'Coverage unavailable'}
   };
   var missing=[];if(!fresh)missing.push('fresh closed chart');if(daily===undefined&&TF!=='1d'&&TF!=='1w')missing.push('daily trend');
-  if(!c)missing.push('source-backed event check');if(!oc||ocBias.bias==='UNKNOWN')missing.push('eligible on-chain direction');if(!d.turnover&&!d.coinRank)missing.push('market-cap/turnover context');
+  if(!c)missing.push('source-backed event check');if(!oc||ocBias.bias==='UNKNOWN')missing.push('eligible selected-pool direction');if(!d.turnover&&!d.coinRank)missing.push('market-cap/turnover context');
   var blockers=[];if(!trigger)blockers.push('validated chart trigger');if(!marketOK)blockers.push('supportive BTC/regime');if(!dailyOK)blockers.push('higher-timeframe uptrend');
   if(!volumeOK)blockers.push('closed-candle volume ≥1.0×');if(!liquid)blockers.push('24h quote turnover ≥$5M');if(!rr)blockers.push('reward/risk ≥1R');if(!notExtended)blockers.push('price no more than 5% above EMA20');
-  if(settings.requireOnchain&&ocBias.bias!=='BULLISH')blockers.push('eligible bullish on-chain evidence');
+  if(settings.requireOnchain&&ocBias.bias!=='BULLISH')blockers.push('eligible selected-pool buying pressure');
   var status=risks.length?'RISK':!fresh?'WAIT':!trigger?'WATCH':blockers.length?'WAIT':'REVIEW_READY';
-  var confidence=(status==='REVIEW_READY'&&ocBias.bias==='BULLISH'&&c&&missing.length<=1)?'HIGH':status==='RISK'||missing.length>2?'LOW':'MEDIUM';
+  var confidence=status==='RISK'||missing.length>2?'LOW':'MEDIUM'; // Evidence completeness, not a measured win probability; one pool cannot confer HIGH confidence.
   var why=risks.length?risks.slice(0,3):status==='REVIEW_READY'?[trigger.text,'Closed-candle, market, liquidity and reward/risk gates passed']:
     status==='WATCH'?['No validated entry trigger yet']:[].concat(blockers.slice(0,3));
-  return {version:UA_VERSION,sym:d.sym,pair:d.pair,status:status,confidence:confidence,checkedAt:now,trigger:trigger,layers:layers,
+  return {version:UA_VERSION,evidenceScopeVersion:2,sym:d.sym,pair:d.pair,status:status,confidence:confidence,checkedAt:now,trigger:trigger,layers:layers,
     reasons:why,risks:risks.slice(0,4),missing:missing.slice(0,5),blockers:blockers.slice(0,6),earlyWatch:d.earlyState||null,
     levels:{price:d.price,support:d.sup,resistance:d.res,ema20:d.ema20,ema50:d.ema50,invalidation:d.sup?d.sup-(d.price*(d.atrPct||2)/100*.3):null},
     metrics:{rsi:d.rsi,volumeRatio:d.volR,atrPct:d.atrPct,rrRatio:d.rrRatio,rank:d.coinRank,quoteTurnover24h:d.vol24usd||d.vol24,regime:regime,dailyTrend:daily,extensionPct:ext},
@@ -6561,7 +6551,7 @@ function _uaClamp(base,ai){
   return rank[ai.decision]<rank[base.status]?ai.decision:base.status;
 }
 function _uaAICall(e){
-  var provider=_uaProvider(),packet={decision:e.status,confidence:e.confidence,layers:e.layers,reasons:e.reasons,risks:e.risks,missing:e.missing,blockers:e.blockers,levels:e.levels,metrics:e.metrics,sourceNames:e.sources};
+  var provider=_uaProvider(),packet={decision:e.status,confidence:e.confidence,confidenceMeaning:'Evidence completeness only; not calibrated trade success probability',layers:e.layers,reasons:e.reasons,risks:e.risks,missing:e.missing,blockers:e.blockers,levels:e.levels,metrics:e.metrics,sourceNames:e.sources};
   var sys='You are a conservative SPOT crypto review assistant. The deterministic engine decides eligibility. You may KEEP or DOWNGRADE its decision, never upgrade it. Missing data is unknown, never positive. Early Watch is not a buy trigger. Do not predict price or invent facts, URLs, levels, whale actions, or probabilities. Return JSON only with: decision REVIEW_READY|WATCH|WAIT|RISK, confidence LOW|MEDIUM|HIGH, summary, reasons (max 3), risks (max 3), missing (max 3), entryCondition, invalidation. REVIEW_READY means notify the human to review; it is not a buy instruction.';
   var user='Evaluate this compact evidence packet for '+e.pair+': '+JSON.stringify(packet).slice(0,4800);
   if(provider==='gemini'){
@@ -6583,6 +6573,7 @@ function _uaNotify(d,e,previous){
   var title=e.status==='RISK'?'⛔ '+e.pair+' — new risk':'🔔 '+e.pair+' — setup ready for review';
   var line=(e.ai&&e.ai.summary)||e.reasons[0]||e.blockers[0]||'Open the agent evidence card.';
   var msg=title+'\n'+line+'\nThis is a review alert, not an order.';
+  if(typeof _ocRecordAlert==='function')_ocRecordAlert(d,e,sig);
   try{showToast(d,e.status==='RISK'?'sweep':'strong',msg);}catch(x){}try{addAlHistory(d,'unified_agent',msg);}catch(x){}try{sendBrowserNotif(d,msg);}catch(x){}
   previous=previous||{};previous.lastAlertSig=sig;previous.lastAlertAt=now;return previous;
 }
@@ -6617,9 +6608,9 @@ function _uaEsc(v){return _catEsc(v==null?'':v);}
 function _uaResultCard(e){
   if(!e)return '<span style="color:var(--t3)">Waiting for the first agent check.</span>';
   var col=e.status==='REVIEW_READY'?'var(--g)':e.status==='RISK'?'var(--r)':e.status==='WAIT'?'var(--am)':'var(--t2)',h='<div style="margin-top:7px;border-top:.5px solid var(--bd);padding-top:7px">';
-  h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="color:'+col+'">'+_uaEsc(e.status.replace('_',' '))+'</b><span style="font-size:9px;color:var(--t3)">'+_uaEsc(e.confidence)+' confidence · '+new Date(e.updatedAt||e.checkedAt).toLocaleTimeString()+'</span></div>';
+  h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="color:'+col+'">'+_uaEsc(e.status.replace('_',' '))+'</b><span style="font-size:9px;color:var(--t3)">'+_uaEsc(e.confidence)+' evidence completeness · '+new Date(e.updatedAt||e.checkedAt).toLocaleTimeString()+'</span></div>';
   if(e.ai&&e.ai.summary)h+='<div style="font-size:10px;line-height:1.5;margin-top:4px">'+_uaEsc(e.ai.summary)+'</div>';
-  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:5px;margin-top:6px">';Object.keys(e.layers||{}).forEach(function(k){var x=e.layers[k],c=x.state==='PASS'||x.state==='SUPPORT'?'var(--g)':x.state==='RISK'||x.state==='BLOCK'?'var(--r)':'var(--t3)';h+='<div style="background:var(--card3);border-radius:6px;padding:6px"><b style="font-size:9px;text-transform:capitalize">'+k+'</b><div style="font-size:9px;color:'+c+'">'+_uaEsc(x.state)+'</div></div>';});h+='</div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:5px;margin-top:6px">';Object.keys(e.layers||{}).forEach(function(k){var x=e.layers[k],c=x.state==='PASS'||x.state==='SUPPORT'?'var(--g)':x.state==='RISK'||x.state==='BLOCK'?'var(--r)':'var(--t3)';h+='<div style="background:var(--card3);border-radius:6px;padding:6px"><b style="font-size:9px;text-transform:capitalize">'+(k==='onchain'?'Selected DEX pool':k)+'</b><div style="font-size:9px;color:'+c+'">'+_uaEsc(x.state)+'</div></div>';});h+='</div>';
   var next=e.status==='REVIEW_READY'?'Review the chart, entry condition and invalidation before any order.':e.risks&&e.risks.length?e.risks[0]:(e.blockers||[]).join(' · ');
   h+='<div style="font-size:9px;color:var(--t2);margin-top:6px"><b>Next:</b> '+_uaEsc(next||'Wait for a material change.')+'</div>';
   if(e.missing&&e.missing.length)h+='<details style="margin-top:5px"><summary style="font-size:9px;color:var(--t3);cursor:pointer">Evidence details</summary><div style="font-size:9px;color:var(--t3);line-height:1.5;margin-top:4px">Missing: '+e.missing.map(_uaEsc).join(' · ')+'<br>Sources: '+_uaEsc([].concat(e.sources&&e.sources.catalyst||[],e.sources&&e.sources.onchain||[]).join(' · ')||'none')+(e.aiError?'<br>AI: '+_uaEsc(e.aiError):'')+'</div></details>';
@@ -6634,7 +6625,7 @@ function buildUnifiedAgentPanel(compact){
   h+='<label style="font-size:9px;color:var(--t2)">AI <select onchange="setUnifiedAgentProvider(this.value)" style="background:var(--card);color:var(--text);border:.5px solid var(--bd);border-radius:5px;padding:4px"><option value="auto"'+(s.provider==='auto'?' selected':'')+'>Auto</option><option value="gemini"'+(s.provider==='gemini'?' selected':'')+'>Gemini</option><option value="groq"'+(s.provider==='groq'?' selected':'')+'>Groq</option></select></label>';
   h+='<label style="font-size:9px;color:var(--t2)">AI calls/day <input type="number" min="1" max="24" value="'+s.dailyBudget+'" onchange="setUnifiedAgentBudget(this.value)" style="width:48px;background:var(--card);color:var(--text);border:.5px solid var(--bd);border-radius:5px;padding:4px"></label>';
   h+='<button onclick="enableUnifiedNotifications()" style="padding:5px 9px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:9px;cursor:pointer">Notifications: '+_uaEsc(perm)+'</button></div>';
-  h+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:7px;font-size:9px;color:var(--t2)"><label><input type="checkbox" '+(s.notifyReview?'checked':'')+' onchange="setUnifiedNotify(\'review\',this.checked)"> review-ready alerts</label><label><input type="checkbox" '+(s.notifyRisk?'checked':'')+' onchange="setUnifiedNotify(\'risk\',this.checked)"> new-risk alerts</label><label title="Strict mode can leave native coins waiting when directional on-chain coverage does not exist"><input type="checkbox" '+(s.requireOnchain?'checked':'')+' onchange="setUnifiedRequireOnchain(this.checked)"> require bullish on-chain</label></div>';
+  h+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:7px;font-size:9px;color:var(--t2)"><label><input type="checkbox" '+(s.notifyReview?'checked':'')+' onchange="setUnifiedNotify(\'review\',this.checked)"> review-ready alerts</label><label><input type="checkbox" '+(s.notifyRisk?'checked':'')+' onchange="setUnifiedNotify(\'risk\',this.checked)"> new-risk alerts</label><label title="Strict mode can leave native coins waiting when directional on-chain coverage does not exist"><input type="checkbox" '+(s.requireOnchain?'checked':'')+' onchange="setUnifiedRequireOnchain(this.checked)"> require selected-pool buying</label></div>';
   h+='<div style="font-size:9px;color:var(--t3);margin-top:6px">AI budget '+u.calls+'/'+s.dailyBudget+' today · checks up to 6 monitored coins every ~5 minutes while this page is open · web search stays manual in Coin Updates.</div>';
   if(!compact&&mons.length)mons.forEach(function(m){var e=state[m.sym]&&state[m.sym].result;h+='<div style="margin-top:8px;padding:8px;border:.5px solid var(--bd);border-radius:8px"><div style="display:flex;gap:7px;align-items:center"><b>'+_uaEsc(m.pair)+'</b><button onclick="unifiedAgentRunNow(\''+_uaEsc(m.sym)+'\')" style="margin-left:auto;padding:4px 8px;border-radius:5px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:9px;cursor:pointer">Check all evidence now</button></div><div id="ua-status-'+_uaEsc(m.sym)+'">'+_uaResultCard(e)+'</div></div>';});
   if(!mons.length)h+='<div style="font-size:10px;color:var(--am);margin-top:7px">Add coins below. The agent does not scan the entire market automatically.</div>';
@@ -10038,6 +10029,7 @@ function _ffDexScreener(rows,network,target,sym){
   var liquidity=_freeNum(p.liquidity&&p.liquidity.usd),volume=_freeNum(p.volume&&p.volume.h24);
   var windows=_ffCounterWindows(p.txns,p.volume,side,'DEX Screener',now),day=windows['1d'];
   return {version:3,source:'DEX Screener',identityVerified:true,scope:'single pool',symbol:sym,network:network,
+    poolComparison:_ocPoolComparison(pools.map(function(v){return {network:network,address:v.pairAddress,token:target,name:(v.baseToken.symbol||'Base')+' / '+(v.quoteToken.symbol||'Quote'),liquidity:_freeNum(v.liquidity&&v.liquidity.usd),volume:_freeNum(v.volume&&v.volume.h24),windows:_ffCounterWindows(v.txns,v.volume,_dexSameAddress(v.baseToken.address,target)?'base':'quote','DEX Screener',now)};}),'DEX Screener',now),
     tokenAddress:target,baseToken:p.baseToken,quoteToken:p.quoteToken,tokenSide:side,
     liquidity:liquidity!=null&&liquidity>=0?liquidity:null,
     volume24h:volume!=null&&volume>=0?volume:null,buys:day.buys,sells:day.sells,buySellRatio:_dexRatio(day.buys,day.sells),
@@ -10069,14 +10061,14 @@ function _ffNetworkEmpty(sym,status,reason){return {version:2,symbol:sym,source:
 function _ffNetworkMetrics(rows,asset,metrics,now){
   var day=86400000,end=Math.floor(now/day)*day,seen={},conflict={};
   if(!Array.isArray(rows))throw Error('Network metrics response has no rows');
-  rows.forEach(function(r){var t=Date.parse(r&&r.time||'');if(!r||r.asset!==asset||!Number.isFinite(t)||t%day||t>=end||t<end-14*day)return;
+  rows.forEach(function(r){var t=Date.parse(r&&r.time||'');if(!r||r.asset!==asset||!Number.isFinite(t)||t%day||t>=end||t<end-45*day)return;
     if(seen[t]&&JSON.stringify(seen[t])!==JSON.stringify(r))conflict[t]=true;else seen[t]=r;
   });
   var clean=Object.keys(seen).map(Number).filter(function(t){return !conflict[t];}).sort(function(a,b){return b-a;});
   var result=[];metrics.forEach(function(key){
     var meta=FF_NETWORK_METRIC_META[key]||{label:key,unit:'provider units',group:'Other'};
     function value(t){if(conflict[t])return null;var n=_freeNum(seen[t]&&seen[t][key]);return n!=null&&n>=0&&(meta.kind!=='integer'||Number.isSafeInteger(n))?n:null;}
-    var ts=clean.find(function(t){return value(t)!=null;});if(ts==null)return;
+    var ts=clean.find(function(t){return t>=end-14*day&&value(t)!=null;});if(ts==null)return;
     var n=value(ts),prior=value(ts-day),week=value(ts-7*day),month=value(ts-30*day);
     var unit=meta.unit==='native'?asset.toUpperCase():meta.unit;
     result.push({key:key,label:meta.label,value:n,unit:unit,group:meta.group,start:ts,end:ts+day,
@@ -10100,7 +10092,7 @@ function _ffNetworkActivity(sym){
     var metrics=(c&&c.metrics||[]).filter(function(m){return wanted.indexOf(m.metric)>=0&&(m.frequencies||[]).some(function(f){return f.frequency==='1d'&&f.community===true&&Date.parse(f.max_time)>Date.now()-45*86400000;});}).map(function(m){return m.metric;});
     if(!metrics.length)return _ffNetworkEmpty(sym,'NOT COVERED','No free daily activity metrics listed for this asset. Price-only coverage is not on-chain coverage.');
     var end=Math.floor(Date.now()/86400000)*86400000;
-    return _freeJson('https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets='+asset+'&metrics='+metrics.join(',')+'&frequency=1d&page_size=50&start_time='+new Date(end-35*86400000).toISOString()+'&end_time='+new Date(end-1).toISOString(),12000).then(function(j){
+    return _freeJson('https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets='+asset+'&metrics='+metrics.join(',')+'&frequency=1d&page_size=50&start_time='+new Date(end-45*86400000).toISOString()+'&end_time='+new Date(end-1).toISOString(),12000).then(function(j){
       var n=_ffNetworkMetrics(j&&j.data,asset,metrics,Date.now());
       n.scope=FF_NATIVE.indexOf(sym)>=0?'Native network':'Provider-indexed token representation, not all chains or its host network';return n;
     });
@@ -10221,6 +10213,177 @@ function testFreeOnchain(){
     var x={symbol:sym,market:r[0].market,spotFlow:r[1],networkActivity:r[2],btcMempool:r[3]};el.innerHTML=_renderFreeCoverage(x)+_renderSpotFlow(x.spotFlow,sym)+_renderBtcMempool(x.btcMempool)+_renderNetworkActivity(x.networkActivity)+'<div class="dex-source">Checked '+_escProviderHtml(new Date().toLocaleString())+'. This checks the selected chart coin, or the first loaded screener coin if no chart is selected.</div>';
   }).catch(function(e){el.textContent='Free-source check failed: '+String(e.message||e);});
 }
+// ONCHAIN_OVERVIEW_V2_BEGIN — 2026.09.12-r2
+var _ocProgress={},_ocLatest={};
+function _ocStoreRead(key,fallback){try{var v=JSON.parse(localStorage.getItem(key)||'null');return v==null?fallback:v;}catch(e){return fallback;}}
+function _ocStoreWrite(key,value){try{localStorage.setItem(key,JSON.stringify(value));return true;}catch(e){return false;}}
+function _ocValidReference(row,end,conflict){
+  if(!row||conflict||Number(row[0])!==end-300000||Number(row[6])!==end-1)return null;
+  var o=Number(row[1]),h=Number(row[2]),l=Number(row[3]),c=Number(row[4]);
+  return [o,h,l,c].every(function(v){return Number.isFinite(v)&&v>0;})&&h>=Math.max(o,c,l)&&l<=Math.min(o,c,h)?c:null;
+}
+function _ocAge(at,now,maxAge){
+  if(!Number.isFinite(at)||at<=0||at>now)return 'TIME UNKNOWN';
+  var age=now-at;return (age>maxAge?'STALE · ':'')+Math.floor(age/60000)+'m old · '+new Date(at).toISOString().replace('T',' ').slice(0,19)+' UTC';
+}
+function _ocPoolComparison(rows,source,now){
+  var seen={},valid=(rows||[]).filter(function(p){var key=p.network+':'+_dexAddress(p.address);if(!p.address||!p.token||seen[key]||!Number.isFinite(p.liquidity)||p.liquidity<25000||!Number.isFinite(p.volume)||p.volume<0)return false;seen[key]=true;return true;});
+  valid.sort(function(a,b){return b.volume-a.volume||b.liquidity-a.liquidity;});
+  var selected=valid.slice(0,3),windows={};
+  ['1h','1d'].forEach(function(k){var b=0,s=0,known=0,buyPools=0,sellPools=0;
+    selected.forEach(function(p){var w=p.windows&&p.windows[k];if(!w||w.status!=='COUNTERS ONLY'||!Number.isSafeInteger(w.buys)||!Number.isSafeInteger(w.sells)||w.buys<0||w.sells<0)return;
+      known++;b+=w.buys;s+=w.sells;var n=w.buys+w.sells;if(n>=20){if(w.buys/n>.55)buyPools++;else if(w.buys/n<.45)sellPools++;}
+    });
+    var safe=Number.isSafeInteger(b)&&Number.isSafeInteger(s)&&Number.isSafeInteger(b+s);
+    windows[k]={status:known&&safe?'COUNTERS ONLY':'UNAVAILABLE',buys:known&&safe?b:null,sells:known&&safe?s:null,ratio:known&&safe?_dexRatio(b,s):null,
+      poolsWithCounters:known,disagree:buyPools>0&&sellPools>0,eligible:false};
+  });
+  return {version:1,source:source,asOf:now,pools:selected,returnedQualified:valid.length,windows:windows,eligible:false,
+    reason:'Up to 3 pools on this network with reported liquidity ≥ $25,000, ranked by 24H volume. Counters only; no 4H estimate or USD split. Pool swaps can include arbitrage and routing, not separate investors. Not whole-market coverage.'};
+}
+function _ocRenderPools(m){
+  var c=m&&m.poolComparison,esc=_escProviderHtml;if(!c||!c.pools.length)return '<div class="dex-muted">No pool comparison meets the liquidity filter. The selected-pool sample remains separate.</div>';
+  function ratio(v){return v==null?'Unknown':Number.isFinite(v)?v.toFixed(2):'No sells';}
+  var h='<div class="dex-source">'+esc(c.source)+' · '+esc(_ocAge(c.asOf,Date.now(),600000))+'<br>'+esc(c.reason)+'</div><div class="oc-table-wrap"><table><thead><tr><th>Pool</th><th>Liquidity</th><th>1H buys / sells</th><th>1D buys / sells</th></tr></thead><tbody>';
+  c.pools.forEach(function(p){h+='<tr><td>'+esc(p.name)+'<br><small>'+esc(p.address)+'</small></td><td>'+_dexMoney(p.liquidity)+'</td>';['1h','1d'].forEach(function(k){var w=p.windows[k];h+='<td>'+(w&&w.status==='COUNTERS ONLY'?esc(w.buys)+' / '+esc(w.sells):'Unknown')+'</td>';});h+='</tr>';});
+  h+='</tbody></table></div>';['1h','1d'].forEach(function(k){var w=c.windows[k];h+='<div>'+k.toUpperCase()+' combined count ratio: <strong>'+ratio(w.ratio)+'</strong> · '+w.poolsWithCounters+'/'+c.pools.length+' pools'+(w.disagree?' · Pools disagree':'')+'</div>';});
+  return h+'<div class="dex-guard">Amounts/counts are summed before ratios are calculated. The comparison does not change the agent decision.</div>';
+}
+function _ocWatchCandidates(out){
+  var e=out.onchainEvidence||_ocBuildEvidence(out,[],Date.now()),h=e.holders.current,f=e.exchange.sample,rows=[],seen={};
+  function add(address,label,category,source,id){var key=source+'|'+id+'|'+address;if(!address||!id||seen[key])return;seen[key]=1;rows.push({key:key,symbol:out.symbol,address:address,label:label||'Unclassified address',category:category,source:source,identityKey:id});}
+  if(h)(h.holders||[]).forEach(function(w){add(w.address,w.label,w.category,h.source,h.identityKey);});
+  if(f)(f.events||[]).forEach(function(w){if(w.fromLabel)add(w.from,w.fromLabel,'provider-labelled',f.source,f.identityKey);if(w.toLabel)add(w.to,w.toLabel,'provider-labelled',f.source,f.identityKey);});
+  return rows.slice(0,35);
+}
+function _ocWatchList(){var a=_ocStoreRead('oc_wallet_watch_v2',[]);return Array.isArray(a)?a.filter(function(r){return r&&typeof r.key==='string'&&r.address&&r.identityKey&&r.source;}).slice(0,12):[];}
+function _ocObserveWatch(out){
+  var list=_ocWatchList(),e=out.onchainEvidence||_ocBuildEvidence(out,[],Date.now()),h=e.holders.current,f=e.exchange.sample,now=Date.now(),result=[];
+  list.forEach(function(w){if(w.symbol!==out.symbol)return;
+    var snap=h&&h.source===w.source&&h.identityKey===w.identityKey&&now-h.asOf>=0&&now-h.asOf<=1800000?h:null;
+    var cur=snap&&(snap.holders||[]).find(function(a){return a.address===w.address;});
+    if(cur&&_ocRaw(cur.balanceRaw)!=null){
+      if(w.last&&snap.asOf>w.last.at){w.previous=w.last;w.last={at:snap.asOf,raw:cur.balanceRaw,decimals:snap.decimals};}
+      else if(!w.last)w.last={at:snap.asOf,raw:cur.balanceRaw,decimals:snap.decimals};
+    }
+    var events=f&&f.source===w.source&&f.identityKey===w.identityKey&&now-f.asOf>=0&&now-f.asOf<=1800000?(f.events||[]).filter(function(v){return v.from===w.address||v.to===w.address;}):[];
+    var delta=cur&&w.last&&w.previous&&w.last.decimals===w.previous.decimals&&_ocRaw(w.previous.raw)!=null?_ocUnits((BigInt(w.last.raw)-BigInt(w.previous.raw)).toString(),w.last.decimals):null;
+    result.push(Object.assign({},w,{status:cur?'OBSERVED':events.length?'TRANSFER SAMPLE':'NOT IN CURRENT SAMPLE',deltaTokens:delta,events:events}));
+  });
+  return {rows:result,saved:_ocStoreWrite('oc_wallet_watch_v2',list),note:'Only addresses returned by connected sources are watched. Missing addresses are not zero balances. Refresh-based samples, not continuous wallet surveillance; provider labels are attribution, not proof of a purchase.'};
+}
+function _ocRenderWatch(out){
+  var w=out.walletWatch||{rows:[],note:'Watch addresses from the returned provider samples.'},esc=_escProviderHtml,candidates=_ocWatchCandidates(out);
+  var h='<div class="dex-source">'+esc(w.note)+'</div>';
+  if(w.saved===false)h+='<div class="dex-warning">Watch history could not be saved in this browser.</div>';
+  (w.rows||[]).forEach(function(r,i){h+='<div class="oc-proof"><strong>'+esc(r.label)+'</strong> · '+esc(r.status)+'<br>'+esc(r.address)+' · '+esc(r.source)+'<br>'+(r.deltaTokens!=null?'Observed balance change: '+esc(r.deltaTokens)+' '+esc(out.symbol):'No matching balance comparison')+(r.previous&&r.last?'<br>'+esc(new Date(r.previous.at).toISOString())+' → '+esc(new Date(r.last.at).toISOString()):'')+'<br>'+r.events.length+' labelled transfer events in the returned sample <button data-oc-unwatch="'+i+'">Remove watch</button></div>';});
+  h+='<details><summary>Watch a returned address ('+_ocWatchList().length+'/12 saved)</summary>';
+  if(!candidates.length)h+='<div>No supported holder/labelled-transfer sample loaded. Configured Moralis or other supported provider access is required for these addresses.</div>';
+  candidates.forEach(function(c,i){h+='<div class="oc-proof">'+esc(c.label)+' · '+esc(c.category)+'<br>'+esc(c.address)+'<br>'+esc(c.source)+' <button data-oc-watch="'+i+'">Watch address</button></div>';});
+  return h+'</details>';
+}
+function _ocAlertRows(){var a=_ocStoreRead('oc_alert_audit_v2',[]);return Array.isArray(a)?a.filter(function(r){return r&&Number.isFinite(r.recordedAt)&&r.recordedAt<=Date.now()&&Number.isFinite(r.referenceAt)&&r.referenceAt<=r.recordedAt&&Number.isFinite(r.reference)&&r.reference>0&&typeof r.pair==='string'&&r.costs&&[r.costs.feePctEach,r.costs.entrySlipPct,r.costs.exitSlipPct].every(function(v){return Number.isFinite(v)&&v>=0&&v<100;})&&r.outcomes&&typeof r.outcomes==='object'&&!Array.isArray(r.outcomes);}).slice(-200):[];}
+function _ocRecordAlert(d,e,sig){
+  var p=_spotPair(d.pair||d.sym),out=p&&_ocLatest[p.symbol],flow=out&&out.spotFlow,now=Date.now();
+  if(!flow||flow.referenceClose==null||!flow.pair||flow.pair.symbol!==p.symbol||now-flow.asOf<0||now-flow.asOf>600000)return false;
+  var rows=_ocAlertRows(),id=p.symbol+'|'+e.status+'|'+sig;
+  if(rows.some(function(r){return r.id===id&&now-r.recordedAt<12*3600000;}))return false;
+  var costs=typeof getChartExecutionSettings==='function'?getChartExecutionSettings():{feePctEach:0.1,entrySlipPct:0,exitSlipPct:0};
+  rows.push({id:id,pair:p.symbol,quote:p.quote,source:'Binance spot',recordedAt:now,referenceAt:flow.asOf,reference:flow.referenceClose,
+    decision:e.status,poolBias:out.bias||'UNKNOWN',costs:{feePctEach:costs.feePctEach,entrySlipPct:costs.entrySlipPct,exitSlipPct:costs.exitSlipPct},outcomes:{}});
+  return _ocStoreWrite('oc_alert_audit_v2',rows.slice(-200));
+}
+function _ocForwardReturn(entry,exit,costs){
+  var f=Number(costs.feePctEach)/100,a=Number(costs.entrySlipPct)/100,b=Number(costs.exitSlipPct)/100;
+  if(!(entry>0&&exit>0&&[entry,exit,f,a,b].every(Number.isFinite)&&f>=0&&f<1&&a>=0&&b>=0&&b<1))return null;
+  return (exit*(1-b)*(1-f)/(entry*(1+a)*(1+f))-1)*100;
+}
+function _ocUpdateOutcomes(out){
+  var flow=out.spotFlow,rows=_ocAlertRows(),now=Date.now();if(!flow||!flow.pair)return {rows:[],saved:true};
+  rows.forEach(function(r){if(r.pair!==flow.pair.symbol||!(flow.referenceClose>0)||now-flow.asOf<0||now-flow.asOf>600000)return;
+    [['1h',3600000,1800000],['4h',14400000,1800000],['1d',86400000,7200000]].forEach(function(k){
+      if(r.outcomes[k[0]])return;var target=r.recordedAt+k[1];
+      if(flow.asOf>=target&&flow.asOf<=target+k[2])r.outcomes[k[0]]={status:'OBSERVED',at:flow.asOf,price:flow.referenceClose,grossPct:(flow.referenceClose/r.reference-1)*100,netPct:_ocForwardReturn(r.reference,flow.referenceClose,r.costs)};
+      else if(now>target+k[2])r.outcomes[k[0]]={status:'MISSED WINDOW'};
+    });
+  });
+  return {rows:rows.filter(function(r){return r.pair===flow.pair.symbol;}).slice(-10),saved:_ocStoreWrite('oc_alert_audit_v2',rows)};
+}
+function _ocRenderOutcomes(out){
+  var a=out.outcomeAudit||{rows:[]},esc=_escProviderHtml;
+  var h='<div class="dex-source">Forward price observations after review/risk alerts or a manual baseline. Binance last closed 5m price is a reference, not an entry fill. No win-rate claim. Refresh near each horizon; missed windows stay missing. Costs use the chart Execution fee/slippage assumptions saved at capture.</div><button data-oc-record>Record observation baseline</button>';
+  if(a.saved===false)h+='<div class="dex-warning">Outcome history could not be saved.</div>';
+  h+='<div class="oc-table-wrap"><table><thead><tr><th>Recorded / state</th><th>Reference</th><th>1H net model</th><th>4H net model</th><th>1D net model</th></tr></thead><tbody>';
+  (a.rows||[]).slice().reverse().forEach(function(r){h+='<tr><td>'+esc(new Date(r.recordedAt).toISOString())+'<br>'+esc(r.decision)+'</td><td>'+esc(r.reference)+' '+esc(r.quote)+'<br><small>'+esc(new Date(r.referenceAt).toISOString())+'</small></td>';
+    ['1h','4h','1d'].forEach(function(k){var v=r.outcomes[k];h+='<td>'+(v&&v.status==='OBSERVED'?(v.netPct==null?'Unknown':v.netPct.toFixed(2)+'%')+'<br><small>'+esc(new Date(v.at).toISOString())+'</small>':esc(v?v.status:'WAITING'))+'</td>';});h+='</tr>';});
+  return h+'</tbody></table></div><button data-oc-export>Export observations JSON</button>';
+}
+function _ocAIPacket(out){
+  var e=out.onchainEvidence||_ocBuildEvidence(out,[],Date.now()),m=out.market,n=out.networkActivity;
+  return {symbol:out.symbol,updatedAt:out.updatedAt,selectedPoolPressure:_freeOnchainBias(out),
+    spotFlow:out.spotFlow?{pair:out.spotFlow.pair,source:out.spotFlow.source,asOf:out.spotFlow.asOf,windows:out.spotFlow.windows}:null,
+    market:m?{identityVerified:m.identityVerified,network:m.network,tokenAddress:m.tokenAddress,representation:m.representation,scope:m.scope,source:m.source,asOf:m.asOf,pool:m.pool,poolAddress:m.poolAddress,flowWindows:m.flowWindows,counterWindows:m.counterWindows,directionConflict:m.directionConflict,poolComparison:m.poolComparison?{reason:m.poolComparison.reason,windows:m.poolComparison.windows}:null}:null,
+    walletFlow:e.exchange.sample?{source:e.exchange.sample.source,identity:e.exchange.sample.identityKey,asOf:e.exchange.sample.asOf,windows:e.exchange.sample.windows}:null,
+    exchangeDaily:e.exchange.daily,holderHistory:{source:e.holders.current&&e.holders.current.source,windows:Object.fromEntries(Object.entries(e.holders.windows).map(function(k){var w=k[1];return [k[0],{status:w.status,from:w.from,to:w.to,matched:w.matched,increased:w.increased,decreased:w.decreased,deltaTokens:w.deltaTokens,supplyChanged:w.supplyChanged,note:w.note}];}))},liquidity:e.liquidity,
+    networkActivity:n?{symbol:n.symbol,source:n.source,status:n.status,metrics:n.metrics,performance:n.performance,reason:n.reason}:null,
+    sourceErrors:(out.errors||[]).concat(out.providerErrors||[]).slice(0,8).map(function(x){return String(x).slice(0,180);})};
+}
+function _ocWalletSummary(e){
+  var f=e.exchange.sample,q=e.exchange.daily;if(f)return (!Number.isFinite(f.asOf)||Date.now()-f.asOf<0?'Time unknown · ':Date.now()-f.asOf>1800000?'Stale · ':'')+'Partial labelled transfer sample';
+  if(q&&q.days&&q.days.length)return 'Daily '+q.exchange+' data · '+q.days[0].status;
+  return 'No labelled flow evidence';
+}
+function _renderOnchainDashboard(out,sym){
+  var esc=_escProviderHtml,m=out.market,e=out.onchainEvidence||_ocBuildEvidence(out,[],Date.now()),n=out.networkActivity,b=_freeOnchainBias(out),flow=out.spotFlow;
+  var spot4=flow&&flow.windows&&flow.windows['4h'],spotFresh=flow&&Number.isFinite(flow.asOf)&&Date.now()-flow.asOf>=0&&Date.now()-flow.asOf<=600000;
+  var h='<div class="oc-dashboard"><strong>'+esc(out.symbol)+' · On-chain & trading evidence</strong><div class="oc-status">2026.09.12-r2 · '+(out.loading?'Loading: '+esc((out.pending||[]).join(' · ')):'Updated '+esc(new Date(out.updatedAt||Date.now()).toLocaleString()))+'</div>';
+  h+='<div class="oc-summary-grid"><div>Trading pressure<strong>'+esc(spotFresh&&spot4&&spot4.status==='COMPLETE'?spot4.direction||'UNKNOWN':'UNKNOWN')+'</strong><small>Binance spot · closed 4H window</small></div><div>Wallet flows<strong>'+esc(_ocWalletSummary(e))+'</strong><small>Deposits / withdrawals, not trades</small></div><div>Liquidity<strong>'+(out.symbol==='BTC'?'Check order size':_dexMoney(e.liquidity.current&&e.liquidity.current.usd))+'</strong><small>'+(out.symbol==='BTC'?'Binance spot book · on demand':'Selected-pool reserve value')+'</small></div><div>Network context<strong>'+esc(n?n.status:out.loading?'LOADING':'UNKNOWN')+'</strong><small>Activity, not accumulation</small></div></div>';
+  h+='<div class="dex-muted">'+esc(out.symbol==='BTC'?'BTC spot pressure is exchange trading data. Wallet flows and network activity are separate measurements.':'Selected DEX pool: '+(b.direction||'UNKNOWN')+' · '+b.biasReason)+'</div>';
+  h+='<details data-oc-section="coverage"><summary>Source health, scope and timestamps</summary>'+_renderFreeCoverage(out);
+  if(m)h+='<div>DEX: '+esc(_ocAge(m.asOf,Date.now(),600000))+'</div>';
+  if(flow)h+='<div>Spot window ends: '+esc(_ocAge(flow.asOf,Date.now(),600000))+'</div>';
+  if(e.exchange.sample)h+='<div>Wallet sample: '+esc(_ocAge(e.exchange.sample.asOf,Date.now(),1800000))+'</div>';
+  h+='</details><details class="oc-section" data-oc-section="pressure" open><summary>1 · Trading pressure · 1H / 4H / 1D</summary>';
+  h+=flow?_renderSpotFlow(flow,out.symbol):'<div>Spot source loading independently…</div>';
+  if(out.symbol!=='BTC')h+='<details data-oc-section="selected"><summary>Selected DEX pool: trade windows and coverage</summary>'+_renderDexMarket(m,out.symbol)+'</details><details data-oc-section="pools"><summary>Compare liquid DEX pools · counters only</summary>'+_ocRenderPools(m)+'</details>';
+  h+='</details><details class="oc-section" data-oc-section="wallet"><summary>2 · Wallet flows · '+esc(_ocWalletSummary(e))+'</summary>';
+  if(out.holderRoute)h+='<div class="dex-source">'+esc(out.holderRoute.status)+' · '+esc(out.holderRoute.note)+'</div>';
+  h+=_ocRenderWatch(out)+_renderOnchainEvidence(out,'wallet')+'</details>';
+  h+='<details class="oc-section" data-oc-section="liquidity"><summary>3 · Liquidity · reserve history and order-size check</summary>'+_renderOnchainEvidence(out,'liquidity');
+  var pair=flow&&flow.pair||_spotPair(sym),settings=typeof getChartExecutionSettings==='function'?getChartExecutionSettings():{orderQuote:1000};
+  h+='<div class="oc-proof"><strong>Binance spot execution snapshot</strong><div class="dex-muted">Separate from DEX reserves and the chart venue. On demand; no order is sent.</div><label>Order size ('+esc(pair&&pair.quote||'quote')+') <input data-oc-size type="number" min="0.000001" step="any" value="'+Number(settings.orderQuote||1000)+'"></label> <button data-oc-book>Check spread & depth</button><div class="oc-book" aria-live="polite">No book fetched.</div></div></details>';
+  h+='<details class="oc-section" data-oc-section="network"><summary>4 · Network context · daily activity and demand</summary>'+_renderNetworkActivity(n)+_renderBtcMempool(out.btcMempool)+'</details>';
+  h+='<details class="oc-section" data-oc-section="outcomes"><summary>Alert observations · follow-up results</summary>'+_ocRenderOutcomes(out)+'</details>';
+  return h+'<div data-oc-message class="oc-status" aria-live="polite"></div></div>';
+}
+function _ocDepthSnapshot(raw,notional,pair){
+  if(!pair||!pair.symbol)throw Error('No verified pair');
+  if(!Number.isSafeInteger(raw&&raw.lastUpdateId)||raw.lastUpdateId<=0)throw Error('Book update identity missing');
+  return {pair:pair,receivedAt:Date.now(),estimate:calculateChartDepth(raw,notional)};
+}
+function _ocBindPanel(root,out,sym){
+  var esc=_escProviderHtml,msg=root.querySelector('[data-oc-message]');function say(s){if(msg)msg.textContent=s;}
+  root.querySelectorAll('[data-oc-watch]').forEach(function(btn){btn.onclick=function(){var c=_ocWatchCandidates(out)[Number(btn.dataset.ocWatch)],list=_ocWatchList();if(!c)return;if(list.some(function(w){return w.key===c.key;})){say('Already watched.');return;}if(list.length>=12){say('Remove a watched address first; the limit is 12.');return;}list.push(c);if(!_ocStoreWrite('oc_wallet_watch_v2',list)){say('Browser storage unavailable.');return;}out.walletWatch=_ocObserveWatch(out);say('Address saved. Its returned sample will be compared on the next refresh.');btn.disabled=true;};});
+  root.querySelectorAll('[data-oc-unwatch]').forEach(function(btn){btn.onclick=function(){var r=out.walletWatch&&out.walletWatch.rows[Number(btn.dataset.ocUnwatch)];if(r&&_ocStoreWrite('oc_wallet_watch_v2',_ocWatchList().filter(function(w){return w.key!==r.key;}))){say('Address removed.');btn.disabled=true;}};});
+  var record=root.querySelector('[data-oc-record]');if(record)record.onclick=function(){var ok=_ocRecordAlert({sym:sym},{status:'OBSERVATION'},'manual-'+Math.floor(Date.now()/3600000));say(ok?'Baseline saved; later refreshes will record forward observations.':'No fresh Binance reference, duplicate baseline this hour, or browser storage unavailable.');};
+  var exp=root.querySelector('[data-oc-export]');if(exp)exp.onclick=function(){var pair=_spotPair(sym),rows=_ocAlertRows().filter(function(r){return pair&&r.pair===pair.symbol;}),blob=new Blob([JSON.stringify({version:2,note:'Observed references and modeled costs, not executed trades.',rows:rows},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='onchain-observations-'+(pair?pair.symbol:'coin')+'.json';a.click();setTimeout(function(){URL.revokeObjectURL(url);},1000);};
+  var btn=root.querySelector('[data-oc-book]'),view=root.querySelector('.oc-book'),input=root.querySelector('[data-oc-size]');if(!btn)return;
+  btn.onclick=async function(){
+    var pair=_spotPair(sym),amount=Number(input.value),id={};view._request=id;
+    if(!pair||!(amount>0&&amount<=1e9)){view.textContent='Enter a positive order size up to 1 billion quote units.';return;}
+    btn.disabled=true;view.textContent='Checking exact Binance spot pair and book…';
+    try{var j=await _freeJson('https://data-api.binance.vision/api/v3/exchangeInfo?symbol='+encodeURIComponent(pair.symbol),8000),p=j&&Array.isArray(j.symbols)&&j.symbols.find(function(v){return v.symbol===pair.symbol;});
+      if(!p||p.baseAsset!==pair.base||p.quoteAsset!==pair.quote||p.status!=='TRADING'||p.isSpotTradingAllowed===false)throw Error('Exact Binance spot pair is unavailable');
+      var raw=await _ffDirect('https://data-api.binance.vision/api/v3/depth?symbol='+encodeURIComponent(pair.symbol)+'&limit=100',8000),b=_ocDepthSnapshot(raw,amount,pair),v=b.estimate;
+      if(!view.isConnected||view._request!==id)return;
+      view.textContent='Binance '+pair.symbol+' · received '+new Date(b.receivedAt).toISOString()+'\nSpread: '+v.spreadBps.toFixed(2)+' bps. Displayed depth within 0.5% of midpoint: bids '+v.bidDepth50.toFixed(2)+' / asks '+v.askDepth50.toFixed(2)+' '+pair.quote+'.\n'+(v.buyComplete?'Market-buy VWAP estimate: '+v.buyVWAP.toPrecision(7)+' '+pair.quote+' · midpoint impact '+v.buyImpactBps.toFixed(2)+' bps (includes half-spread).':'Insufficient displayed asks for this order; full-fill estimate withheld.')+'\n'+(v.sellComplete?'Immediate sell-back VWAP estimate: '+v.sellVWAP.toPrecision(7)+' '+pair.quote+'.':'Insufficient displayed bids for a full sell-back estimate.')+'\nExcludes fees. Top 100 levels only; no fill guarantee. Expires after 15 seconds.';
+      setTimeout(function(){if(view.isConnected&&view._request===id)view.textContent='Book snapshot expired. Refresh before using an execution estimate.';},15000);
+    }catch(e){if(view.isConnected&&view._request===id)view.textContent='Book unavailable: '+String(e.message||e);}finally{btn.disabled=false;}
+  };
+  input.oninput=function(){view._request={};view.textContent='Order size changed. Fetch a new book estimate.';};
+}
+// ONCHAIN_OVERVIEW_V2_END
+
 // FREE_FIRST_V1_END
 
 function _freeFindCoin(sym){
@@ -10500,8 +10663,8 @@ function _ocDailyExchange(asset,data,now){
     date:days[0]&&days[0].date,netflowTotal:days[0]&&days[0].netflow,eligible:false,
     note:'Provider-labelled Binance wallets only. Calendar UTC days, not rolling 24H. Amounts are native '+asset.toUpperCase()+', not USD. Deposits/withdrawals are not executed trades.'};
 }
-function _ocAIRules(){return ' FREE DATA RULES: networkActivity is asset-specific network/token usage, not accumulation or exchange flows; it is never a directional vote. Coin Metrics metrics use the exact reported UTC dates and coverage; Solana performance samples include votes unless explicitly labelled non-vote. COUNTERS ONLY has no measured buy/sell USD split. Do not merge provider counts with a partial recent-trade sample, estimate 4H from 6H, infer wallet purchases, or convert activity growth into a bullish signal. Coverage statuses are not confidence scores. ON-CHAIN HISTORY RULES: onchainEvidence contains observations, never independent entry signals. Exchange netflow is deposits minus withdrawals, not net executed selling. All explorer transfer windows are labelled partial; missing exchange labels and pages are not zero flow. Holder changes compare only matching addresses, source, network and token; excluded institutions and absent wallets must not be treated as buying or selling. Address counts are not unique people. A token balance can rise through transfers, minting or rebasing without a purchase. Pool USD-value changes are not LP additions/removals, executable depth or slippage; token price changes can explain them. WAITING/UNAVAILABLE history cannot be extrapolated. Use actual observation dates, not assumed daily/weekly coverage. CryptoQuant calendar UTC days, units, forming/stale status and exchange scope must remain distinct from rolling windows. Never count these overlapping observations as independent confirmations.';}
-function _renderOnchainEvidence(out){
+function _ocAIRules(){return ' FREE DATA RULES: bias is a legacy selected-DEX-pool field, not broad on-chain accumulation. poolComparison contains counter-only pool observations, not independent investors or measured USD buy/sell flow. Do not claim HIGH trade confidence from a single pool. Wallet watch contains sampled observations, not complete address tracking. Outcome history is observational, not executed trades or a strategy win rate. networkActivity is asset-specific network/token usage, not accumulation or exchange flows; it is never a directional vote. Coin Metrics metrics use the exact reported UTC dates and coverage; Solana performance samples include votes unless explicitly labelled non-vote. COUNTERS ONLY has no measured buy/sell USD split. Do not merge provider counts with a partial recent-trade sample, estimate 4H from 6H, infer wallet purchases, or convert activity growth into a bullish signal. Coverage statuses are not confidence scores. ON-CHAIN HISTORY RULES: onchainEvidence contains observations, never independent entry signals. Exchange netflow is deposits minus withdrawals, not net executed selling. All explorer transfer windows are labelled partial; missing exchange labels and pages are not zero flow. Holder changes compare only matching addresses, source, network and token; excluded institutions and absent wallets must not be treated as buying or selling. Address counts are not unique people. A token balance can rise through transfers, minting or rebasing without a purchase. Pool USD-value changes are not LP additions/removals, executable depth or slippage; token price changes can explain them. WAITING/UNAVAILABLE history cannot be extrapolated. Use actual observation dates, not assumed daily/weekly coverage. CryptoQuant calendar UTC days, units, forming/stale status and exchange scope must remain distinct from rolling windows. Never count these overlapping observations as independent confirmations.';}
+function _renderOnchainEvidence(out,part){
   var e=out.onchainEvidence||_ocBuildEvidence(out,[],Date.now());
   function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
   function num(v){return v==null?'Unknown':Number(v).toLocaleString(undefined,{maximumFractionDigits:6});}
@@ -10539,13 +10702,14 @@ function _renderOnchainEvidence(out){
   if(e.holders.previous)html+='<details class="dex-window-note"><summary>Since previous matching observation</summary>'+holderCard('Observed interval',e.holders.previous)+(e.holders.previous.rows||[]).map(function(r){return '<div class="oc-proof">'+esc(r.address)+'<br>Change: '+esc(r.deltaTokens!=null?r.deltaTokens+' '+out.symbol:r.deltaRaw+' base units')+'</div>';}).join('')+'</details>';
   if(h)html+='<details class="dex-window-note"><summary>Current addresses and classifications</summary>'+h.holders.map(function(r){return '<div class="oc-proof">'+esc(r.address)+' · '+esc(r.category)+'<br>'+esc(r.label||'No verified entity label')+' · '+(r.pct!=null?num(r.pct)+'% of supply':'Supply share unknown')+'</div>';}).join('')+'</details>';
   html+='<div class="dex-guard">Balance growth is not proof of purchases. Missing wallets are never assigned zero.</div></section>';
+  var walletHtml=html;html='';
   html+=start('3 · Liquidity value history',esc(e.liquidity.note));
   html+='<div class="dex-source">Source: '+esc(l?l.source:'No verified pool')+' · Same-pool key: '+esc(l?l.key:'Unavailable')+' · Observed '+date(l&&l.asOf)+'</div>'+row('Current selected-pool USD value',_dexMoney(l&&l.usd));
   html+='<div class="oc-table-wrap"><table class="oc-history-table"><thead><tr><th>Comparison</th><th>Coverage</th><th>USD value change</th><th>Change %</th><th>Actual baseline</th></tr></thead><tbody>';
   function liqRow(label,w){return '<tr><td>'+label+'</td><td>'+esc(w.status)+'</td><td>'+_dexMoney(w.changeUsd)+'</td><td>'+(w.changePct==null?'Unknown':signed(w.changePct)+'%')+'</td><td>'+date(w.from)+'</td></tr>';}
   ['4h','1d','7d','30d'].forEach(function(k){html+=liqRow(k.toUpperCase(),e.liquidity.windows[k]);});if(e.liquidity.previous)html+=liqRow('Previous observation',e.liquidity.previous);
   html+='</tbody></table></div><div class="dex-guard">Actual liquidity added/removed: Unavailable · Executable depth/slippage: Unavailable. USD reserve changes are not substituted for either.</div></section>';
-  return html+'<div class="dex-warning">'+esc(e.note)+' Refreshing starts the baseline; 7D/30D comparisons require actual earlier observations. These calculations require no extra AI calls.</div>';
+  return (part==='wallet'?walletHtml:part==='liquidity'?html:walletHtml+html)+'<div class="dex-warning">'+esc(e.note)+' Refreshing starts the baseline; 7D/30D comparisons require actual earlier observations. These calculations require no extra AI calls.</div>';
 }
 // ONCHAIN_EVIDENCE_V1_END
 
@@ -10747,6 +10911,7 @@ function _freeDexGecko(network,contract,sym){
     return _freeDexTradesWindows(network,chosen.poolAddress,contract,summary).then(function(flow){
       var counters=_ffCounterWindows(p.transactions,p.volume_usd,chosen.side,'GeckoTerminal',Date.now());
       return {version:3,source:'GeckoTerminal',identityVerified:true,scope:'single pool',symbol:sym,network:network,
+        poolComparison:_ocPoolComparison(candidates.map(function(v){var a=v.row.attributes||{};return {network:network,address:v.poolAddress,token:contract,name:a.name||v.poolAddress,liquidity:_freeNum(a.reserve_in_usd),volume:_freeNum(a.volume_usd&&a.volume_usd.h24),windows:_ffCounterWindows(a.transactions,a.volume_usd,v.side,'GeckoTerminal',Date.now())};}),'GeckoTerminal',Date.now()),
         tokenAddress:contract,baseToken:chosen.base,quoteToken:chosen.quote,tokenSide:chosen.side,
         liquidity:_freeNum(p.reserve_in_usd),volume24h:_freeNum(p.volume_usd&&p.volume_usd.h24),
         buys:buys,sells:sells,buySellRatio:_dexRatio(buys,sells),summary:summary,
@@ -10822,6 +10987,7 @@ function _spotBuildWindows(rows,pair,end){
   });
   return {version:1,source:'Binance spot',scope:'one exchange pair; NOT on-chain',pair:pair,windows:windows,
     eligibleForOnchainBias:false,asOf:end,requestedAt:Date.now(),
+    referenceClose:_ocValidReference(map[end-step],end,!!duplicateConflict[end-step]),
     reason:'Taker-buy quote volume; taker-sell = total quote volume minus taker-buy. No USD conversion or transaction-count estimate.'};
 }
 function _freeSpotFlow(raw){
@@ -10932,7 +11098,7 @@ function _freeOnchainBias(x){
   // Nested 1H/4H/1D windows overlap: they are ONE DEX source, not three votes.
   var eligible=m&&m.version===3&&m.identityVerified&&!m.directionConflict&&m.flowWindows;
   var chosen=null,key=null;
-  if(eligible)['4h','1h','1d'].some(function(k){var w=m.flowWindows[k];if(w&&w.eligible){chosen=w;key=k;return true;}return false;});
+  if(eligible&&Number.isFinite(m.asOf)&&Date.now()-m.asOf>=0&&Date.now()-m.asOf<=600000)['4h','1h','1d'].some(function(k){var w=m.flowWindows[k];if(w&&w.eligible){chosen=w;key=k;return true;}return false;});
   if(chosen){
     if(m.representation)reasons.push('DEX representation: '+m.representation);
     if(chosen.direction==='BUYING'){bull++;reasons.push(key.toUpperCase()+' selected-pool counts and known dollar volume are buy-dominated');}
@@ -10944,7 +11110,7 @@ function _freeOnchainBias(x){
   if(x.holders&&x.holders.top10Pct>70)reasons.push('Risk: reported top-holder concentration is high');
   if(x.transfers||x.onchainEvidence)reasons.push('Exchange transfers, holder balances and pool-value changes are context, not independent buy/sell votes');
   var bias=bull>bear?'BULLISH':bear>bull?'BEARISH':chosen||bull||bear?'NEUTRAL':'UNKNOWN';
-  return {bias:bias,biasReason:reasons.join('; ')+'. Sampled sources only, not market-wide flow.'};
+  return {bias:bias,scope:'selected DEX pool',direction:chosen?chosen.direction:'UNKNOWN',window:key,asOf:m&&m.asOf||null,biasReason:reasons.join('; ')+'. Sampled sources only, not market-wide flow.'};
 }
 
 
@@ -11170,10 +11336,10 @@ function _onchainAICall(sym, payload){
   var key=_onchainAIKey();
   if(!key) return Promise.resolve({enabled:false,text:'',error:'No dedicated On-chain AI API key entered.'});
   var model=_onchainAIModel();
-  var system='You are a dedicated ON-CHAIN INTELLIGENCE analyst for a crypto spot screener. You are NOT the Catalyst Verification agent and NOT the general Research/Analyst agent. Analyze ONLY the supplied on-chain evidence. Do not use headlines, catalyst claims, technical indicators, or unsupported assumptions. Missing data is UNKNOWN, never zero. Cross-check Moralis indexed holder data against Blockscout and Alchemy where available. Distinguish holders, whale proxies, labeled exchanges, DEX activity, market enrichment, raw transfers, and detected anomalies. Never claim a wallet is a whale or exchange unless the data supports it. Give: 1) On-chain regime (ACCUMULATION/DISTRIBUTION/MIXED/UNKNOWN), 2) strongest evidence, 3) risks/contradictions, 4) data freshness/coverage, 5) confidence 0-100. This is evidence only, not a BUY/SELL signal.';
+  var system='You are a dedicated ON-CHAIN INTELLIGENCE analyst for a crypto spot screener. You are NOT the Catalyst Verification agent and NOT the general Research/Analyst agent. Analyze ONLY the supplied on-chain evidence. Do not use headlines, catalyst claims, technical indicators, or unsupported assumptions. Missing data is UNKNOWN, never zero. Cross-check Moralis indexed holder data against Blockscout and Alchemy where available. Distinguish holders, whale proxies, labeled exchanges, DEX activity, market enrichment, raw transfers, and detected anomalies. Never claim a wallet is a whale or exchange unless the data supports it. Return at most four short bullets: measured trading pressure and its venue; labelled wallet-flow observations; liquidity and network context; missing or stale evidence. Do not give a numeric confidence score or infer broad accumulation/distribution from one pool. This is evidence only, not a BUY/SELL signal.';
   system+=' SOURCE SEPARATION: spotFlow is centralized Binance exchange taker-volume data, NOT on-chain evidence. Its 1H/4H/1D figures are taker buy/sell VOLUME ratios, never buy/sell transaction-count ratios. Never combine its volume or trades with DEX counts, infer buy/sell transaction counts from candles, or use it to confirm on-chain accumulation. Its quote asset is not automatically USD. Its windows end at the latest closed 5-minute boundary. Wrapped-token DEX representations must be named; their holders and transfers are not native-coin holder/transfer coverage. BTC active-address growth, transfer value, hash rate, mempool growth and fee pressure are network context, not bullish buying signals. Mempool windows are saved point-to-point browser observations, not continuous historical coverage.';
   system+=_ocAIRules();
-  var user='COIN: '+sym+'\nCURRENT ON-CHAIN EVIDENCE:\n'+JSON.stringify(payload||{},null,2);
+  var user='COIN: '+sym+'\nCURRENT ON-CHAIN EVIDENCE:\n'+JSON.stringify(_ocAIPacket(payload||{}));
   system+=' DEX EVIDENCE RULES: market.scope is a single selected pool, not the whole coin or chain. Use watched-token from/to-address direction. Ignore raw kind labels and unverified symbol matches. market.flowWindows coverage COMPLETE requires explicit evidence; PARTIAL, CONFLICT and UNAVAILABLE cannot confirm accumulation or distribution. Respect eligible=false and tinyDenominator warnings. A 39-to-1 transaction ratio is different from a dollar ratio; a sub-dollar sell can inflate the latter. Missing USD is unknown, never zero. UNKNOWN must remain unknown, not become neutral certainty. Nested 1H/4H/1D samples are correlated, not three independent confirmations. Do not reinterpret counts to agree with the pool summary. Scores are heuristic, not calibrated probabilities.';
   return fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent?key='+encodeURIComponent(key),{
     method:'POST',headers:{'content-type':'application/json'},
@@ -11367,24 +11533,33 @@ function _freeProviderEnrichment(sym,baseOut){
 }
 
 function _agentOnchain(f){
-  f=f||{}; var sym=_freeSym(f.sym||f.symbol||'');
-  if(!sym) return Promise.resolve({symbol:'',status:'unknown',sources:[],errors:['No symbol supplied.'],warnings:[],bias:'UNKNOWN'});
-  var pair=_spotPair(f.sym||f.symbol),cacheKey='freeoc_v8_'+(pair?pair.symbol:sym), now=Date.now();
-  if(!f.force&&_freeOnchainCache[cacheKey] && now-_freeOnchainCache[cacheKey].ts<300000) return Promise.resolve(_freeOnchainCache[cacheKey].d);
+  f=f||{};var sym=_freeSym(f.sym||f.symbol||''),pair=_spotPair(f.sym||f.symbol),cacheKey='freeoc_v9_'+(pair?pair.symbol:sym),now=Date.now();
+  if(!sym)return Promise.resolve({symbol:'',status:'unknown',sources:[],errors:['No symbol supplied.'],bias:'UNKNOWN'});
+  if(!f.force&&_freeOnchainCache[cacheKey]&&now-_freeOnchainCache[cacheKey].ts<300000)return Promise.resolve(_freeOnchainCache[cacheKey].d);
+  if(typeof f.onProgress==='function')(_ocProgress[cacheKey]||(_ocProgress[cacheKey]=[])).push(f.onProgress);
   if(_ffPending[cacheKey])return _ffPending[cacheKey];
-  var core=_agentOnchainCore(f).catch(function(e){return {symbol:sym,status:'error',sources:[],errors:[String(e.message||e)],providerErrors:[],warnings:[],market:_dexUnavailable('On-chain services failed; exchange coverage is separate.'),bias:'UNKNOWN'};});
-  _ffPending[cacheKey]=Promise.all([core,_freeSpotFlow(f.sym||f.symbol),_ffNetworkActivity(sym),sym==='BTC'?_ffBtcMempool():Promise.resolve(null)]).then(function(r){
+  var partial={symbol:sym,sources:[],loading:true,pending:['Wallets / DEX','Spot pressure','Network context'].concat(sym==='BTC'?['Mempool']:[])};
+  function emit(){(_ocProgress[cacheKey]||[]).forEach(function(fn){try{fn(Object.assign({},partial,{pending:partial.pending.slice()}));}catch(e){}});}
+  function completed(name){partial.pending=partial.pending.filter(function(x){return x!==name;});emit();}
+  var cf=Object.assign({},f,{onCore:function(out){Object.assign(partial,out,{loading:true});emit();}});
+  var core=_agentOnchainCore(cf).catch(function(e){return {symbol:sym,status:'error',sources:[],errors:[String(e.message||e)],providerErrors:[],warnings:[],market:_dexUnavailable('On-chain services failed; exchange coverage is separate.'),bias:'UNKNOWN'};}).then(function(out){Object.assign(partial,out,{loading:true});completed('Wallets / DEX');return out;});
+  var spot=_freeSpotFlow(f.sym||f.symbol).catch(function(e){return _spotUnavailable(pair,String(e.message||e));}).then(function(v){partial.spotFlow=v;completed('Spot pressure');return v;});
+  var network=_ffNetworkActivity(sym).catch(function(e){return _ffNetworkEmpty(sym,'UNAVAILABLE',String(e.message||e));}).then(function(v){partial.networkActivity=v;completed('Network context');return v;});
+  var mem=(sym==='BTC'?_ffBtcMempool():Promise.resolve(null)).then(function(v){partial.btcMempool=v;completed('Mempool');return v;});
+  emit();
+  _ffPending[cacheKey]=Promise.all([core,spot,network,mem]).then(function(r){
     var out=r[0];out.spotFlow=r[1];out.networkActivity=r[2];out.btcMempool=r[3];out.sources=out.sources||[];
-    if(Object.keys(r[1].windows).some(function(k){return r[1].windows[k].status==='COMPLETE';}))out.sources.push('Binance spot market data (NOT on-chain)');
-    if(r[2].metrics.length||r[2].performance)out.sources.push(r[2].source+' (activity, not buy/sell flow)');
+    if(Object.keys(r[1].windows||{}).some(function(k){return r[1].windows[k].status==='COMPLETE';}))out.sources.push('Binance spot market data (NOT on-chain)');
+    if((r[2].metrics||[]).length||r[2].performance)out.sources.push(r[2].source+' (activity, not buy/sell flow)');
     if(r[3]&&r[3].current)out.sources.push('mempool.space (network demand, not buy/sell flow)');
-    out.coverage=_ffCoverage(out);
-    out.updatedAt=Date.now();_freeOnchainCache[cacheKey]={ts:Date.now(),d:out};return out;
-  }).finally(function(){delete _ffPending[cacheKey];});return _ffPending[cacheKey];
+    out.coverage=_ffCoverage(out);out.updatedAt=Date.now();out.loading=false;out.pending=[];
+    out.walletWatch=_ocObserveWatch(out);out.outcomeAudit=_ocUpdateOutcomes(out);
+    _freeOnchainCache[cacheKey]={ts:Date.now(),d:out};_ocLatest[pair?pair.symbol:sym]=out;return out;
+  }).finally(function(){delete _ffPending[cacheKey];delete _ocProgress[cacheKey];});return _ffPending[cacheKey];
 }
 function _agentOnchainCore(f){
   var sym=_freeSym(f.sym||f.symbol||'');
-  function finish(out){return _freeProviderEnrichment(sym,out).then(function(v){
+  function finish(out){if(typeof f.onCore==='function')f.onCore(out);return _freeProviderEnrichment(sym,out).then(function(v){
     v.onchainEvidence=_ocObserve(v);
     var b=_freeOnchainBias(v);v.bias=b.bias;v.biasReason=b.biasReason;
     var hist=_recordOnchainHistory(v);v.anomalies=_onchainAnomalies(v,hist);v.historySamples=hist.length;v.updatedAt=Date.now();return v;
@@ -17111,6 +17286,7 @@ function recordChartDecision(){
     fib:chartState.autoFib,trendlines:chartState.trendlines,wyckoff:chartState.wyckoff,
     candles:(chartState.klines||[]).map(function(k){return k.slice();}),
     settings:{fibScope:chartState.fibScope,fibRetirement:chartState.fibRetirement,execution:getChartExecutionSettings()},
+    onchainEvidence:_ocLatest[chartState.sym]||null,
     note:'Decision snapshot, not an order or performance claim. Last candle was developing at capture.'};
   try{var records=JSON.parse(localStorage.getItem('chart_decisions_v1')||'[]');records.push(record);records=records.slice(-20);
     localStorage.setItem('chart_decisions_v1',JSON.stringify(records));
