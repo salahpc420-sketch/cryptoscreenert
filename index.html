@@ -831,6 +831,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 
 <div class="toast-wrap" id="toast-wrap"></div>
 <!-- TABLE -->
+<details style="padding:8px 12px;font-size:12px;color:var(--t2)"><summary style="cursor:pointer">Row metrics · 2026.09.13-r3 · Base Q replaces Accum</summary><p>Volume ratio = average of the last 3 closed candles ÷ average of the preceding 18, using quote turnover. Hover over a price or volume cell, or open the coin’s score details, for timeframe, source and last-close time. Estimated turnover is labelled. Missing observations are Unknown and block signal eligibility.</p><p>Base Q measures candle-based range/volume contraction and relative strength; it does not establish wallet buying. Declining bases receive no base-quality credit. T+B combines uptrend and base quality; neither is a probability. Quiet ranges do not imply an upward breakout.</p></details>
 <div class="tbl-wrap">
   <table>
     <thead><tr>
@@ -842,7 +843,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       <th onclick="srt('vol24')">Volume <span class="arr" id="a-vol24"></span></th>
       <th onclick="srt('rsi')">RSI(14) <span class="arr" id="a-rsi"></span></th>
       <th onclick="srt('trend')">Trend <span class="arr" id="a-trend"></span></th>
-      <th onclick="srt('volR')" class="adv-col">Vol Ratio <span class="arr" id="a-volR"></span></th>
+      <th title="Rows 2026.09.13-r3 · last 3 closed candles / previous 18 · quote turnover" onclick="srt('volR')" class="adv-col">Vol Ratio <span class="arr" id="a-volR"></span></th>
       <th onclick="srt('struct')">Structure <span class="arr" id="a-struct"></span></th>
       <th onclick="srt('liq')" class="adv-col">Liq Sweep <span class="arr" id="a-liq"></span></th>
       <th onclick="srt('sup')" class="adv-col">Support <span class="arr" id="a-sup"></span></th>
@@ -850,8 +851,8 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       <th onclick="srt(_investMode?'invScore':'opportunity')" style="background:rgba(124,77,255,.08)"><span id="opp-col-label">⭐ Opp</span> <span class="arr" id="a-opportunity"></span></th>
       <th onclick="srt('rsRank')" class="adv-col">RS Rank <span class="arr" id="a-rsRank"></span></th>
       <th onclick="srt('trendQ')" class="adv-col">Trend Q <span class="arr" id="a-trendQ"></span></th>
-      <th onclick="srt('accum')" class="adv-col">Accum <span class="arr" id="a-accum"></span></th>
-      <th onclick="srt('trendAccumScore')" class="adv-col">T+A <span class="arr" id="a-trendAccumScore"></span></th>
+      <th onclick="srt('accum')" class="adv-col" title="Candle base quality, not observed wallet buying">Base Q <span class="arr" id="a-accum"></span></th>
+      <th onclick="srt('trendAccumScore')" class="adv-col" title="Uptrend quality × base quality">T+B <span class="arr" id="a-trendAccumScore"></span></th>
       <th onclick="srt('score')" class="adv-col">Score <span class="arr" id="a-score"></span></th>
       <th>Signal</th>
     </tr></thead>
@@ -1076,7 +1077,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       <button class="mtab" id="sc-sweep_buy"         onclick="setScanTab('sweep_buy')">🟢 Sweep Buy</button>
       <button class="mtab" id="sc-sweep_sell"        onclick="setScanTab('sweep_sell')">🔴 Sweep Sell</button>
       <button class="mtab" id="sc-breakout"          onclick="setScanTab('breakout')">🚀 Breakout</button>
-      <button class="mtab" id="sc-accum"             onclick="setScanTab('accum')">🔵 Accumulation</button>
+      <button class="mtab" id="sc-accum"             onclick="setScanTab('accum')">🔵 Quiet ranges</button>
       <button class="mtab" id="sc-oversold"          onclick="setScanTab('oversold')">📉 Oversold RSI</button>
       <button class="mtab" id="sc-rsiDiv"            onclick="setScanTab('rsiDiv')">📊 RSI Div</button>
       <button class="mtab" id="sc-choch"             onclick="setScanTab('choch')">🔀 CHoCH↑</button>
@@ -1872,6 +1873,37 @@ function calcATR(h, l, c, p) {
 }
 
 // Structure — swing-pivot HH/HL/LH/LL + breakout/breakdown/accumulation
+// ROW_METRICS_V2 — retain missing observations; base quality is not wallet accumulation.
+function rowMetricKnown(v){return typeof v==='number'&&Number.isFinite(v);}
+function rowMetricText(v,digits){return rowMetricKnown(v)?v.toFixed(digits==null?0:digits):'Unknown';}
+function rowVolumeText(v,digits){return rowMetricKnown(v)?v.toFixed(digits==null?2:digits)+'×':'Unknown';}
+function rowVolumeData(klines){
+  function number(v){return v!=null&&String(v).trim()!==''&&isFinite(Number(v))&&Number(v)>=0?Number(v):null;}
+  var estimated=false,values=klines.map(function(k,i){if(k[7]!=null&&String(k[7]).trim()!==''&&(!isFinite(Number(k[7]))||Number(k[7])<0))return NaN;var q=number(k[7]),b=number(k[5]),p=Number(k[4]);if(q!=null)return q;if(b!=null&&p>0&&isFinite(p)){if(i<klines.length-1)estimated=true;return b*p;}return NaN;});
+  var closed=values.slice(0,-1),window=closed.slice(-21),valid=window.length===21&&window.every(rowMetricKnown),prior=valid?window.slice(0,18).reduce(function(a,b){return a+b;},0)/18:null;
+  var ratio=valid&&prior>0?window.slice(18).reduce(function(a,b){return a+b;},0)/3/prior:null;
+  var base=closed.slice(-30),baseReady=base.length===30&&base.every(rowMetricKnown)&&base.slice(0,25).some(function(v){return v>0;})&&base.slice(-5).every(function(v){return v>0;});
+  return {values:values,ratio:ratio,ready:ratio!=null,baseReady:baseReady,estimated:estimated,
+    method:'3 closed candles / preceding 18 · '+(estimated?'quote turnover partly estimated (base × close)':'reported quote turnover'),
+    reason:!valid?'Missing or insufficient closed volume':!(prior>0)?'No positive volume baseline':'Closed volume ready'};
+}
+function rowBaseDeclining(c){
+  var a=c.slice(-30);if(a.length<15||!a.every(rowMetricKnown))return false;
+  var mean=a.reduce(function(s,v){return s+v;},0)/a.length,mid=(a.length-1)/2,slope=0;
+  a.forEach(function(v,i){slope+=(i-mid)*(v-mean);});
+  return slope<0&&a[a.length-1]<mean&&a[a.length-1]<a[Math.max(0,a.length-10)];
+}
+function rowCombinedQuality(q,base){
+  var known=q&&rowMetricKnown(q.score)&&rowMetricKnown(base),score=known?Math.round(Math.sqrt(Math.max(0,q.score)*Math.max(0,base))):null;
+  var aligned=!!(known&&q.dir==='up'&&q.score>=60&&base>=50&&score>=58),strong=!!(known&&q.dir==='up'&&q.score>=70&&base>=60&&score>=65);
+  return {score:score,aligned:aligned,strong:strong,grade:!known?'Unknown':strong?'A':aligned?'B':q.score>=50&&base>=40?'C':'D'};
+}
+function rowMetricNote(d){
+  var snap=d.analysisSnapshot||{},time=snap.lastClosedTime?new Date(snap.lastClosedTime).toISOString().slice(0,16).replace('T',' ')+' UTC':'Unknown';
+  return (d.volumeInfo?d.volumeInfo.method:'3 closed candles / preceding 18 · quote turnover')+' · '+(snap.timeframe||'TF unknown')+' · '+(snap.source||'Source unknown')+' · last close '+time+(d.rowDataReady===false?' · DATA INCOMPLETE':'');
+}
+function rowDataGate(snapshot,volume){return !!(snapshot&&snapshot.usable&&volume&&volume.ready&&volume.baseReady);}
+
 function calcStruct(h, l, c) {
   if (c.length < 15) return 'consolidation';
   var n = Math.min(60, c.length), hh = h.slice(-n), ll = l.slice(-n), cc = c.slice(-n);
@@ -1885,7 +1917,8 @@ function calcStruct(h, l, c) {
   if (sh.length>=2&&sl.length>=2&&sh[sh.length-1]>sh[sh.length-2]*1.001&&sl[sl.length-1]>sl[sl.length-2]*1.001) return 'HH/HL';
   if (sh.length>=2&&sl.length>=2&&sh[sh.length-1]<sh[sh.length-2]&&sl[sl.length-1]<sl[sl.length-2]) return 'LH/LL';
   var atr = calcATR(hh, ll, cc);
-  if (price > 0 && atr / price < 0.015) return 'accumulation';
+  if(rowBaseDeclining(cc))return 'declining';
+  if (price > 0 && atr / price < 0.015) return 'low-volatility range';
   return 'consolidation';
 }
 
@@ -2552,7 +2585,7 @@ function calcScore(rsi, trend, volR, st, chg, liq, price, e20, e50, e200, atrPct
   var stScore = 0;
   if      (st === 'breakout')     stScore = 20;
   else if (st === 'HH/HL')        stScore = 16;
-  else if (st === 'accumulation') stScore = 12;
+  else if (st === 'low-volatility range') stScore = 6;
   else if (st === 'consolidation')stScore = 6;
   else if (st === 'LH/LL')        stScore = 2;
   else if (st === 'breakdown')    stScore = 0;
@@ -2606,7 +2639,7 @@ function calcBP(rsi, trend, volR, st, chg, price, e20, e50, liq, res) {
 
   // Structure
   if      (st === 'breakout')     p += 22;
-  else if (st === 'accumulation') p += 14;
+  else if (st === 'low-volatility range') p += 0;
   else if (st === 'HH/HL')        p += 10;
   else if (st === 'LH/LL')        p -= 14;
   else if (st === 'breakdown')    p -= 20;
@@ -2719,13 +2752,9 @@ function processSymbol(ticker, btcClosesOverride) {
     // on a coin down 50%, collapsing capital flow reads as ~2x expansion. That
     // biases the signal AGAINST trending coins and TOWARD falling knives.
     // Use quote (USD) turnover, falling back to base x close when unavailable.
-    var vBase = klines.map(function(k){ return parseFloat(k[5]); });
-    var vAll  = klines.map(function(k, i){
-      var q = parseFloat(k[7]);
-      if (isFinite(q) && q > 0) return q;
-      var px = parseFloat(k[4]), b = parseFloat(k[5]);
-      return (isFinite(px) && isFinite(b)) ? b * px : 0;      // fallback
-    });
+    var volumeInfo=rowVolumeData(klines);
+    var vBase=klines.map(function(k){return k[5]!=null&&k[5]!==''?Number(k[5]):NaN;});
+    var vAll=volumeInfo.values;
 
     // ═══ FIX #1 REPAINTING — evaluate SIGNALS on CLOSED candles only ═══════════
     // The last kline is the CURRENTLY-FORMING candle. Using it makes signals
@@ -2776,15 +2805,14 @@ function processSymbol(ticker, btcClosesOverride) {
     var trend = (closePx > e20 && e20 > e50) ? 'up' : (closePx < e20 && e20 < e50) ? 'down' : 'mixed';
 
     // FIX #6: volume ratio from CLOSED candles only (intrabar volume is partial)
-    var vLen   = v.length;
-    var avgVol = v.slice(-21, -3).reduce(function(a, b){ return a + b; }, 0) / Math.max(1, v.slice(-21,-3).length);
-    var recentVol = vLen >= 3 ? (v[vLen-1] + v[vLen-2] + v[vLen-3]) / 3 : v[vLen-1] || 0;
-    var volR   = avgVol > 0 ? recentVol / avgVol : 1;
+    var vLen=v.length;
+    var volR=volumeInfo.ratio==null?NaN:volumeInfo.ratio;
     // ABNORMAL VOLUME (log z-score) — the construct with actual cross-sectional
     // support. Volume is right-skewed, so logs stabilise it; the z-score is
     // dimensionless and therefore comparable across coins, unlike a raw ratio.
-    var volZ = 0;
+    var volZ = volumeInfo.ready?0:null;
     (function(){
+      if(!volumeInfo.ready)return;
       var w = v.slice(-31, -1).filter(function(x){ return x > 0; });
       if(w.length < 12) return;
       var lg = w.map(function(x){ return Math.log(1 + x); });
@@ -3019,20 +3047,13 @@ function processSymbol(ticker, btcClosesOverride) {
     var wyckoffBearBlock = !!wyckoff.bearBlock || ['BACK INSIDE','INVALIDATED','AWAITING NEW BREAK','DATA ERROR'].indexOf(wyckoff.status)>=0;
 
     // TREND × ACCUMULATION CONFLUENCE
-    // Trend Quality gets the stronger implicit weight because the research audit
-    // supports trend / higher-timeframe alignment more strongly than candle-only
-    // accumulation. Geometric mean prevents one strong metric from hiding a weak
+    // Equal-weight geometric mean; the separate uptrend gate is mandatory.
+    // Base quality is a candle heuristic, not observed investor accumulation.
+    // Geometric mean prevents one strong metric from hiding a weak
     // one. This is confirmation, not a prediction.
-    var trendAccumScore = Math.round(Math.sqrt(Math.max(0, trendQ.score) * Math.max(0, accum)));
-    var trendAccumAligned = trendQ.dir === 'up'
-      && trendQ.score >= 60
-      && accum >= 50
-      && trendAccumScore >= 58;
-    var trendAccumStrong = trendQ.dir === 'up'
-      && trendQ.score >= 70
-      && accum >= 60
-      && trendAccumScore >= 65;
-    var trendAccumGrade = trendAccumStrong ? 'A' : trendAccumAligned ? 'B' : (trendQ.score >= 50 && accum >= 40 ? 'C' : 'D');
+    var combinedQuality=rowCombinedQuality(trendQ,accum);
+    var trendAccumScore=combinedQuality.score,trendAccumAligned=combinedQuality.aligned,
+        trendAccumStrong=combinedQuality.strong,trendAccumGrade=combinedQuality.grade;
 
     // FIX 7: Buy signal — add momentum filter (chg > 0.5% or recent 3-bar gain)
     var bar3gain = c.length >= 3 ? (c[c.length-1] - c[c.length-4]) / c[c.length-4] * 100 : 0;
@@ -3086,7 +3107,7 @@ function processSymbol(ticker, btcClosesOverride) {
     var reversalUp = strongClose && rsiRising;               // showing the bounce
     var pullbackBuy = e20 > e50 && regimeTrendOK && nearEMA20 && pulledBack
                       && reversalUp && rsi >= 40 && rsi <= 62
-                      && (st === 'HH/HL' || st === 'consolidation' || st === 'accumulation')
+                      && (st === 'HH/HL' || st === 'consolidation' || st === 'low-volatility range')
                       && volR > 0.8;                          // volume needn't spike on a dip-buy
 
     // FIX C — EXHAUSTION GATE (on closed candles — no intrabar repaint)
@@ -3203,12 +3224,15 @@ function processSymbol(ticker, btcClosesOverride) {
       if (!precisionPass) buyConfirmed = false;
     }
 
-    if(!analysisSnapshot.usable){buyConfirmed=false;wyckoffBullConfirm=false;wyckoff.bullConfirm=false;}
+    var rowDataReady=rowDataGate(analysisSnapshot,volumeInfo);
+    if(!rowDataReady){buyConfirmed=false;sellSignal=false;wyckoffBullConfirm=false;wyckoff.bullConfirm=false;buyTier=null;highConviction=false;}
+
     var signal = (buyConfirmed    && sc >= signalThreshold) ? 'buy'
                : (sellSignal      && sc >= signalThreshold) ? 'sell'
                : sc <= 28 ? 'sell'
                : 'neutral';
 
+    if(!rowDataReady)signal='neutral';
     var signalBuyActive    = signal === 'buy';
     var signalStrongActive = signalBuyActive && strongBuy;
 
@@ -3302,9 +3326,9 @@ function processSymbol(ticker, btcClosesOverride) {
       tlRetestBarsAgo: (_tl.down && _tl.down.retestBarsAgo != null) ? _tl.down.retestBarsAgo : null, liqAbove:_liqUp, liqBelow:_liqDn, _ew:_ew,
       tlBounceUp:tlBounceUp, tlUpTouches:tlUpTouches, tlBreakDown:tlBreakDown,
       rsi:rsi, ema20:e20, ema50:e50, ema100:e100, ema200:e200,
-      trend:trend, volR:volR, atrPct:atrPct,
+      trend:trend, volR:rowMetricKnown(volR)?volR:null, volumeInfo:volumeInfo, rowDataReady:rowDataReady, atrPct:atrPct,
       fromHigh: (function(){ var hi=Math.max.apply(null,c.slice(-30)); return hi>0?(price-hi)/hi*100:0; })(),
-      volZ: Math.round(volZ*100)/100,
+      volZ: rowMetricKnown(volZ)?Math.round(volZ*100)/100:null,
       resilCapture: resil ? -resil.capture : null,   // negated so higher = better, for IC
       // last CLOSED candle + the one before it — needed for close-based watchers
       closePx: closePx, prevClose: (c.length > 1 ? c[c.length-2] : null),
@@ -3498,16 +3522,19 @@ function calcRelStrength(closes, btcCloses) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PHASE 6: ACCUMULATION SCORE — smart-money detection (0-100)
+// PHASE 6: Candle base quality (0-100); no investor identity or buying claim
 // Looks for: volume dry-up + tight range + RS improving + near support
 // Classic Wyckoff accumulation: quiet, contracting, holding up vs market
 // ═══════════════════════════════════════════════════════════════════════════
 function calcAccumulation(h, l, c, v, rs, e20, e50) {
-  if (c.length < 30) return 0;
+  if(c.length<30||h.length<c.length||l.length<c.length||v.length<c.length)return null;
+  if(!c.slice(-30).every(rowMetricKnown)||!h.slice(-30).every(rowMetricKnown)||!l.slice(-30).every(rowMetricKnown)||!v.slice(-30).every(function(x){return rowMetricKnown(x)&&x>=0;}))return null;
+  if(!v.slice(-30,-5).some(function(x){return x>0;})||!v.slice(-5).every(function(x){return x>0;}))return null;
+  if(rowBaseDeclining(c))return 0;
   var score = 0;
   var price = c[c.length-1];
 
-  // 1. Volume dry-up (25 pts) — recent volume below average = no selling pressure
+  // 1. Observed volume contraction (25 pts); does not identify buyers or sellers
   var avgVol  = v.slice(-30,-5).reduce(function(a,b){return a+b;},0) / Math.max(1, v.slice(-30,-5).length);
   var recVol  = v.slice(-5).reduce(function(a,b){return a+b;},0) / 5;
   var volRatio = avgVol > 0 ? recVol / avgVol : 1;
@@ -3526,7 +3553,7 @@ function calcAccumulation(h, l, c, v, rs, e20, e50) {
   }
 
   // 3. Relative strength holding/improving (25 pts) — outperforming despite quiet
-  if (rs !== null) {
+  if (rowMetricKnown(rs)) {
     if (rs > 0.05) score += 25;            // clearly stronger than BTC
     else if (rs > 0) score += 18;          // slightly stronger
     else if (rs > -0.03) score += 8;       // holding up
@@ -4075,6 +4102,7 @@ function calcTrendQuality(c, e20, e50, e200) {
 //   Breakout potential 15 | Accumulation 10 | Momentum 10 | Structure 5
 // ═══════════════════════════════════════════════════════════════════════════
 function calcOpportunity(d) {
+  if(d.rowDataReady===false)return 0;
   var s = 0;
   // Trend (25) — EMA stack is the foundation
   if (d.ema20 > d.ema50 && d.ema50 > d.ema200) s += 25;
@@ -4100,7 +4128,7 @@ function calcOpportunity(d) {
   // Structure (5)
   if (d.struct === 'breakout') s += 5;
   else if (d.struct === 'HH/HL') s += 4;
-  else if (d.struct === 'accumulation') s += 3;
+  else if (d.struct === 'low-volatility range') s += 0;
   // Trend quality bonus (up to +5) — clean trends are more reliable
   if (d.trendQ != null) {
     if (d.trendQ >= 75) s += 5;
@@ -4626,7 +4654,7 @@ function toggleViewMode(){
 // ═══════════════════════════════════════════════════════════
 // RENDER TABLE
 // ═══════════════════════════════════════════════════════════
-var SCLS={breakout:'pg',HH_HL:'pg',accumulation:'pbl',breakdown:'pr','LH/LL':'pr',consolidation:'pgr'};
+var SCLS={breakout:'pg','HH/HL':'pg','low-volatility range':'pgr',declining:'pr',breakdown:'pr','LH/LL':'pr',consolidation:'pgr'};
 var LCLS={buy_sweep:'pg',sell_sweep:'pr',above_res:'py',below_sup:'py',none:'pgr'};
 var LTXT={buy_sweep:'🟢 Buy Sweep',sell_sweep:'🔴 Sell Sweep',above_res:'↑ Above R',below_sup:'↓ Below S',none:'—'};
 
@@ -4664,7 +4692,7 @@ function render() {
   });
 
   var col=sortS.col,dir=sortS.dir;
-  rows.sort(function(a,b){var av=a[col],bv=b[col];if(typeof av==='string')return dir*av.localeCompare(bv);return dir*(av-bv);});
+  rows.sort(function(a,b){var av=a[col],bv=b[col];if(av==null||typeof av==='number'&&!isFinite(av))return bv==null||typeof bv==='number'&&!isFinite(bv)?0:1;if(bv==null||typeof bv==='number'&&!isFinite(bv))return -1;if(typeof av==='string')return dir*av.localeCompare(bv);return dir*(av-bv);});
 
   ['rank','pair','price','chg','vol24','rsi','ema20','ema50','trend','volR','struct','liq','sup','res','opportunity','rsRank','trendQ','accum','trendAccumScore','score','bp','pp'].forEach(function(c){
     var el=document.getElementById('a-'+c);if(el)el.textContent=sortS.col===c?(sortS.dir===-1?'▼':'▲'):'';
@@ -4675,7 +4703,8 @@ function render() {
   var sbuy=rows.filter(function(r){return r.strongBuy;}).length;
   var swb=rows.filter(function(r){return r.liq==='buy_sweep';}).length;
   var aplus=rows.filter(function(r){return r.highConviction;}).length;
-  var avg=rows.length?Math.round(rows.reduce(function(s,r){return s+r.score;},0)/rows.length):0;
+  var readyRows=rows.filter(function(r){return r.rowDataReady!==false&&Number.isFinite(r.score);});
+  var avg=readyRows.length?Math.round(readyRows.reduce(function(s,r){return s+r.score;},0)/readyRows.length):'—';
   document.getElementById('sumrow').innerHTML=
     sc2('⭐ A+',aplus,aplus>0?'#7c4dff':'var(--t3)')+sc2('Pairs',rows.length,'')+sc2('Buy',buys,'var(--g)')+sc2('Sell',sells,'var(--r)')+
     sc2('⚡ Strong',sbuy,'var(--am)')+sc2('🟢 Sweep',swb,'var(--g)')+sc2('Avg',avg,'');
@@ -4738,14 +4767,14 @@ function render() {
       '<td style="color:var(--t3);font-size:11px;text-align:center;font-weight:700">'+(d.rank<999?'#'+d.rank:'—')+'</td>'+
       '<td style="font-weight:800;font-size:13px">'+d.pair+(pos?' <span style="font-size:10px;background:var(--gb);color:var(--gt);padding:1px 5px;border-radius:8px;font-weight:700">IN</span>':'')+'</td>'+
       '<td>'+catH+'</td>'+
-      '<td style="font-weight:600">'+fP(d.price)+'</td>'+
+      '<td title="'+_escProviderHtml(rowMetricNote(d))+'" style="font-weight:600">'+fP(d.price)+'</td>'+
       '<td class="'+(d.chg>=0?'pos':'neg')+'">'+(d.chg>=0?'+':'')+d.chg.toFixed(2)+'%</td>'+
       '<td style="color:var(--t2)">'+fV(d.vol24)+'</td>'+
       '<td style="color:'+rC+';font-weight:700">'+d.rsi.toFixed(1)+'</td>'+
       '<td>'+tP+'</td>' +
-      '<td class="adv-col" style="font-weight:700;color:'+(d.volR>=2?'var(--g)':d.volR>=1.5?'#5BAF6E':d.volR>=0.7?'var(--t2)':'var(--r)')+'">'+
-        d.volR.toFixed(2)+'×' +
-        '<br><span style="font-size:9px;font-weight:400;color:var(--t3)">'+(d.volR>=2?'🟢 High':d.volR>=1.5?'🟡 Above':d.volR>=0.7?'⚪ Avg':'🔴 Low')+'</span></td>' +
+      '<td class="adv-col" title="'+_escProviderHtml(rowMetricNote(d))+'" style="font-weight:700;color:'+(!rowMetricKnown(d.volR)?'var(--t3)':d.volR>=2?'var(--g)':d.volR>=1.5?'#5BAF6E':d.volR>=0.7?'var(--t2)':'var(--r)')+'">'+
+        rowVolumeText(d.volR,2)+'' +
+        '<br><span style="font-size:9px;font-weight:400;color:var(--t3)">'+(!rowMetricKnown(d.volR)?'Unknown':d.volR>=2?'🟢 High':d.volR>=1.5?'🟡 Above':d.volR>=0.7?'⚪ Avg':'🔴 Low')+'</span></td>' +
       '<td><span class="pill '+(SCLS[d.struct]||'pgr')+'">'+d.struct+'</span></td>'+
       '<td class="adv-col"><span class="pill '+(LCLS[d.liq]||'pgr')+'">'+LTXT[d.liq]+'</span></td>'+
       '<td class="adv-col"><span style="color:var(--g);font-weight:700">'+fE(d.sup)+'</span><br><span style="color:var(--t3);font-size:10px">-'+d.sDist+'%</span></td>'+
@@ -4753,10 +4782,10 @@ function render() {
       (function(){ var mv = _investMode ? (d.invScore||0) : (d.opportunity||0); var mc = mv>=70?'#7c4dff':mv>=50?'var(--am)':'var(--t3)'; var mtc = mv>=70?'#7c4dff':mv>=50?'var(--am)':'var(--t2)'; return '<td style="background:rgba(124,77,255,.05)"><div style="display:flex;align-items:center;gap:5px"><div style="flex:1;height:5px;background:var(--card3);border-radius:3px;overflow:hidden"><div style="width:'+mv+'%;height:100%;background:'+mc+';border-radius:3px"></div></div><span style="font-weight:800;font-size:12px;color:'+mtc+'">'+mv+'</span></div></td>'; })()+
       '<td class="adv-col" style="text-align:center"><span style="font-weight:800;font-size:12px;color:'+(d.rsRank>=70?'var(--g)':d.rsRank>=40?'var(--am)':'var(--r)')+'">'+(d.rsRank!=null?d.rsRank:'—')+'</span><br><span style="font-size:9px;color:var(--t3)">'+(d.rsRank>=70?'strong':d.rsRank>=40?'neutral':'weak')+'</span></td>'+
       '<td class="adv-col" style="text-align:center"><span style="font-weight:700;font-size:12px;color:'+((d.trendQ||0)>=60?'var(--g)':(d.trendQ||0)>=45?'var(--am)':'var(--t3)')+'">'+(d.trendQ||0)+'</span><br><span style="font-size:9px;color:var(--t3)">'+(d.trendQDir==='up'?'↑ ':d.trendQDir==='down'?'↓ ':'')+(d.trendQLabel||'')+'</span></td>'+
-      '<td class="adv-col" style="text-align:center"><span style="font-weight:700;font-size:11px;color:'+(d.accum>=60?'var(--g)':d.accum>=40?'var(--am)':'var(--t3)')+'">'+(d.accum||0)+'</span>'+((d.accum||0)>=60?'<br><span style="font-size:9px;color:var(--g)">🔵 accum</span>':'')+'</td>'+
-      '<td class="adv-col" style="text-align:center"><span title="Trend + Accumulation confluence" style="font-weight:800;font-size:11px;color:'+(d.trendAccumGrade==='A'?'var(--g)':d.trendAccumGrade==='B'?'var(--am)':'var(--t3)')+'">'+(d.trendAccumScore||0)+'</span><br><span style="font-size:8px;color:var(--t3)">'+(d.trendAccumGrade||'D')+(d.trendAccumAligned?' ✓':'')+'</span></td>'+
-      '<td class="adv-col"><div class="bar-w"><div class="bar"><div class="bar-f" style="width:'+d.score+'%;background:'+barC+'"></div></div><span style="font-weight:700;font-size:11px">'+d.score+'</span></div></td>'+
-      '<td>'+sig+'</td></tr>';
+      '<td class="adv-col" style="text-align:center"><span style="font-weight:700;font-size:11px;color:'+(d.accum>=60?'var(--g)':d.accum>=40?'var(--am)':'var(--t3)')+'">'+rowMetricText(d.accum)+'</span>'+(rowMetricText(d.accum)>=60?'<br><span style="font-size:9px;color:var(--g)">Base candidate</span>':'')+'</td>'+
+      '<td class="adv-col" style="text-align:center"><span title="Trend + Base quality confluence" style="font-weight:800;font-size:11px;color:'+(d.trendAccumGrade==='A'?'var(--g)':d.trendAccumGrade==='B'?'var(--am)':'var(--t3)')+'">'+rowMetricText(d.trendAccumScore)+'</span><br><span style="font-size:8px;color:var(--t3)">'+(d.trendAccumGrade||'D')+(d.trendAccumAligned?' ✓':'')+'</span></td>'+
+      '<td class="adv-col"><div class="bar-w"><div class="bar"><div class="bar-f" style="width:'+d.score+'%;background:'+barC+'"></div></div><span style="font-weight:700;font-size:11px">'+(d.rowDataReady===false?'Partial':d.score)+'</span></div></td>'+
+      '<td>'+(d.rowDataReady===false?'<span class="pill pgr">Data incomplete · wait</span>':sig)+'</td></tr>';
   }).join('');
   // On desktop the mobile cards are hidden — skip building them (perf)
   if (window.innerWidth <= 820) renderMobileCards(rows);
@@ -4796,6 +4825,7 @@ function renderMobileCards(rows) {
       : d.liq==='buy_sweep' ? '<span style="font-size:10px;font-weight:700;background:rgba(38,166,154,.12);color:var(--g);padding:2px 8px;border-radius:4px">🟢 Sweep</span>'
       : d.signal==='sell' ? '<span style="font-size:10px;font-weight:700;background:rgba(239,83,80,.15);color:var(--r);padding:2px 8px;border-radius:4px">Sell</span>'
       : '<span style="font-size:10px;color:var(--t3)">Neutral</span>';
+    if(d.rowDataReady===false)sigBadge='<span style="font-size:11px;color:var(--t2)">Data incomplete · wait</span>';
     // Setup badges
     var setup = '';
     if (d.highConviction) setup += '<span style="font-size:10px;background:linear-gradient(90deg,rgba(124,77,255,.25),rgba(124,77,255,.12));color:#7c4dff;padding:2px 7px;border-radius:4px;font-weight:800;border:.5px solid rgba(124,77,255,.4)">⭐ A+ SETUP</span> ';
@@ -4804,6 +4834,7 @@ function renderMobileCards(rows) {
     else if (d.emaRetest && d.emaRetest.state==='retest_ema20') setup += '<span style="font-size:9px;background:rgba(245,158,11,.15);color:var(--am);padding:1px 5px;border-radius:3px;font-weight:700">⏳ At EMA20</span> ';
     if (d.pumpDump && d.pumpDump.state==='pump_exhausted') setup += '<span style="font-size:9px;background:rgba(239,83,80,.15);color:var(--r);padding:1px 5px;border-radius:3px;font-weight:700">⚠ Dump</span> ';
 
+    if(d.rowDataReady===false)setup='';
     var oppCol = (d.opportunity||0)>=70?'#7c4dff':(d.opportunity||0)>=50?'var(--am)':'var(--t2)';
     var scoreCol = d.score>=76?'var(--g)':d.score<=45?'var(--r)':'var(--am)';
     var rsCol = d.rsRank>=70?'var(--g)':d.rsRank>=40?'var(--am)':'var(--r)';
@@ -4813,7 +4844,7 @@ function renderMobileCards(rows) {
     var primaryVal = _investMode ? (d.invScore||0) : (d.opportunity||0);
     var primaryCol = _investMode ? invCol : oppCol;
 
-    return '<div class="m-card" onclick="openModal(\''+d.sym+'\')"'+(d.highConviction?' style="border-color:rgba(124,77,255,.5);box-shadow:inset 3px 0 0 #7c4dff"':'')+'>' +
+    return '<div class="m-card" onclick="openModal(\''+d.sym+'\')"'+(d.rowDataReady!==false&&d.highConviction?' style="border-color:rgba(124,77,255,.5);box-shadow:inset 3px 0 0 #7c4dff"':'')+'>' +
       '<div class="m-card-top">' +
         '<span class="m-card-sym">'+d.pair.replace('/USDT','').replace('/JPY','')+'</span>' +
         '<span class="m-card-rank">'+(d.rank<999?'#'+d.rank:'')+'</span>' +
@@ -4830,18 +4861,18 @@ function renderMobileCards(rows) {
         (_investMode
           ? '<div class="m-metric"><div class="m-metric-l">Discount</div><div class="m-metric-v" style="font-size:11px;color:'+((d.ddHigh||0)<=-20?'var(--g)':'var(--t2)')+'">'+(d.ddHigh!=null?d.ddHigh+'%':'—')+'</div></div>' +
             '<div class="m-metric"><div class="m-metric-l">vs 200EMA</div><div class="m-metric-v" style="font-size:11px;color:'+((d.distE200||0)<0?'var(--g)':'var(--t2)')+'">'+(d.distE200!=null?(d.distE200>0?'+':'')+d.distE200+'%':'—')+'</div></div>'
-          : '<div class="m-metric"><div class="m-metric-l">Vol</div><div class="m-metric-v" style="font-size:12px">'+d.volR.toFixed(1)+'×</div></div>' +
+          : '<div class="m-metric"><div class="m-metric-l">Vol</div><div class="m-metric-v" style="font-size:12px">'+rowVolumeText(d.volR,1)+'</div></div>' +
             '<div class="m-metric"><div class="m-metric-l">Trend</div><div class="m-metric-v" style="font-size:11px">'+(d.trend==='up'?'↑':d.trend==='down'?'↓':'⇄')+'</div></div>'
         ) +
       '</div>' +
       // Advanced rows: only in Advanced view
       '<div class="adv-col">' +
         '<div class="m-metrics" style="margin-top:6px">' +
-          '<div class="m-metric"><div class="m-metric-l">Score</div><div class="m-metric-v" style="color:'+scoreCol+'">'+d.score+'</div></div>' +
+          '<div class="m-metric"><div class="m-metric-l">Score</div><div class="m-metric-v" style="color:'+scoreCol+'">'+(d.rowDataReady===false?'Partial':d.score)+'</div></div>' +
           '<div class="m-metric"><div class="m-metric-l">RS Rank</div><div class="m-metric-v" style="color:'+rsCol+'">'+(d.rsRank!=null?d.rsRank:'—')+'</div></div>' +
           '<div class="m-metric"><div class="m-metric-l">Trend Q</div><div class="m-metric-v" style="font-size:12px;color:'+((d.trendQ||0)>=60?'var(--g)':(d.trendQ||0)>=45?'var(--am)':'var(--t3)')+'">'+(d.trendQ||0)+'</div></div>' +
-          '<div class="m-metric"><div class="m-metric-l">Accum</div><div class="m-metric-v" style="font-size:12px;color:'+(d.accum>=60?'var(--g)':'var(--t2)')+'">'+(d.accum||0)+'</div></div>' +
-          '<div class="m-metric"><div class="m-metric-l">Trend+Accum</div><div class="m-metric-v" style="font-size:12px;color:'+(d.trendAccumAligned?'var(--g)':'var(--t2)')+'">'+(d.trendAccumScore||0)+' '+(d.trendAccumGrade||'D')+'</div></div>' +
+          '<div class="m-metric"><div class="m-metric-l">Base Q</div><div class="m-metric-v" style="font-size:12px;color:'+(d.accum>=60?'var(--g)':'var(--t2)')+'">'+rowMetricText(d.accum)+'</div></div>' +
+          '<div class="m-metric"><div class="m-metric-l">Trend+Base</div><div class="m-metric-v" style="font-size:12px;color:'+(d.trendAccumAligned?'var(--g)':'var(--t2)')+'">'+rowMetricText(d.trendAccumScore)+' '+(d.trendAccumGrade||'D')+'</div></div>' +
         '</div>' +
         '<div class="m-metrics" style="margin-top:6px">' +
           '<div class="m-metric"><div class="m-metric-l">Support</div><div class="m-metric-v" style="font-size:11px;color:var(--g)">'+fE(d.sup)+'</div></div>' +
@@ -6519,7 +6550,7 @@ function _uaProvider(){
   return canVerify()?'groq':'none';
 }
 function _uaTechnicalTrigger(d){
-  if(!d)return null;
+  if(!d||d.rowDataReady===false)return null;
   if(d.resFlipHeld)return {k:'level_flip',text:'Broken resistance '+fE(d.resFlipLevel)+' was retested and held'};
   if(d.tlRetestHeld)return {k:'trendline_flip',text:'Broken resistance trendline was retested and held'};
   if(d.liq==='buy_sweep')return {k:'liquidity_reclaim',text:'Liquidity sweep was reclaimed on a closed candle'};
@@ -6527,7 +6558,7 @@ function _uaTechnicalTrigger(d){
   if(d.breakout&&d.breakout.state==='confirmed'&&d.strongClose&&(d.volR||0)>=1.2)return {k:'breakout',text:'Structure breakout closed with volume confirmation'};
   return null; // Early Watch is deliberately never sufficient on its own.
 }
-function _uaFreshChart(d,now){var m=d&&d.catalystMarket;return !!(m&&m.closed===true&&m.barEnd&&m.tfMs&&now-m.barEnd>=0&&now-m.barEnd<=m.tfMs+10*60000);}
+function _uaFreshChart(d,now){if(d&&d.rowDataReady===false)return false;var m=d&&d.catalystMarket;return !!(m&&m.closed===true&&m.barEnd&&m.tfMs&&now-m.barEnd>=0&&now-m.barEnd<=m.tfMs+10*60000);}
 function _uaRiskEvents(d,c,now){
   var out=[],events=c&&c.events||[];
   events.forEach(function(e){
@@ -7112,7 +7143,7 @@ function _catRender(d,c,busy){
   h+='</div><div style="border-top:1px solid var(--bd);padding-top:10px;margin-top:8px"><b>2 · Market confirmation</b>'
     +'<div>Closed-candle trend: <b>'+esc(m.trend)+'</b> · '+esc(d.catalystMarket&&d.catalystMarket.tf||'timeframe unavailable')+'</div>'
     +'<div>Strength vs BTC: <b>'+esc(m.strength)+'</b>'+(m.capture==null?'':' · '+Math.round(m.capture*100)+'% of BTC downside')+'</div>'
-    +'<div>Volume: '+(m.volR==null?'Unknown':m.volR.toFixed(2)+'× normal')+' · z-score '+(m.volZ==null?'Unknown':m.volZ.toFixed(2))
+    +'<div>Volume: '+(m.volR==null?'Unknown':rowVolumeText(m.volR,2)+' normal')+' · z-score '+(m.volZ==null?'Unknown':m.volZ.toFixed(2))
     +' — neither quiet volume nor missing data is bullish by itself.</div>'
     +'<div style="color:var(--am);margin-top:5px">'+esc(a.reasons.join(' · ')||'Event + market requirements met; fresh eligible on-chain flow is still required for a convergence notification.')+'</div></div>';
   h+='<details style="border-top:1px solid var(--bd);padding-top:10px;margin-top:10px" open><summary style="cursor:pointer"><b>3 · Source health & coverage</b></summary>';
@@ -7833,11 +7864,12 @@ function renderSectorRotation(data) {
     var n = s.coins.length;
     var avgChg = s.coins.reduce(function(a,d){return a+(d.chg||0);}, 0) / n;
     var avgRS  = s.coins.reduce(function(a,d){return a+(d.rsRank||50);}, 0) / n;
-    var avgVol = s.coins.reduce(function(a,d){return a+(d.volR||1);}, 0) / n;
+    var validVolumes=s.coins.filter(function(d){return rowMetricKnown(d.volR);});
+    var avgVol=validVolumes.length?validVolumes.reduce(function(a,d){return a+d.volR;},0)/validVolumes.length:null;
     var bos    = s.coins.filter(function(d){return d.struct==='breakout'||d.struct==='HH/HL';}).length;
     var avgOpp = s.coins.reduce(function(a,d){return a+(d.opportunity||0);}, 0) / n;
     // Rotation score: weighted combo of momentum + RS + breakouts + volume
-    var rotScore = avgChg * 2 + (avgRS - 50) * 0.4 + (bos/n) * 20 + (avgVol - 1) * 5 + avgOpp * 0.2;
+    var rotScore = avgChg * 2 + (avgRS - 50) * 0.4 + (bos/n) * 20 + (avgVol==null?0:(avgVol-1)*5) + avgOpp * 0.2;
     return {cat:cat, n:n, avgChg:avgChg, avgRS:avgRS, avgVol:avgVol, bos:bos, avgOpp:avgOpp, rotScore:rotScore};
   }).filter(function(s){ return s.n >= 1; });
 
@@ -8014,7 +8046,7 @@ function runScanner(){
     if(scanTab==="sweep_buy")  return d.liq==="buy_sweep";
     if(scanTab==="sweep_sell") return d.liq==="sell_sweep";
     if(scanTab==="breakout")   return d.struct==="breakout";
-    if(scanTab==="accum")      return d.struct==="accumulation";
+    if(scanTab==="accum")      return d.struct==='low-volatility range';
     if(scanTab==="oversold")   return d.rsi<30;
     if(scanTab==="rsiDiv")     return d._rsiDiv==='bull';
     if(scanTab==="choch")      return d.smc&&d.smc.choch==='bull';
@@ -8034,7 +8066,7 @@ function runScanner(){
     var diff=rr(b)-rr(a);
     return diff!==0?diff:b.score-a.score;
   });
-  var labels={aplus:"A+ Setups — high-conviction only (strong BTC + room to run)",opportunity:"Top Opportunity (score ≥55)",strong:"Strong Buy",buy:"Buy Signal",confirmed_bo:"Confirmed Breakout",ema_retest:"EMA Retest",sweep_buy:"Sweep Buy",sweep_sell:"Sweep Sell",breakout:"Breakout",accum:"Accumulation",oversold:"Oversold RSI <30",tierA:"Tier A — premium (pullback/strong, R:R 2+, all gates pass)",tierB:"Tier B — solid (all quality gates pass, tradeable now)",tierC:"Tier C — watch (good setup, fails one gate — see why on each coin)",rsiDiv:"RSI Divergence (context flag — not an entry signal per evidence audit)",choch:"Bullish CHoCH — early reversal (first break up after downtrend)",bos:"Bullish BOS — trend continuation (broke above swing high)",sector:"Sector: "+(sectorFilter==='all'?'All':sectorFilter)};
+  var labels={aplus:"A+ Setups — high-conviction only (strong BTC + room to run)",opportunity:"Top Opportunity (score ≥55)",strong:"Strong Buy",buy:"Buy Signal",confirmed_bo:"Confirmed Breakout",ema_retest:"EMA Retest",sweep_buy:"Sweep Buy",sweep_sell:"Sweep Sell",breakout:"Breakout",accum:"Quiet ranges",oversold:"Oversold RSI <30",tierA:"Tier A — premium (pullback/strong, R:R 2+, all gates pass)",tierB:"Tier B — solid (all quality gates pass, tradeable now)",tierC:"Tier C — watch (good setup, fails one gate — see why on each coin)",rsiDiv:"RSI Divergence (context flag — not an entry signal per evidence audit)",choch:"Bullish CHoCH — early reversal (first break up after downtrend)",bos:"Bullish BOS — trend continuation (broke above swing high)",sector:"Sector: "+(sectorFilter==='all'?'All':sectorFilter)};
   var tfLabel=scanTF!==TF?" · "+scanTF.toUpperCase()+" TF":"";
   var subEl=document.getElementById("scan-sub");if(subEl)subEl.textContent=results.length+" coins — "+labels[scanTab]+tfLabel;
   var updEl=document.getElementById("scan-upd");if(updEl)updEl.textContent="Scanned "+data.length+" coins · "+new Date().toLocaleTimeString();
@@ -8067,7 +8099,7 @@ function runScanner(){
           +"<span style=\"font-weight:700;font-size:13px\">"+fP(d.price)+"</span>"
           +"<span style=\"color:"+chgC+";font-weight:700\">"+chgS+d.chg.toFixed(2)+"%</span>"
           +"<span style=\"color:"+rsiC+"\">RSI "+d.rsi.toFixed(1)+"</span>"
-          +"<span style=\"color:var(--t3)\">Vol "+d.volR.toFixed(2)+"×</span>"
+          +"<span style=\"color:var(--t3)\">Vol "+rowVolumeText(d.volR,2)+"</span>"
           +"<span class=\"pill "+structCls+"\" style=\"font-size:10px\">"+d.struct+"</span>"
         +"</div>"
         +"<div style=\"font-size:11px;color:var(--t2)\">"+entryNote+"</div>"
@@ -8098,7 +8130,7 @@ function openModal(sym){
     sn('EMA20',fE(d.ema20),d.price>d.ema20?'var(--g)':'var(--r)')+
     sn('EMA50',fE(d.ema50),d.ema20>d.ema50?'var(--g)':'var(--r)')+
     sn('EMA200',fE(d.ema200),d.ema50>d.ema200?'var(--g)':'var(--r)')+
-    sn('Vol',d.volR.toFixed(2)+'×',d.volR>=1.5?'var(--g)':'var(--t2)')+
+    sn('Vol',rowVolumeText(d.volR,2)+'',d.volR>=1.5?'var(--g)':'var(--t2)')+
     sn('Struct',d.struct,d.struct==='breakout'||d.struct==='HH/HL'?'var(--g)':d.struct==='breakdown'||d.struct==='LH/LL'?'var(--r)':'var(--t2)')+
     sn('Sweep',d.liq==='buy_sweep'?'🟢 BUY':d.liq==='sell_sweep'?'🔴 SELL':d.liq,d.liq==='buy_sweep'?'var(--g)':d.liq==='sell_sweep'?'var(--r)':'var(--t3)')+
     sn('Sup',fE(d.sup),'var(--g)')+sn('Res',fE(d.res),'var(--r)')+
@@ -8140,7 +8172,7 @@ function setModalTF(tf){
       sn('EMA20',fE(d.ema20),d.price>d.ema20?'var(--g)':'var(--r)')+
       sn('EMA50',fE(d.ema50),d.ema20>d.ema50?'var(--g)':'var(--r)')+
       sn('EMA200',fE(d.ema200),d.ema50>d.ema200?'var(--g)':'var(--r)')+
-      sn('Vol',d.volR.toFixed(2)+'×',d.volR>=1.5?'var(--g)':'var(--t2)')+
+      sn('Vol',rowVolumeText(d.volR,2)+'',d.volR>=1.5?'var(--g)':'var(--t2)')+
       sn('Struct',d.struct,d.struct==='breakout'||d.struct==='HH/HL'?'var(--g)':d.struct==='breakdown'||d.struct==='LH/LL'?'var(--r)':'var(--t2)')+
       sn('Sweep',d.liq==='buy_sweep'?'🟢 BUY':d.liq==='sell_sweep'?'🔴 SELL':d.liq,d.liq==='buy_sweep'?'var(--g)':d.liq==='sell_sweep'?'var(--r)':'var(--t3)')+
       sn('Sup',fE(d.sup),'var(--g)')+sn('Res',fE(d.res),'var(--r)');
@@ -8189,7 +8221,7 @@ function reanalyse(){
       sn('EMA20',fE(d.ema20),d.price>d.ema20?'var(--g)':'var(--r)')+
       sn('EMA50',fE(d.ema50),d.ema20>d.ema50?'var(--g)':'var(--r)')+
       sn('EMA200',fE(d.ema200),d.ema50>d.ema200?'var(--g)':'var(--r)')+
-      sn('Vol',d.volR.toFixed(2)+'×',d.volR>=1.5?'var(--g)':'var(--t2)')+
+      sn('Vol',rowVolumeText(d.volR,2)+'',d.volR>=1.5?'var(--g)':'var(--t2)')+
       sn('Struct',d.struct,d.struct==='breakout'||d.struct==='HH/HL'?'var(--g)':d.struct==='breakdown'||d.struct==='LH/LL'?'var(--r)':'var(--t2)')+
       sn('Sweep',d.liq==='buy_sweep'?'🟢 BUY':d.liq==='sell_sweep'?'🔴 SELL':d.liq,d.liq==='buy_sweep'?'var(--g)':d.liq==='sell_sweep'?'var(--r)':'var(--t3)')+
       sn('Sup',fE(d.sup),'var(--g)')+sn('Res',fE(d.res),'var(--r)')+
@@ -8222,7 +8254,7 @@ function buildWhyRanked(d) {
   // Volume pillar
   var volPts = d.volR>=3?25:d.volR>=2?20:d.volR>=1.5?15:d.volR>=1?10:5;
   // Structure
-  var stMap = {breakout:20,'HH/HL':16,accumulation:12,consolidation:6,'LH/LL':2,breakdown:0};
+  var stMap = {breakout:20,'HH/HL':16,'low-volatility range':6,consolidation:6,'LH/LL':2,breakdown:0};
   var stPts = stMap[d.struct] || 6;
   // Liquidity
   var liqMap = {buy_sweep:15,above_res:8,none:5,below_sup:2,sell_sweep:0};
@@ -8234,12 +8266,13 @@ function buildWhyRanked(d) {
   h += '<div class="abt">🔬 Why this score? — exact factor breakdown</div>';
   h += '<div style="margin-top:.5rem">';
   h += row('EMA Trend', emaPts, 30, emaNote);
-  h += row('Volume', volPts, 25, d.volR.toFixed(1)+'× avg');
+  h += row('Volume', volPts, 25, rowVolumeText(d.volR,1)+' avg');
   h += row('Structure', stPts, 20, d.struct);
   h += row('Liquidity', liqPts, 15, d.liq.replace('_',' '));
   h += row('RSI', rsiPts, 10, 'RSI '+d.rsi.toFixed(0));
   h += '</div>';
   h += '<div style="margin-top:.5rem;padding-top:.5rem;border-top:.5px solid var(--bd);font-size:12px;color:var(--t2)">';
+  h += '<div>'+_escProviderHtml(rowMetricNote(d))+'</div>';
   h += 'Final score <strong style="color:var(--text)">'+d.score+'/97</strong> · Opportunity <strong style="color:#7c4dff">'+(d.opportunity||0)+'/100</strong> · RS Rank <strong>'+(d.rsRank||'—')+'</strong> · Trend Quality <strong>'+(d.trendQ||0)+'</strong>';
   h += '<div style="font-size:9px;color:var(--t3);margin-top:3px;line-height:1.4">⚠️ These scores share inputs (EMA stack, RSI, volume, structure) — Opportunity is partly built from the others. They are <strong>not 4 independent confirmations</strong>; a coin scores high on all of them for the same underlying reasons. Read them as one view, not four votes.</div>';
   h += '</div>';
@@ -8612,14 +8645,14 @@ function buildEntryTab(d){
   else if(d.rsi>=40&&d.rsi<50){sc+=5;factors.push({s:5,m:15,ok:false,l:'RSI Quality',t:'RSI '+d.rsi.toFixed(1)+' below 50, weak ❌'});}
   else{factors.push({s:0,m:15,ok:false,l:'RSI Quality',t:'RSI '+d.rsi.toFixed(1)+' unfavourable ❌'});}
   // 4. Volume (15pts)
-  if(d.volR>=2.5){sc+=15;factors.push({s:15,m:15,ok:true,l:'Volume',t:'Vol '+d.volR.toFixed(2)+'× — strong conviction ✅'});}
-  else if(d.volR>=1.5){sc+=10;factors.push({s:10,m:15,ok:true,l:'Volume',t:'Vol '+d.volR.toFixed(2)+'× — confirmed ✅'});}
-  else if(d.volR>=0.9){sc+=5;factors.push({s:5,m:15,ok:false,l:'Volume',t:'Vol '+d.volR.toFixed(2)+'× — average ⚠'});}
-  else{factors.push({s:0,m:15,ok:false,l:'Volume',t:'Vol '+d.volR.toFixed(2)+'× — drying up ❌'});}
+  if(d.volR>=2.5){sc+=15;factors.push({s:15,m:15,ok:true,l:'Volume',t:'Vol '+rowVolumeText(d.volR,2)+' — strong conviction ✅'});}
+  else if(d.volR>=1.5){sc+=10;factors.push({s:10,m:15,ok:true,l:'Volume',t:'Vol '+rowVolumeText(d.volR,2)+' — confirmed ✅'});}
+  else if(d.volR>=0.9){sc+=5;factors.push({s:5,m:15,ok:false,l:'Volume',t:'Vol '+rowVolumeText(d.volR,2)+' — average ⚠'});}
+  else{factors.push({s:0,m:15,ok:false,l:'Volume',t:rowMetricKnown(d.volR)?'Vol '+rowVolumeText(d.volR,2)+' — drying up':'Unknown volume — no confirmation'});}
   // 5. Structure (15pts)
   if(d.struct==='breakout'){sc+=15;factors.push({s:15,m:15,ok:true,l:'Structure',t:'Breakout — strongest signal ✅'});}
   else if(d.struct==='HH/HL'){sc+=12;factors.push({s:12,m:15,ok:true,l:'Structure',t:'HH/HL — healthy uptrend ✅'});}
-  else if(d.struct==='accumulation'){sc+=8;factors.push({s:8,m:15,ok:true,l:'Structure',t:'Accumulation — coiling for move ⚠'});}
+  else if(d.struct==='low-volatility range'){sc+=0;factors.push({s:0,m:15,ok:true,l:'Structure',t:'Low-volatility range — direction unconfirmed'});}
   else if(d.struct==='consolidation'){sc+=4;factors.push({s:4,m:15,ok:false,l:'Structure',t:'Consolidation — no direction ⚠'});}
   else{factors.push({s:0,m:15,ok:false,l:'Structure',t:d.struct+' — bearish ❌'});}
   // 6. Liq Sweep (10pts)
@@ -8711,7 +8744,7 @@ function buildRuleTab(d){
     {ok:d.ema20>d.ema50,t:'EMA20 > EMA50 (uptrend aligned)'},
     {ok:d.ema50>d.ema200,t:'EMA50 > EMA200 (macro uptrend)'},
     {ok:d.rsi>50&&d.rsi<70,t:'RSI '+d.rsi.toFixed(1)+' in bullish zone (50–70)'},
-    {ok:d.volR>1.5,t:'Volume ratio '+d.volR.toFixed(2)+'× ≥ 1.5'},
+    {ok:d.volR>1.5,t:'Volume ratio '+rowVolumeText(d.volR,2)+' ≥ 1.5'},
     {ok:d.struct==='breakout'||d.struct==='HH/HL',t:'Structure: '+d.struct+' (breakout or HH/HL required)'},
     {ok:d.liq==='buy_sweep',t:'Liquidity sweep below support (smart money buy)'},
   ];
@@ -9147,7 +9180,7 @@ function autoLogSignals(){
         else if(d.ema20>d.ema50) w.push('short-term trend up');
         if(d.rsi>=45 && d.rsi<=68) w.push('RSI '+Math.round(d.rsi)+' — momentum present, not overbought');
         if(d.rsiRising) w.push('RSI turning up');
-        if(d.volR>=1.3) w.push('volume '+d.volR.toFixed(1)+'× average — real participation');
+        if(d.volR>=1.3) w.push('volume '+rowVolumeText(d.volR,1)+' average — real participation');
         else if(d.volR>=1) w.push('volume around average');
         w.push('BTC '+btcState+' — '+((btcState==='bullish'||btcState==='stable')?'supportive backdrop':'weak backdrop'));
         w.push('stop below support at −'+stopPct.toFixed(1)+'%, target +'+targetPct.toFixed(1)+'% (R:R '+rr.toFixed(1)+')');
@@ -12571,7 +12604,7 @@ function renderConfluence(d,results,request){
       var s=r.structure,e=s.event;
       h+='<div class="cf-structure" style="color:'+colors[s.side]+'">'+esc(s.label)+'</div>';
       h+='<dl><dt>EMA trend</dt><dd>'+esc(r.trend==='bull'?'Bullish':r.trend==='bear'?'Bearish':'Mixed')+'</dd><dt>RSI · Wilder 14</dt><dd>'+r.rsi.toFixed(1)+'</dd>';
-      h+='<dt>Closed volume</dt><dd>'+(r.volR==null?'Unknown':r.volR.toFixed(2)+'×'+(r.volR>=1.5?' · Elevated':' · Below 1.5×'))+'</dd>';
+      h+='<dt>Closed volume</dt><dd>'+(r.volR==null?'Unknown':rowVolumeText(r.volR,2)+''+(r.volR>=1.5?' · Elevated':' · Below 1.5×'))+'</dd>';
       h+='<dt>Level confirmation</dt><dd>'+esc(e?e.text+' · '+e.barsAgo+' bars ago':'No confirmed break')+'</dd></dl>';
       if(tf==='1h')h+='<p class="cf-note">EMA20 pullback hold: '+(r.pullback?'Yes · last closed candle':'Not confirmed on last close')+'</p>';
       if(tf==='15m')h+='<p class="cf-note">Timing conditions: '+(r.trigger?'Met on last close':'Waiting')+'</p>';
@@ -14874,7 +14907,7 @@ function buildTradePlan(d){
   if(d.struct==='HH/HL'||d.struct==='consolidation') pbConds.push('healthy structure');
   // Breakout favorability
   if(d.struct==='breakout') boConds.push('price breaking structure');
-  if(d.volR>1.5) boConds.push('volume surge ('+d.volR.toFixed(1)+'×)');
+  if(d.volR>1.5) boConds.push('volume surge ('+rowVolumeText(d.volR,1)+')');
   if(d.breakout && d.breakout.state==='confirmed') boConds.push('breakout confirmed (held)');
   if(d.rsi>=55 && d.rsi<=68) boConds.push('momentum RSI');
   if(p > (d.res||p*99)) boConds.push('above prior resistance');
@@ -15183,21 +15216,22 @@ function runProAnalysis(d) {
 
   // Factor 4: Volume Confirmation (15pts)
   // Rule: only enter when institutional (>1.5×) volume supports the move
-  if (d.volR >= 2 && d.chg >= 0) {
+  if(!rowMetricKnown(d.volR)){factors.push({pts:0,max:15,ok:false,name:'Volume',note:'Unknown volume; no confirmation credit'});}
+  else if (d.volR >= 2 && d.chg >= 0) {
     score += 15; factors.push({pts:15, max:15, ok:true, name:'Volume',
-      note:'Vol ' + d.volR.toFixed(2) + '× on bullish move — higher participation observed; buyer identity unknown'});
+      note:'Vol ' + rowVolumeText(d.volR,2)+' on bullish move — higher participation observed; buyer identity unknown'});
   } else if (d.volR >= 1.5 && d.chg >= 0) {
     score += 10; factors.push({pts:10, max:15, ok:true, name:'Volume',
-      note:'Vol ' + d.volR.toFixed(2) + '× — above average, buying pressure present'});
+      note:'Vol ' + rowVolumeText(d.volR,2)+' — above average, buying pressure present'});
   } else if (d.volR >= 1.5 && d.chg < 0) {
     score += 3; factors.push({pts:3, max:15, ok:false, name:'Volume',
-      note:'Vol ' + d.volR.toFixed(2) + '× on down-move — distribution signal, caution'});
-  } else if (d.volR < 0.7) {
+      note:'Vol ' + rowVolumeText(d.volR,2)+' on down-move — distribution signal, caution'});
+  } else if (rowMetricKnown(d.volR)&&d.volR < 0.7) {
     score += 2; factors.push({pts:2, max:15, ok:false, name:'Volume',
-      note:'Vol ' + d.volR.toFixed(2) + '× — weak participation; breakout confirmation is missing'});
+      note:'Vol ' + rowVolumeText(d.volR,2)+' — weak participation; breakout confirmation is missing'});
   } else {
     score += 6; factors.push({pts:6, max:15, ok:null, name:'Volume',
-      note:'Vol ' + d.volR.toFixed(2) + '× — average, neutral confirmation'});
+      note:'Vol ' + rowVolumeText(d.volR,2)+' — average, neutral confirmation'});
   }
 
   // Factor 5: Market Structure (20pts)
@@ -15211,7 +15245,7 @@ function runProAnalysis(d) {
   } else if (d.struct === 'HH/HL') {
     score += 16; factors.push({pts:16, max:20, ok:true, name:'Structure',
       note:'Higher Highs/Higher Lows — textbook uptrend, buy the dip to last HL'});
-  } else if (d.struct === 'accumulation') {
+  } else if (d.struct === 'low-volatility range') {
     score += 12; factors.push({pts:12, max:20, ok:true, name:'Structure',
       note:'Base building / accumulation — pre-breakout coiling, SL is tight'});
   } else if (d.struct === 'consolidation') {
@@ -15316,7 +15350,7 @@ function runProAnalysis(d) {
       name: 'Breakout Confirmation', icon: '🔵', type: 'momentum',
       price: d.res * 1.005, saving: -((d.res * 1.005 - p) / p * 100),
       rrMain: slPct > 0 ? ((d.res * 1.05 - d.res * 1.005) / (d.res * 1.005) * 100) / slPct : 0,
-      valid: d.struct === 'accumulation' || d.struct === 'consolidation',
+      valid: d.struct === 'low-volatility range' || d.struct === 'consolidation',
       reason: 'Enter only after candle CLOSES above resistance ' + fE(d.res) + ' with volume ≥1.5×. Eliminates false breakout risk. Costs a premium but highest confirmation.',
       order: 'Stop-limit above ' + fE(d.res)
     }
@@ -15326,7 +15360,7 @@ function runProAnalysis(d) {
   var rec = 'ema20'; // default
   if (score >= 82 && distFromE20 < 2 && rr1 >= 2.5) rec = 'market';
   else if (d.liq === 'buy_sweep' && d.struct === 'HH/HL') rec = 'support';
-  else if (d.struct === 'accumulation' || d.struct === 'consolidation') rec = 'breakout';
+  else if (d.struct === 'low-volatility range' || d.struct === 'consolidation') rec = 'breakout';
   else if (score >= 76) rec = 'ema20';
   else rec = 'ema50';
 
@@ -15518,7 +15552,7 @@ function runProAnalysis(d) {
   h += '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:' + verdictColor + ';margin-bottom:5px">📋 One-Line Summary</div>';
   var summary = '';
   if (setupScore >= 80) {
-    summary = d.pair + ': ' + trendPhase + ', price near EMA20 demand zone, RSI ' + d.rsi.toFixed(0) + ' in optimal window, volume ' + d.volR.toFixed(2) + '× confirms. Enter at EMA20 (' + fE(d.ema20) + '), SL at ' + fE(sl) + ', TP1 ' + fE(tp1) + ' (R:R ' + rr1.toFixed(1) + ').';
+    summary = d.pair + ': ' + trendPhase + ', price near EMA20 demand zone, RSI ' + d.rsi.toFixed(0) + ' in optimal window, volume ' + rowVolumeText(d.volR,2)+' confirms. Enter at EMA20 (' + fE(d.ema20) + '), SL at ' + fE(sl) + ', TP1 ' + fE(tp1) + ' (R:R ' + rr1.toFixed(1) + ').';
   } else if (setupScore >= 65) {
     summary = d.pair + ': Setup valid but not prime. Missing: ' + factors.filter(function(f){return !f.ok&&f.ok!==null;}).slice(0,2).map(function(f){return f.name;}).join(', ') + '. Ideal entry at EMA20 (' + fE(d.ema20) + '). Do not chase above ' + fE(d.ema20 * 1.05) + '.';
   } else if (setupScore >= 50) {
@@ -16124,11 +16158,12 @@ var candleWatcher = {
       else                              { bearScore += 5;  analysis.push({ f:'RSI',         bull:false, txt:'RSI ' + rsi.toFixed(1) + ' — neutral zone' }); }
 
       // 4. Volume (weight: 12)
-      if (volR >= 2.5 && chg > 0)       { bullScore += 12; analysis.push({ f:'Volume',      bull:true,  txt:'Vol ' + volR.toFixed(2) + '× surge on bullish close — conviction' }); }
-      else if (volR >= 1.5 && chg > 0)  { bullScore += 8;  analysis.push({ f:'Volume',      bull:true,  txt:'Vol ' + volR.toFixed(2) + '× above avg — bullish confirmation' }); }
-      else if (volR >= 2.5 && chg < 0)  { bearScore += 12; analysis.push({ f:'Volume',      bull:false, txt:'Vol ' + volR.toFixed(2) + '× surge on bearish close — distribution' }); }
-      else if (volR < 0.6)               { bearScore += 8;  analysis.push({ f:'Volume',      bull:false, txt:'Vol ' + volR.toFixed(2) + '× — drying up, no conviction' }); }
-      else                               { bullScore += 3;  analysis.push({ f:'Volume',      bull:null,  txt:'Vol ' + volR.toFixed(2) + '× — average volume' }); }
+      if(!rowMetricKnown(volR)){analysis.push({f:'Volume',bull:null,txt:'Unknown volume; no confirmation credit'});}
+      else if (volR >= 2.5 && chg > 0)       { bullScore += 12; analysis.push({ f:'Volume',      bull:true,  txt:'Vol ' + rowVolumeText(volR,2)+' surge on bullish close — conviction' }); }
+      else if (volR >= 1.5 && chg > 0)  { bullScore += 8;  analysis.push({ f:'Volume',      bull:true,  txt:'Vol ' + rowVolumeText(volR,2)+' above avg — bullish confirmation' }); }
+      else if (volR >= 2.5 && chg < 0)  { bearScore += 12; analysis.push({ f:'Volume',      bull:false, txt:'Vol ' + rowVolumeText(volR,2)+' surge on bearish close — distribution' }); }
+      else if (volR < 0.6)               { bearScore += 8;  analysis.push({ f:'Volume',      bull:false, txt:'Vol ' + rowVolumeText(volR,2)+' — drying up, no conviction' }); }
+      else                               { bullScore += 3;  analysis.push({ f:'Volume',      bull:null,  txt:'Vol ' + rowVolumeText(volR,2)+' — average volume' }); }
 
       // 5. Market Structure (weight: 15)
       if (struct === 'breakout')         { bullScore += 15; analysis.push({ f:'Structure',   bull:true,  txt:'Breakout above resistance — strongest bullish signal' }); }
@@ -20062,7 +20097,7 @@ function showToast(d,type,label){
   el.innerHTML='<button class="t-close">✕</button>'+
     '<div class="t-row1"><span class="t-ico">'+ico+'</span><span class="t-pair">'+d.pair+'</span>'+
     '<span class="t-typ" style="background:'+typeBg+';color:'+typeCol+'">'+label+'</span></div>'+
-    '<div class="t-detail">RSI <strong>'+d.rsi.toFixed(1)+'</strong> · Vol <strong>'+d.volR.toFixed(2)+'×</strong> · Score <strong>'+d.score+'</strong></div>'+
+    '<div class="t-detail">RSI <strong>'+d.rsi.toFixed(1)+'</strong> · Vol <strong>'+rowVolumeText(d.volR,2)+'</strong> · Score <strong>'+d.score+'</strong></div>'+
     '<div class="t-price">'+fP(d.price)+' <span style="color:'+chgC+';font-weight:700">'+chgS+d.chg.toFixed(2)+'%</span></div>'+
     '<div class="t-entry">'+entryNote+'</div>'+
     '<div class="toast-bar" style="background:'+barCol+'"></div>';
@@ -20514,7 +20549,7 @@ function renderBacktestResults(sym, tf, klines, holdBars, exitRule, bars) {
       var entryDate = new Date(parseInt(klines[entryBarIdx][0]));
       trades.push({
         entryBar:entryBarIdx, entryPrice:entryPrice, entryDate:entryDate,
-        score:sc, rsi:rsi.toFixed(1), volR:volR.toFixed(2),
+        score:sc, rsi:rsi.toFixed(1), volR:rowMetricText(volR,2),
         struct:st, liq:liq, strong:strongBuy,
         exitBar:null, exitPrice:null, pnlPct:null, barsHeld:null
       });
@@ -22269,7 +22304,7 @@ function computeEarlyWatch(data){
   // excluded structurally, not scored away. Also require real tradability —
   // a perfect base on an illiquid coin is not a spot opportunity.
   var rows = data.filter(function(d){
-    if(!d._ew || d._stale) return false;
+    if(!d._ew || d._stale || d.rowDataReady===false) return false;
     if(d._ew.isDecline) return false;                     // grinding lower ≠ basing
     if(d._ew.baseType === 'none') return false;           // no recognisable base
     if((d.vol24usd || d.vol24 || 0) < 3000000) return false;   // <$3M/day = slippage risk
