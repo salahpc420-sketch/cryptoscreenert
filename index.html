@@ -608,7 +608,10 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 .oc-priority{border-top:1px solid var(--bd,#ddd);padding-top:14px}.oc-proof{padding:8px;margin:5px 0;background:var(--card2);border-radius:5px;overflow-wrap:anywhere}.oc-table-wrap{overflow-x:auto}.oc-history-table{width:100%;border-collapse:collapse;font-size:11px}.oc-history-table th,.oc-history-table td{text-align:left;padding:8px;border-bottom:1px solid var(--bd,#ddd)}
 @media(max-width:720px){.dex-flow-grid{grid-template-columns:1fr}.dex-flow-row{font-size:12px}.btc-live-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
-</head>
+<style>
+.spot-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.spot-heading h3{margin:0}.spot-heading p,.spot-muted{font-size:11px;color:var(--t2);line-height:1.6}.spot-note{background:var(--card2);border:1px solid var(--bd);padding:12px;margin:12px 0;font-size:12px;line-height:1.65}.spot-note p{margin:5px 0}.spot-tape-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:8px}.spot-tape-grid article,.spot-events article,.spot-review-grid article{border:1px solid var(--bd);padding:10px;min-width:0;overflow-wrap:anywhere}.spot-tape-grid strong{font-size:21px;margin:7px 0}.spot-tape-grid b,.spot-tape-grid strong,.spot-tape-grid span,.spot-tape-grid small,.spot-events b,.spot-events small,.spot-events span{display:block}.spot-tape-grid span,.spot-events span{font-size:11px}.spot-tape-grid small,.spot-events small,.spot-review-grid small{font-size:10px;color:var(--t2);line-height:1.7}.spot-events{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}.spot-events a{display:block;color:var(--bl);font-weight:700;font-size:12px;margin-bottom:5px}.spot-events b{font-size:12px}.spot-review-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:8px;margin-top:10px}.spot-rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin:16px 0}.spot-rules article{padding:8px 0;border-top:1px solid var(--bd);font-size:12px;line-height:1.65}.spot-rules p{margin:4px 0}.spot-risk-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}.spot-risk-grid label{font-size:11px;color:var(--t2)}.spot-risk-grid input,#spot-pair{display:block;background:var(--card2);color:var(--text);border:1px solid var(--bd);padding:9px;width:100%;min-width:0;box-sizing:border-box;margin:4px 0}.spot-note label{display:inline-block;max-width:100%}#spot-strategy-body>p,#spot-strategy-body details{font-size:12px;line-height:1.7}#spot-strategy-body details{padding:10px 0;border-top:1px solid var(--bd)}#spot-strategy-body summary{cursor:pointer;font-weight:700}#spot-strategy-body h3,#spot-macro-body h3{font-size:15px}#spot-strategy-body a{color:var(--bl)}
+@media(max-width:480px){.spot-tape-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.spot-events,.spot-rules,.spot-review-grid{grid-template-columns:1fr}.spot-risk-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style></head>
 <body>
 
 <div class="wrap">
@@ -637,7 +640,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
     </div>
     <button class="btn" onclick="loadAll()">↻ Refresh</button>
     <button id="btc-filter-btn" class="btn" onclick="toggleBTCFilter()" title="BTC Trend Filter — only show buy signals when BTC score ≥ 52" style="color:var(--g);border-color:var(--g)">₿ ON</button>
-    <button id="precision-btn" class="btn" onclick="togglePrecision()" title="Precision Mode — tighter filter that scored ~72% win rate in backtests on simulated data. Far fewer signals. Verify with the backtester on real coins before trusting it." style="color:var(--t3)">🎯 Precision: OFF</button>
+    <button id="precision-btn" class="btn" onclick="togglePrecision()" title="Precision Mode — tighter experimental filter. No validated win rate. Test separately on real, later data after costs." style="color:var(--t3)">🎯 Precision: OFF</button>
     <button class="btn" id="auto-btn" onclick="toggleAuto()">⏱ Auto Off</button>
     <button class="btn" id="trade-mode-btn" onclick="toggleTradeMode()" title="Trading = short-term setups (needs momentum, BTC stable/bullish). Investing = accumulate quality coins at a discount (downturns are good)." style="color:var(--g);border-color:var(--g);font-weight:700">🎯 Trading</button>
     <button class="btn" id="view-mode-btn" onclick="toggleViewMode()" title="Basic shows just the essentials; Advanced shows every metric column." style="color:var(--t3)">📊 Basic view</button>
@@ -675,6 +678,8 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 <div id="intel-bar">
   <div class="intel-tabs">
     <button class="intel-tab active" id="it-macro" onclick="showIntel('macro')">🌍 Macro</button>
+    <button class="intel-tab" id="it-macrotape" onclick="showIntel('macrotape')">Macro tape</button>
+    <button class="intel-tab" id="it-spotstrategy" onclick="showIntel('spotstrategy')">Spot strategy</button>
     <button class="intel-tab" id="it-marketread" onclick="showIntel('marketread')">🧭 Market Read</button>
     <button class="intel-tab" id="it-buyzone" onclick="showIntel('buyzone')">💰 Buy Zone <span id="it-buyzone-dot" class="idot"></span></button>
     <button class="intel-tab" id="it-regime" onclick="showIntel('regime')">🌐 Regime <span id="it-regime-dot" class="idot"></span></button>
@@ -696,6 +701,8 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       <div class="macro-grid" id="macro-grid"><div style="font-size:12px;color:var(--t3)">Loading macro data…</div></div>
       <div id="btc-detail" style="margin-top:.8rem"></div>
     </div>
+    <div class="intel-panel" id="ip-macrotape"><div id="spot-macro-body"></div></div>
+    <div class="intel-panel" id="ip-spotstrategy"><div id="spot-strategy-body"></div></div>
     <!-- MACRO REGIME -->
     <div class="intel-panel" id="ip-regime">
       <div id="macro-regime-body"><div style="font-size:11px;color:var(--t3)">Analyzing market regime…</div></div>
@@ -729,7 +736,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       </div>
       <div id="macro-risk-bar" style="margin-bottom:.75rem"></div>
       <div id="macro-events-body"><div style="font-size:11px;color:var(--t3)">Loading economic calendar…</div></div>
-      <div style="font-size:10px;color:var(--t3);margin-top:.625rem;line-height:1.6">ℹ️ <strong>These are scheduled release dates</strong> computed from standard government calendars (NFP = 1st Friday, CPI ≈ 13th, FOMC from the Fed's published schedule). They show <em>when</em> events happen, not the actual numbers or whether data beat/missed forecast. Tap a link above for live data and exact times.</div>
+      <div style="font-size:10px;color:var(--t3);margin-top:.625rem;line-height:1.6">ℹ️ <strong>These are scheduled release dates</strong> copied from BLS, BEA and Federal Reserve calendars, checked September 13, 2026. Coverage: selected US releases, September–December 2026. Japan times include US daylight-saving changes. Check each official link for revisions. This panel does not fetch actual results or consensus forecasts.</div>
     </div>
     <!-- CANDLE CLOSE -->
     <div class="intel-panel" id="ip-candle">
@@ -15860,13 +15867,16 @@ function togglePanel(id){
 
 // ── Market Intel tabbed bar ──────────────────────────────────────────────────
 function showIntel(which){
-  var tabs = ['macro','marketread','buyzone','regime','narr','sector','events','candle','moon','agent','beta'];
+  var tabs = ['macro','macrotape','spotstrategy','marketread','buyzone','regime','narr','sector','events','candle','moon','agent','beta'];
   tabs.forEach(function(t){
     var tab = document.getElementById('it-'+t);
     var panel = document.getElementById('ip-'+t);
     if(tab) tab.classList.toggle('active', t===which);
     if(panel) panel.classList.toggle('active', t===which);
   });
+  if(which==='macrotape'){renderSpotMacro();refreshMacroData(false);}
+  if(which==='spotstrategy'){renderSpotStrategy();renderSpotReview();}
+  if(which==='events')renderMacroEvents();
   if(which==='buyzone') renderBuyZone();
   if(which==='marketread'){
     renderMarketRead();
@@ -21240,20 +21250,7 @@ function buildSourcesPanel(){
   h += externalHealthMarkup();
   h += macroSourceControlMarkup();
 
-  // MACRO TAPE
-  if(Object.keys(_macro).length){
-    h += '<div style="font-size:11px;font-weight:700;color:var(--t2);margin-bottom:4px">Macro tape <span style="font-weight:400;color:var(--t3)">— BTC trades as a liquidity asset, so this often explains moves the crypto charts cannot</span></div>';
-    h += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:.7rem">';
-    MACRO_TICKERS.forEach(function(t){
-      var m = _macro[t.key]; if(!m) return;
-      // for DXY/VIX/yields a RISE is a headwind for crypto — colour by effect, not sign
-      var goodForCrypto = m.inverse ? m.chg < 0 : m.chg > 0;
-      var col = Math.abs(m.chg) < 0.15 ? 'var(--t3)' : (goodForCrypto ? 'var(--g)' : 'var(--r)');
-      h += '<div><div style="font-size:14px;font-weight:800;color:var(--text)">'+(m.price>1000?Math.round(m.price).toLocaleString():m.price.toFixed(2))+'</div>'
-         + '<div style="font-size:10px;color:'+col+'">'+m.label+' '+(m.chg>=0?'+':'')+m.chg.toFixed(2)+'%</div></div>';
-    });
-    h += '</div>';
-  }
+  h+='<h4>Macro observations</h4>'+spotMacroCards()+'<p class="spot-muted">Sources and observation times matter. Open Macro tape for the event schedule.</p>';
   // DERIVATIVES
   if(Object.keys(_derivs).length){
     h += '<div style="font-size:11px;font-weight:700;color:var(--t2);margin-bottom:4px">BTC derivatives <span style="font-weight:400;color:var(--t3)">— read as CROWDING, not direction. You trade spot; this is squeeze risk.</span></div>';
@@ -21324,7 +21321,7 @@ function runDailyBrief(){
   if(Object.keys(_macro).length){
     var macroSources={};Object.keys(_macro).forEach(function(k){macroSources[_macro[k].source||'saved source']=true;});
     have.push('MACRO TAPE ('+Object.keys(macroSources).join(' + ')+'): ' + MACRO_TICKERS.map(function(t){
-      var m=_macro[t.key]; return m ? m.label+' '+m.price.toFixed(2)+' ('+(m.chg>=0?'+':'')+m.chg.toFixed(2)+'%)' : null;
+      var m=_macro[t.key];if(!m)return null;var quality=spotMacroQuality(m),unit=t.key==='tnx'&&!m.proxyInstrument?'% yield':'',change=unit?(m.changeBps==null?'unknown change':m.changeBps.toFixed(1)+' bp'):m.chg.toFixed(2)+'%';return m.label+' '+m.price.toFixed(2)+unit+' ('+change+' vs prior observation); '+quality.label+'; observed '+(m.observationDate||(m.observedAt?new Date(m.observedAt).toISOString():'Unknown'))+'; fetched '+(m.fetchedAt?new Date(m.fetchedAt).toISOString():'Unknown')+'; contextual only, never an independent entry signal';
     }).filter(Boolean).join(', '));
   } else missing.push('macro tape');
   if(Object.keys(_derivs).length){
@@ -21926,20 +21923,21 @@ function _macroApiKey(){try{return (localStorage.getItem('twelvedata_macro_api_k
 function macroSourceControlMarkup(){
   var saved=!!_macroApiKey();
   var h='<details style="margin:-.25rem 0 .75rem;padding:7px 9px;border:.5px solid var(--bd);border-radius:7px;background:var(--card)" '+(!saved&&_externalHealth.macro.state==='failed'?'open':'')+'>';
-  h+='<summary style="font-size:10px;cursor:pointer;color:'+(saved?'var(--g)':'var(--t2)')+'"><b>Live macro source:</b> '+(saved?'Twelve Data key configured':'Yahoo can be rate-limited · add a free Twelve Data key')+'</summary>';
-  h+='<div style="font-size:9px;color:var(--t3);line-height:1.5;margin-top:7px">The key restores live US/FX readings using clearly labelled SPY, QQQ, UUP, VIXY, GLD and TLT market proxies plus USD/JPY. FRED remains daily fallback only. The key stays in this browser and is never sent through a public proxy.</div>';
+  h+='<summary style="font-size:10px;cursor:pointer;color:'+(saved?'var(--g)':'var(--t2)')+'"><b>Macro source:</b> '+(saved?'Twelve Data key configured':'Yahoo can be rate-limited · add a free Twelve Data key')+'</summary>';
+  h+='<div style="font-size:9px;color:var(--t3);line-height:1.5;margin-top:7px">An optional key requests US/FX snapshots using labelled SPY, QQQ, UUP, VIXY, GLD and TLT proxies plus USD/JPY. Access, delay and quota depend on your provider plan. FRED remains daily fallback only. The key stays in this browser and is never sent through a public proxy.</div>';
   h+='<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:7px"><input id="macro-twelve-key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste Twelve Data API key" style="width:245px;max-width:100%;padding:6px 8px;border:.5px solid var(--bd2);border-radius:6px;background:var(--card2);color:var(--text);font-size:10px">'
     +'<button type="button" onclick="saveMacroApiKey()" style="padding:6px 10px;border:none;border-radius:6px;background:var(--bl);color:#fff;font-size:10px;font-weight:700;cursor:pointer">Save &amp; test</button>'
     +(saved?'<button type="button" onclick="removeMacroApiKey()" style="padding:6px 10px;border:.5px solid var(--bd);border-radius:6px;background:transparent;color:var(--t2);font-size:10px;cursor:pointer">Remove key</button>':'')
     +'<a href="https://twelvedata.com/pricing" target="_blank" rel="noopener noreferrer" style="font-size:9px;color:var(--bl)">Get free key</a><span id="macro-key-status" style="font-size:9px;color:var(--t3)"></span></div></details>';
   return h;
 }
-function saveMacroApiKey(){
-  var input=document.getElementById('macro-twelve-key'),status=document.getElementById('macro-key-status');
+function saveMacroApiKey(prefix){
+  prefix=prefix==='tape-'?'tape-':'';
+  var input=document.getElementById(prefix+'macro-twelve-key'),status=document.getElementById(prefix+'macro-key-status');
   var key=String(input&&input.value||'').trim();
   if(!/^[A-Za-z0-9_-]{16,160}$/.test(key)){if(status){status.textContent='Paste a valid key.';status.style.color='var(--r)';}return;}
   try{localStorage.setItem('twelvedata_macro_api_key',key);localStorage.removeItem('macro_tape');}catch(e){if(status){status.textContent='Browser storage is blocked.';status.style.color='var(--r)';}return;}
-  _macro={};if(input)input.value='';if(status){status.textContent='Saved. Testing live data…';status.style.color='var(--bl)';}
+  _macro={};if(input)input.value='';if(status){status.textContent='Saved. Testing provider access…';status.style.color='var(--bl)';}
   refreshMacroData(true);
 }
 function removeMacroApiKey(){
@@ -21975,7 +21973,7 @@ function externalHealthMarkup(){
   ['macro','derivs','stables','onchain'].forEach(function(name){
     var x=_externalHealth[name]||{},state=x.state||'idle';
     var col=state==='ready'?'var(--g)':state==='partial'||state==='stale'?'var(--am)':state==='failed'?'var(--r)':state==='loading'?'var(--bl)':'var(--t3)';
-    var label=state==='ready'?'LIVE':state==='partial'?'PARTIAL':state==='stale'?'STALE':state==='failed'?'FAILED':state==='loading'?'LOADING':'WAITING';
+    var label=state==='ready'?'LOADED':state==='partial'?'PARTIAL':state==='stale'?'STALE':state==='failed'?'FAILED':state==='loading'?'LOADING':'WAITING';
     var when=x.updatedAt?' · '+new Date(x.updatedAt).toLocaleTimeString():'';
     h+='<span title="'+_externalEsc((x.source||'')+' — '+(x.message||''))+'" style="display:inline-flex;align-items:center;gap:5px;padding:4px 7px;border:.5px solid var(--bd);border-radius:6px;background:var(--card);font-size:9px;color:var(--t2)"><b>'+_externalEsc(x.label)+'</b><span style="font-weight:800;color:'+col+'">'+label+'</span><span style="color:var(--t3)">'+_externalEsc(when)+'</span></span>';
   });
@@ -21987,6 +21985,7 @@ function externalHealthMarkup(){
 }
 function _redrawExternalPanel(){
   if(typeof document==='undefined')return;
+  if(typeof renderSpotMacro==='function')renderSpotMacro();
   var old=document.getElementById('external-data-panel');if(!old)return;
   var brief=document.getElementById('brief-out'),saved=brief?brief.innerHTML:'';
   old.outerHTML=buildSourcesPanel();
@@ -22039,21 +22038,26 @@ var MACRO_TICKERS = [
   { sym:'USDJPY=X', label:'USD/JPY', key:'usdjpy', fred:'DEXJPUS', twelve:'USD/JPY', twelveLabel:'USD/JPY' }
 ];
 function _parseMacroTicker(j,t){
-  var r=j&&j.chart&&j.chart.result&&j.chart.result[0];
-  var cl=r&&r.indicators&&r.indicators.quote&&r.indicators.quote[0].close;
+  var r=j&&j.chart&&j.chart.result&&j.chart.result[0],cl=r&&r.indicators&&r.indicators.quote&&r.indicators.quote[0].close;
   if(!Array.isArray(cl))throw new Error('Yahoo response has no closing prices');
-  var vals=cl.filter(function(x){return x!=null&&isFinite(Number(x));}).map(Number);
+  var vals=[];cl.forEach(function(x,i){if(x!=null&&x!==''&&isFinite(Number(x))&&Number(x)>0)vals.push({value:Number(x),time:r.timestamp&&Number(r.timestamp[i])*1000});});
   if(vals.length<2)throw new Error('Yahoo response has insufficient history');
-  var last=vals[vals.length-1],prev=vals[vals.length-2];
-  return {key:t.key,label:t.label,price:last,chg:(last-prev)/prev*100,inverse:!!t.inverse,source:'Yahoo Finance'};
+  var last=vals[vals.length-1],prev=vals[vals.length-2],observed=isFinite(last.time)&&last.time>0?last.time:null;
+  return {key:t.key,label:t.label,price:last.value,chg:(last.value-prev.value)/prev.value*100,inverse:!!t.inverse,source:'Yahoo Finance',
+    observedAt:observed,observationDate:observed?new Date(observed).toISOString().slice(0,10):null,previousObservationDate:prev.time>0?new Date(prev.time).toISOString().slice(0,10):null,
+    fetchedAt:Date.now(),frequency:'daily',changeBps:t.key==='tnx'?(last.value-prev.value)*100:null};
 }
+
 function _parseTwelveQuote(j,t){
   if(!j||j.status==='error')throw new Error('Twelve Data '+String(j&&j.code||'response error'));
-  var price=Number(j.close!=null?j.close:j.price),prev=Number(j.previous_close),chg=Number(j.percent_change);
+  var raw=j.close!=null?j.close:j.price,price=raw==null||raw===''?NaN:Number(raw),prev=Number(j.previous_close),chg=j.percent_change==null||j.percent_change===''?NaN:Number(j.percent_change);
   if(!isFinite(price)||price<=0)throw new Error('Twelve Data quote has no valid price');
   if(!isFinite(chg)){if(isFinite(prev)&&prev>0)chg=(price-prev)/prev*100;else throw new Error('Twelve Data quote has no daily comparison');}
-  return {key:t.key,label:t.twelveLabel||t.label,price:price,chg:chg,inverse:t.twelveInverse!=null?!!t.twelveInverse:!!t.inverse,source:'Twelve Data live',proxyInstrument:t.twelve||null};
+  var ts=Number(j.timestamp),observed=ts>0&&isFinite(ts)?ts*1000:null;
+  return {key:t.key,label:t.twelveLabel||t.label,price:price,chg:chg,inverse:t.twelveInverse!=null?!!t.twelveInverse:!!t.inverse,source:'Twelve Data live',proxyInstrument:t.twelve||null,
+    observedAt:observed,fetchedAt:Date.now(),frequency:'snapshot'};
 }
+
 function _fetchTwelveTicker(t,key){
   if(!key||!t.twelve)return Promise.reject(new Error('Twelve Data key or symbol unavailable'));
   var url='https://api.twelvedata.com/quote?symbol='+encodeURIComponent(t.twelve)+'&apikey='+encodeURIComponent(key);
@@ -22062,14 +22066,15 @@ function _fetchTwelveTicker(t,key){
 }
 function _parseFredTicker(text,t){
   var rows=String(text||'').trim().split(/\r?\n/),vals=[];
-  rows.slice(1).forEach(function(row){
-    var parts=row.split(','),raw=String(parts[parts.length-1]||'').replace(/"/g,'').trim(),v=Number(raw);
-    if(raw&&raw!=='.'&&isFinite(v))vals.push(v);
-  });
+  rows.slice(1).forEach(function(row){var parts=row.split(','),raw=String(parts[parts.length-1]||'').replace(/"/g,'').trim(),date=String(parts[0]||'').replace(/"/g,'').trim(),v=Number(raw);
+    if(raw&&raw!=='.'&&isFinite(v)&&v>0&&/^\d{4}-\d{2}-\d{2}$/.test(date))vals.push({value:v,date:date});});
+  vals.sort(function(a,b){return a.date.localeCompare(b.date);});
   if(vals.length<2)throw new Error('FRED response has insufficient history');
   var last=vals[vals.length-1],prev=vals[vals.length-2];
-  return {key:t.key,label:t.fredLabel||t.label,price:last,chg:(last-prev)/prev*100,inverse:!!t.inverse,source:'FRED daily close'};
+  return {key:t.key,label:t.fredLabel||t.label,price:last.value,chg:(last.value-prev.value)/prev.value*100,inverse:!!t.inverse,source:'FRED daily close',
+    observedAt:Date.parse(last.date+'T00:00:00Z'),observationDate:last.date,previousObservationDate:prev.date,fetchedAt:Date.now(),frequency:'daily',changeBps:t.key==='tnx'?(last.value-prev.value)*100:null};
 }
+
 function _fetchFredTicker(t){
   if(!t.fred)return Promise.reject(new Error('No FRED fallback for '+t.label));
   var end=new Date(),start=new Date(Date.now()-21*86400000);
@@ -22089,7 +22094,7 @@ function _fetchMacroTicker(t){
 function fetchMacro(force){
   var cached = null;
   try { cached = JSON.parse(localStorage.getItem('macro_tape')||'null'); } catch(e){}
-  if(!force&&cached&&(Date.now()-cached.ts)<900000&&cached.d&&Object.keys(cached.d).length){
+  if(!force&&cached&&cached.version===2&&(Date.now()-cached.ts)>=0&&(Date.now()-cached.ts)<900000&&cached.d&&Object.keys(cached.d).length){
     _macro=cached.d;var cachedSources={},cachedFallbacks=0;Object.keys(_macro).forEach(function(k){cachedSources[_macro[k].source||'Saved macro']=true;if(_macro[k].liveRouteFailed)cachedFallbacks++;});
     return Promise.resolve({state:Object.keys(_macro).length===MACRO_TICKERS.length&&!cachedFallbacks?'ready':'partial',source:Object.keys(cachedSources).join(' + ')+' · saved',message:Object.keys(_macro).length+'/'+MACRO_TICKERS.length+' markets from recent cache'+(cachedFallbacks?'; live route failed for '+cachedFallbacks+' and fallbacks are shown':''),updatedAt:cached.ts});
   }
@@ -22105,10 +22110,10 @@ function fetchMacro(force){
     if(d.usdjpy && d.usdjpy.price > 50) window._jpyRate = d.usdjpy.price;
     Object.keys(d).forEach(function(k){sources[d[k].source||'Unknown']=true;if(d[k].liveRouteFailed)liveFallbacks++;});
     _macro=d;var now=Date.now();
-    try { localStorage.setItem('macro_tape',JSON.stringify({ts:now,d:d})); } catch(e){}
+    try { localStorage.setItem('macro_tape',JSON.stringify({version:2,ts:now,d:d})); } catch(e){}
     var count=Object.keys(d).length;
     var source=Object.keys(sources).join(' + ');
-    return {state:count===MACRO_TICKERS.length&&!liveFallbacks?'ready':'partial',source:source,message:count+'/'+MACRO_TICKERS.length+' markets loaded'+(sources['Twelve Data live']?'; live proxy instruments are labelled':'')+(liveFallbacks?'; live route failed for '+liveFallbacks+' and fallbacks are shown':'')+(sources['FRED daily close']?'; FRED values are daily closes':'')+(count<MACRO_TICKERS.length?'; remaining routes failed':''),updatedAt:now};
+    return {state:count===MACRO_TICKERS.length&&!liveFallbacks?'ready':'partial',source:source,message:count+'/'+MACRO_TICKERS.length+' markets loaded'+(sources['Twelve Data live']?'; proxy snapshots are labelled':'')+(liveFallbacks?'; live route failed for '+liveFallbacks+' and fallbacks are shown':'')+(sources['FRED daily close']?'; FRED values are daily closes':'')+(count<MACRO_TICKERS.length?'; remaining routes failed':''),updatedAt:now};
   });
 }
 
@@ -22294,7 +22299,7 @@ function refreshExternalData(force){
 function retryExternalData(){return refreshExternalData(true);}
 function refreshMacroData(force){
   if(_macroRefreshPromise)return _macroRefreshPromise;
-  _macroRefreshPromise=_runExternalSource('macro',fetchMacro,!!force).then(function(r){_macroRefreshPromise=null;return r;},function(e){_macroRefreshPromise=null;throw e;});
+  _macroRefreshPromise=_runExternalSource('macro',fetchMacro,!!force).then(function(r){_macroRefreshPromise=null;if(typeof renderSpotMacro==='function')renderSpotMacro();return r;},function(e){_macroRefreshPromise=null;if(typeof renderSpotMacro==='function')renderSpotMacro();throw e;});
   return _macroRefreshPromise;
 }
 
@@ -23333,159 +23338,185 @@ function nthWeekday(year, month, weekday, n) {
   return null;
 }
 
-// FOMC meetings are pre-scheduled by the Fed. These are the verified 2026 dates
-// (second day of each 2-day meeting, when the decision is announced).
-var FOMC_DATES = [
-  '2026-01-28','2026-03-18','2026-04-29','2026-06-17','2026-07-29',
-  '2026-09-16','2026-10-28','2026-12-09',
-  '2027-01-27','2027-03-17'
+// SPOT RESEARCH + MACRO TAPE · 2026.09.13-strategy-r1
+// Event times are a sourced snapshot, never inferred monthly dates.
+var SPOT_STRATEGY_VERSION='2026.09.13-strategy-r2';
+var SPOT_CALENDAR_CHECKED='2026-09-13';
+var SPOT_CALENDAR_START=Date.parse('2026-09-01T00:00:00Z');
+var SPOT_CALENDAR_END=Date.parse('2027-01-01T00:00:00Z');
+var SPOT_EVENT_ROWS=[
+ ['2026-09-04','jobs'],['2026-09-10','ppi'],['2026-09-11','cpi'],['2026-09-16','fed'],['2026-09-16','press'],['2026-09-30','pce'],['2026-09-30','gdp'],
+ ['2026-10-02','jobs'],['2026-10-14','cpi'],['2026-10-15','ppi'],['2026-10-28','fed'],['2026-10-28','press'],['2026-10-29','pce'],['2026-10-29','gdp'],
+ ['2026-11-06','jobs'],['2026-11-10','cpi'],['2026-11-13','ppi'],['2026-11-25','pce'],['2026-11-25','gdp'],
+ ['2026-12-04','jobs'],['2026-12-09','fed'],['2026-12-09','press'],['2026-12-10','cpi'],['2026-12-15','ppi'],['2026-12-23','pce'],['2026-12-23','gdp']
 ];
-// ECB Governing Council monetary policy meetings 2026 (verified)
-var ECB_DATES = [
-  '2026-01-29','2026-03-12','2026-04-16','2026-06-04','2026-07-23',
-  '2026-09-10','2026-10-29','2026-12-17','2027-01-28'
+var SPOT_EVENT_TYPES={
+ jobs:{name:'US jobs + unemployment',impact:'high',time:'08:30',agency:'BLS'},
+ cpi:{name:'US CPI',impact:'high',time:'08:30',agency:'BLS'},
+ ppi:{name:'US PPI',impact:'high',time:'08:30',agency:'BLS'},
+ pce:{name:'US income / outlays (PCE)',impact:'high',time:'08:30',agency:'BEA'},
+ gdp:{name:'US GDP release',impact:'high',time:'08:30',agency:'BEA'},
+ fed:{name:'FOMC rate decision',impact:'extreme',time:'14:00',agency:'Federal Reserve'},
+ press:{name:'FOMC press conference',impact:'extreme',time:'14:30',agency:'Federal Reserve'}
+};
+function spotEsc(x){return String(x==null?'':x).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function spotET(date,time){
+  var parts=(date+'-'+time.replace(':','-')).split('-').map(Number),nominal=Date.UTC(parts[0],parts[1]-1,parts[2],parts[3],parts[4]),guess=nominal;
+  for(var i=0;i<3;i++){
+    var a={};new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(guess)).forEach(function(p){a[p.type]=p.value;});
+    var shown=Date.UTC(+a.year,+a.month-1,+a.day,+a.hour,+a.minute);guess+=nominal-shown;
+  }
+  return guess;
+}
+function spotTime(ms,zone){return new Intl.DateTimeFormat('en-GB',{timeZone:zone||'Asia/Tokyo',month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(ms));}
+function spotCalendarCovered(now){return now>=SPOT_CALENDAR_START&&now+14*86400000<SPOT_CALENDAR_END;}
+function buildMacroEvents(now){
+  now=now==null?Date.now():Number(now);
+  return SPOT_EVENT_ROWS.map(function(row){
+    var t=SPOT_EVENT_TYPES[row[1]],month=row[0].slice(5,7),months={'09':'september','10':'october','11':'november','12':'december'};
+    var url=t.agency==='BLS'?'https://www.bls.gov/schedule/2026/'+month+'_sched_list.htm':t.agency==='BEA'?'https://www.bea.gov/news/schedule/full':'https://www.federalreserve.gov/newsevents/2026-'+months[month]+'.htm';
+    return {id:row.join(':'),name:t.name,kind:row[1],impact:t.impact,date:new Date(spotET(row[0],t.time)),source:t.agency,url:url,checked:SPOT_CALENDAR_CHECKED,et:row[0]+' '+t.time+' ET'};
+  }).filter(function(e){return +e.date>now-6*3600000;}).sort(function(a,b){return a.date-b.date;});
+}
+function spotEventGate(now){
+  now=now==null?Date.now():now;
+  var events=buildMacroEvents(now),active=events.filter(function(e){var delta=(+e.date-now)/60000;return delta<=60&&delta>=-(e.kind==='fed'||e.kind==='press'?120:60);});
+  if(active.length)return {state:'pause',label:'Pause new entries',events:active,note:'Research rule: 60 min before releases; 60 min after data, 120 min after the FOMC conference. Manage existing risk under its original plan.'};
+  if(!spotCalendarCovered(now))return {state:'unknown',label:'Calendar coverage incomplete',events:[],note:'The next 14 days exceed the saved US calendar. Check the official schedules; do not interpret an empty list as no event risk.'};
+  return {state:'review',label:'Check event schedule before entry',events:[],note:'Outside the saved pause windows. Snapshot checked '+SPOT_CALENDAR_CHECKED+'; releases can change. Covers CPI, PPI, jobs, PCE, GDP and FOMC only.'};
+}
+function calcMacroRisk(events){
+  // Retained signature for callers. A descriptive count, not a loss probability.
+  if(!spotCalendarCovered(Date.now()))return null;
+  var groups={},now=Date.now();events.forEach(function(e){var d=(+e.date-now)/86400000;if(d<0||d>14)return;var key=e.kind==='press'?'fed:'+e.et.slice(0,10):e.kind==='fed'?'fed:'+e.et.slice(0,10):String(+e.date);groups[key]=Math.max(groups[key]||0,(e.impact==='extreme'?40:25)*(1-d/14));});
+  return Math.min(100,Math.round(Object.values(groups).reduce(function(a,b){return a+b;},0)));
+}
+function spotCalendarMarkup(now,limit){
+  now=now==null?Date.now():now;var gate=spotEventGate(now),rows=buildMacroEvents(now).slice(0,limit||8);
+  var h='<div class="spot-note"><b>'+spotEsc(gate.label)+'</b><p>'+spotEsc(gate.note)+'</p></div><div class="spot-events">';
+  rows.forEach(function(e){var delta=Math.round((+e.date-now)/60000),left=delta<0?'Released '+Math.abs(delta)+'m ago':delta<60?'In '+delta+'m':delta<1440?'In '+Math.floor(delta/60)+'h '+delta%60+'m':'In '+Math.floor(delta/1440)+'d '+Math.floor(delta%1440/60)+'h';
+    h+='<article><a href="'+e.url+'" target="_blank" rel="noopener noreferrer">'+spotEsc(e.name)+'</a><b>'+spotEsc(spotTime(+e.date))+' JST</b><span>'+spotEsc(e.et)+' · '+spotEsc(left)+'</span><small>'+spotEsc(e.source)+' · schedule snapshot</small></article>';
+  });
+  return h+(rows.length?'':'<p>No sourced upcoming dates in this snapshot. Calendar status: Unknown.</p>')+'</div>';
+}
+function renderMacroEvents(){
+  var body=document.getElementById('macro-events-body'),gate=spotEventGate();if(body)body.innerHTML=spotCalendarMarkup(Date.now(),24);
+  var bar=document.getElementById('macro-risk-bar');if(bar)bar.innerHTML='';
+  ['macro-risk-badge','it-events-badge'].forEach(function(id){var el=document.getElementById(id);if(el){el.textContent=gate.state==='pause'?'PAUSE':gate.state==='unknown'?'UNKNOWN':'SCHEDULE';el.style.color=gate.state==='pause'?'var(--r)':'var(--am)';}});
+}
+function spotMacroQuality(m,now){
+  now=now==null?Date.now():now;
+  if(!m||!isFinite(m.price)||m.price<=0||m.chg==null||!isFinite(m.chg))return {usable:false,label:'Unavailable'};
+  if(!m.observedAt||!m.fetchedAt)return {usable:false,label:'Observation time unknown'};
+  var age=now-m.observedAt,fetchAge=now-m.fetchedAt;
+  if(age<0||fetchAge<0)return {usable:false,label:'Clock mismatch'};
+  if(fetchAge>20*60000)return {usable:false,label:'Refresh overdue'};
+  if(age>36*3600000)return {usable:false,label:'Older session / delayed'};
+  return {usable:true,label:m.frequency==='daily'?'Daily observation':'Provider snapshot'};
+}
+function spotMacroReading(now){
+  var data=typeof _macro==='undefined'?{}:_macro,keys=['spx','ndx','dxy','vix'],usable=keys.every(function(k){return spotMacroQuality(data[k],now).usable;});
+  if(!usable)return {state:'unknown',title:'Macro context incomplete',note:'Missing or older observations cannot confirm current market conditions. Prior-session values remain visible.'};
+  if(keys.some(function(k){return data[k].proxyInstrument||data[k].label!==MACRO_TICKERS.find(function(t){return t.key===k;}).label;}))return {state:'mixed',title:'Proxy context — review the instruments',note:'ETF prices, volatility futures funds and broad-dollar indexes are different instruments. No combined directional verdict.'};
+  var sessions=keys.map(function(k){return data[k].observationDate||new Date(data[k].observedAt).toISOString().slice(0,10);});
+  if(new Set(sessions).size!==1)return {state:'unknown',title:'Different observation dates',note:'Required markets describe different sessions. Review dates before combining changes.'};
+  var stress=data.spx.chg<=-1&&data.ndx.chg<=-1&&(data.dxy.chg>=.3||data.vix.chg>=5);
+  return {state:stress?'headwinds':'mixed',title:stress?'Cross-market headwinds':'Mixed / no stress rule triggered',note:stress?'Both equity indexes down ≥1%, with USD up ≥0.3% or VIX up ≥5%. Experimental pause filter; not a BTC forecast.':'Compare equity, dollar and volatility observations. Absence of this stress pattern does not establish a bullish market.'};
+}
+function spotMacroCards(now){
+  var data=typeof _macro==='undefined'?{}:_macro,h='<div class="spot-tape-grid">';now=now==null?Date.now():now;
+  MACRO_TICKERS.forEach(function(t){var m=data[t.key],q=spotMacroQuality(m,now),known=m&&isFinite(m.price)&&m.price>0,yieldValue=known&&t.key==='tnx'&&!m.proxyInstrument;
+    var p=known?Number(m.price).toLocaleString('en-US',{maximumFractionDigits:2})+(yieldValue?'%':''):'Unknown';
+    var change=known&&m.chg!=null&&isFinite(m.chg)?(yieldValue?(m.changeBps==null?'Change unknown':(m.changeBps>=0?'+':'')+m.changeBps.toFixed(1)+' bp'):(m.chg>=0?'+':'')+m.chg.toFixed(2)+'%'):'Change unknown';
+    h+='<article><b>'+spotEsc(known?m.label:t.label)+'</b><strong>'+spotEsc(p)+'</strong><span>'+spotEsc(change)+' · vs previous observation</span><small>'+spotEsc(q.label)+'</small><small>'+spotEsc(known?(m.source||'Unknown source').replace(' live',''):'No successful response')+'</small><small>'+(m&&m.observedAt?'Observed '+spotEsc(m.observationDate||spotTime(m.observedAt))+(m.observationDate?' · daily date':' JST'):'Observation time unknown')+'</small>'+(m&&m.previousObservationDate?'<small>Compared with '+spotEsc(m.previousObservationDate)+'</small>':'')+'<small>'+(m&&m.fetchedAt?'Fetched '+spotEsc(spotTime(m.fetchedAt))+' JST':'Fetch time unknown')+'</small>'+(m&&m.liveRouteFailed?'<small>Preferred route failed; fallback shown</small>':'')+'</article>';
+  });return h+'</div>';
+}
+function renderSpotMacro(){
+  var el=document.getElementById('spot-macro-body');if(!el)return;
+  if(document.activeElement&&el.contains&&el.contains(document.activeElement)&&document.activeElement.tagName==='INPUT')return;
+  var r=spotMacroReading();
+  el.innerHTML='<div class="spot-heading"><div><h3>Macro tape</h3><p>'+SPOT_STRATEGY_VERSION+' · observations and event risk</p></div><button class="btn" onclick="refreshMacroData(true)" '+(_macroRefreshPromise?'disabled':'')+'>'+(_macroRefreshPromise?'Refreshing…':'Refresh markets')+'</button></div><div class="spot-note"><b>'+spotEsc(r.title)+'</b><p>'+spotEsc(r.note)+'</p></div>'+spotMacroCards()+'<p class="spot-muted">Daily and delayed sources are labelled. Gold and USD/JPY provide context, without a fixed bullish/bearish interpretation. A refresh does not make an old observation current.</p>'+macroSourceControlMarkup().replace(/macro-twelve-key/g,'tape-macro-twelve-key').replace(/macro-key-status/g,'tape-macro-key-status').replace('saveMacroApiKey()',"saveMacroApiKey('tape-')")+'<p class="spot-muted">'+spotEsc(typeof _externalHealth!=='undefined'?_externalHealth.macro.message:'')+'</p><h3>US releases · Japan time</h3>'+spotCalendarMarkup(Date.now(),8)+'<p class="spot-muted">No consensus or actual release numbers are fetched here. US schedule snapshot through December 2026; other events and unexpected news require separate review.</p>';
+}
+var SPOT_RULES=[
+ ['Market gate','BTC daily structure and trend must be bullish or mixed, never bearish or unknown. Pause under macro headwinds or the event window. Unknown macro data requires manual review before paper entry.'],
+ ['Candidate','Use verified spot pairs and reported 24h quote turnover ≥US$5M equivalent. Turnover is a shortlist filter; inspect actual spread and depth for the order size.'],
+ ['1D direction','Confirmed higher highs / higher lows; last daily close > EMA20 > EMA50. Use one exchange consistently.'],
+ ['4H setup','Confirmed bullish structure and bullish EMA trend. Mark the nearest 4H swing resistance ABOVE the intended entry before selecting a target.'],
+ ['1H breakout','A green CLOSED 1H candle crosses above a previously confirmed swing high by 0.1 × ATR(14). Base volume ≥1.5× the previous 20 CLOSED candles. Freeze ATR at the breakout close.'],
+ ['Retest','Within the next six CLOSED 1H candles, touch the broken level ±0.25 frozen ATR, then close green above the level. Any intervening close below level −0.1 ATR cancels the setup. One attempt per broken level.'],
+ ['Entry and target','Enter only after that retest close. Skip a price >0.25 ATR above the retest close, or ≤the broken level. Nearest mapped 4H resistance must offer ≥2R NET of fees and slippage; never substitute a synthetic R target.'],
+ ['Stop and exit','Stop below the lowest low from the first post-breakout candle through the qualifying retest, minus 0.25 frozen ATR. Exit earlier on a later 1H close below level −0.1 ATR. Full exit at the preselected resistance; never widen the stop or average down.'],
+ ['Risk and review','Paper trade first. Trial risk: 0.25% of dedicated capital per trade, at most two positions and 0.5% total planned risk. Stop new entries after two full losses in one day. Record fills and missed setups; parameters are unvalidated.']
 ];
-
-function buildMacroEvents() {
-  var now = new Date();
-  var events = [];
-
-  function addMonthly(name, impact, computeDate, monthsAhead) {
-    for (var m = 0; m <= (monthsAhead || 2); m++) {
-      var dt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + m, 1));
-      var ev = computeDate(dt.getUTCFullYear(), dt.getUTCMonth());
-      // Keep events still upcoming (6h grace for same-day events in progress)
-      if (ev && ev.getTime() > now.getTime() - 21600000) events.push({name:name, impact:impact, date:ev});
-    }
-  }
-
-  // CPI — released ~13th of each month (8:30 AM ET), for prior month's data
-  addMonthly('CPI (Inflation)', 'high', function(y,m){ return new Date(Date.UTC(y, m, 13, 12, 30)); }, 2);
-  // PPI — released ~1 day after CPI, ~14th
-  addMonthly('PPI (Producer Prices)', 'medium', function(y,m){ return new Date(Date.UTC(y, m, 14, 12, 30)); }, 2);
-  // NFP (Non-Farm Payrolls) — 1st Friday of each month, 8:30 AM ET
-  addMonthly('NFP (Jobs Report)', 'high', function(y,m){ var d=nthWeekday(y,m,5,1); if(d)d.setUTCHours(12,30); return d; }, 2);
-  // Unemployment rate — same day as NFP (part of the same report)
-  addMonthly('Unemployment Rate', 'medium', function(y,m){ var d=nthWeekday(y,m,5,1); if(d)d.setUTCHours(12,30); return d; }, 2);
-  // GDP — released ~last Thursday of Jan/Apr/Jul/Oct (quarterly, advance estimate)
-  addMonthly('GDP', 'high', function(y,m){
-    if ([0,3,6,9].indexOf(m) === -1) return null; // only quarterly months
-    var d = nthWeekday(y, m, 4, 4); // 4th Thursday approx
-    if(d) d.setUTCHours(12,30);
-    return d;
-  }, 3);
-
-  // FOMC — from fixed schedule (2 PM ET announcement)
-  FOMC_DATES.forEach(function(ds){
-    var d = new Date(ds + 'T18:00:00Z'); // 2 PM ET = 18:00 UTC (winter) approx
-    if (d.getTime() > now.getTime() - 21600000) events.push({name:'FOMC Rate Decision', impact:'extreme', date:d});
-  });
-  // ECB — from fixed schedule
-  ECB_DATES.forEach(function(ds){
-    var d = new Date(ds + 'T12:45:00Z'); // ECB announces ~13:45 CET
-    if (d.getTime() > now.getTime() - 21600000) events.push({name:'ECB Rate Decision', impact:'medium', date:d});
-  });
-
-  // Sort by date, keep next ~8 events
-  events.sort(function(a,b){ return a.date - b.date; });
-  return events.slice(0, 8);
+function spotRiskPlan(x){
+  var names=['equity','cash','risk','entry','stop','target','fee','entrySlip','exitSlip'];
+  if(names.some(function(k){return x[k]==null||String(x[k]).trim()===''||!isFinite(Number(x[k]));}))return {ok:false,reason:'Enter every amount and cost assumption; blank is unknown.'};
+  var n={};names.forEach(function(k){n[k]=Number(x[k]);});
+  if(n.equity<=0||n.cash<=0||n.cash>n.equity||n.risk<=0||n.risk>1||n.stop<=0||n.entry<=n.stop||n.target<=n.entry||n.fee<0||n.fee>5||n.entrySlip<0||n.entrySlip>10||n.exitSlip<0||n.exitSlip>10)return {ok:false,reason:'Use 0 < stop < entry < target; cash ≤ capital, risk ≤1%, fees 0–5%, slippage 0–10%.'};
+  var fee=n.fee/100,e=n.entry*(1+n.entrySlip/100),s=n.stop*(1-n.exitSlip/100),t=n.target*(1-n.exitSlip/100);
+  var debit=e*(1+fee),loss=debit-s*(1-fee),gain=t*(1-fee)-debit,budget=n.equity*n.risk/100,quantity=Math.min(budget/loss,n.cash/debit);
+  if(!(loss>0&&quantity>0&&isFinite(quantity)))return {ok:false,reason:'Invalid loss or quantity.'};
+  return {ok:true,quantity:quantity,notional:e*quantity,totalDebit:debit*quantity,plannedLoss:loss*quantity,plannedGain:gain*quantity,netR:gain/loss,budget:budget,meetsR:gain/loss>=2,cashLimited:quantity<budget/loss};
 }
-
-// MACRO RISK SCORE (0-100): higher = more event risk in the near term
-function calcMacroRisk(events) {
-  var now = Date.now();
-  var risk = 0;
-  var impactWeight = {extreme:40, high:25, medium:12, low:5};
-  events.forEach(function(ev){
-    var daysOut = (ev.date.getTime() - now) / 86400000;
-    if (daysOut < 0 || daysOut > 14) return; // only next 14 days count
-    // Closer events carry more weight (decay over 14 days)
-    var proximity = Math.max(0, 1 - daysOut / 14);
-    risk += (impactWeight[ev.impact] || 5) * proximity;
-  });
-  return Math.min(100, Math.round(risk));
+function renderSpotRisk(){
+  var x={};['equity','cash','risk','entry','stop','target','fee','entrySlip','exitSlip'].forEach(function(k){var el=document.getElementById('spot-risk-'+k);x[k]=el?el.value:null;});
+  var r=spotRiskPlan(x),el=document.getElementById('spot-risk-out');if(!el)return;
+  if(!r.ok){el.textContent=r.reason;return;}
+  el.innerHTML='<b>'+r.netR.toFixed(2)+' net R · '+(r.meetsR?'2R arithmetic requirement met':'Below 2R — skip this plan')+'</b><p>Base quantity: '+r.quantity.toPrecision(7)+' · Order value: '+r.notional.toFixed(2)+' · Total debit with entry fee: '+r.totalDebit.toFixed(2)+'<br>Planned loss including costs: '+r.plannedLoss.toFixed(2)+' · Planned net gain: '+r.plannedGain.toFixed(2)+(r.cashLimited?' · Size reduced to available cash':'')+'</p><small>All amounts use the pair’s quote currency. This is a planning estimate; no order book was checked, no exchange filters were applied, and no trade is approved. Stops can slip beyond the assumption.</small>';
 }
-
-function renderMacroEvents() {
-  var events = buildMacroEvents();
-  var body = document.getElementById('macro-events-body');
-  var bar = document.getElementById('macro-risk-bar');
-  var badge = document.getElementById('macro-risk-badge');
-  if (!body) return;
-
-  var now = Date.now();
-  var risk = calcMacroRisk(events);
-
-  // Risk badge + bar
-  var riskLabel, riskColor;
-  if (risk >= 60) { riskLabel = 'HIGH RISK'; riskColor = 'var(--r)'; }
-  else if (risk >= 30) { riskLabel = 'ELEVATED'; riskColor = 'var(--am)'; }
-  else if (risk >= 12) { riskLabel = 'MODERATE'; riskColor = 'var(--am)'; }
-  else { riskLabel = 'CALM'; riskColor = 'var(--g)'; }
-
-  if (badge) {
-    badge.textContent = '⚡ ' + risk + ' · ' + riskLabel;
-    badge.style.background = riskColor === 'var(--r)' ? 'rgba(239,83,80,.15)' : riskColor === 'var(--am)' ? 'rgba(245,158,11,.15)' : 'rgba(38,166,154,.15)';
-    badge.style.color = riskColor;
-  }
-  // Mirror onto the Events tab mini-badge
-  var tabBadge = document.getElementById('it-events-badge');
-  if (tabBadge) {
-    tabBadge.textContent = risk;
-    tabBadge.style.background = riskColor === 'var(--r)' ? 'rgba(239,83,80,.2)' : riskColor === 'var(--am)' ? 'rgba(245,158,11,.2)' : 'rgba(38,166,154,.2)';
-    tabBadge.style.color = riskColor;
-  }
-
-  if (bar) {
-    var riskNote = risk >= 60 ? 'Major events imminent — expect volatility, consider reducing size'
-      : risk >= 30 ? 'Notable events ahead — watch position sizing around release times'
-      : risk >= 12 ? 'Some events upcoming — normal caution'
-      : 'No major catalysts in the next 2 weeks — technicals should dominate';
-    bar.innerHTML = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
-      '<span style="font-size:11px;font-weight:700;color:var(--t2)">Macro Risk Score</span>' +
-      '<span style="font-size:14px;font-weight:800;color:'+riskColor+'">'+risk+'/100</span>' +
-      '<span style="font-size:11px;color:'+riskColor+';font-weight:700">'+riskLabel+'</span></div>' +
-      '<div style="width:100%;height:6px;background:var(--card3);border-radius:3px;overflow:hidden;margin-bottom:4px">' +
-      '<div style="width:'+risk+'%;height:100%;background:'+riskColor+';border-radius:3px"></div></div>' +
-      '<div style="font-size:11px;color:var(--t2)">'+riskNote+'</div>';
-  }
-
-  // Events table
-  function impactDot(imp) {
-    var c = imp==='extreme'?'#9333ea':imp==='high'?'var(--r)':imp==='medium'?'var(--am)':'var(--g)';
-    var label = imp.charAt(0).toUpperCase()+imp.slice(1);
-    return '<span style="display:inline-flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:'+c+';display:inline-block"></span><span style="font-size:11px;color:'+c+';font-weight:700">'+label+'</span></span>';
-  }
-  function timeLeft(date) {
-    var diff = date.getTime() - now;
-    if (diff < 0) return '<span style="color:var(--t3)">passed</span>';
-    var days = Math.floor(diff / 86400000);
-    var hours = Math.floor((diff % 86400000) / 3600000);
-    if (days === 0) return '<span style="color:var(--r);font-weight:700">in '+hours+'h ⚠️</span>';
-    if (days === 1) return '<span style="color:var(--am);font-weight:700">tomorrow</span>';
-    if (days <= 3) return '<span style="color:var(--am)">in '+days+' days</span>';
-    return '<span style="color:var(--t2)">in '+days+' days</span>';
-  }
-
-  var html = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">';
-  html += '<thead><tr style="border-bottom:.5px solid var(--bd)">';
-  ['Event','Impact','Date','Time Remaining'].forEach(function(h){
-    html += '<th style="text-align:left;padding:5px 8px;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--t3)">'+h+'</th>';
-  });
-  html += '</tr></thead><tbody>';
-  events.forEach(function(ev){
-    var daysOut = (ev.date.getTime() - now) / 86400000;
-    var rowBg = daysOut <= 1 ? 'background:rgba(239,83,80,.05)' : daysOut <= 3 ? 'background:rgba(245,158,11,.04)' : '';
-    html += '<tr style="border-bottom:.5px solid var(--bd);'+rowBg+'">';
-    html += '<td style="padding:6px 8px;font-weight:700;color:var(--text)">'+ev.name+'</td>';
-    html += '<td style="padding:6px 8px">'+impactDot(ev.impact)+'</td>';
-    html += '<td style="padding:6px 8px;color:var(--t2)">'+ev.date.toLocaleDateString(undefined,{month:'short',day:'numeric'})+'</td>';
-    html += '<td style="padding:6px 8px">'+timeLeft(ev.date)+'</td>';
-    html += '</tr>';
-  });
-  html += '</tbody></table></div>';
-  body.innerHTML = html;
+var _spotReviewRequest=0,_spotReview=null;
+function spotDecisionStatus(review,gate,macro,now){
+  now=now==null?Date.now():now;
+  if(gate.state==='pause')return 'Pause new entries — scheduled event window is active.';
+  if(macro.state==='headwinds')return 'Pause new entries — cross-market headwinds rule is active.';
+  if(!review)return 'No pair checked yet — check the pair context before planning.';
+  if(review.loading)return 'Checking closed candles…';
+  if(!Number.isFinite(review.checkedAt)||now<review.checkedAt||now-review.checkedAt>5*60000)return 'Review expired — refresh the pair.';
+  var technical=spotReviewSummary(review.results||{});
+  if(technical.indexOf('Higher-timeframe conditions met')!==0)return technical;
+  if(gate.state==='unknown')return 'Manual review required — calendar coverage is incomplete; trend alignment alone is insufficient.';
+  if(macro.state==='unknown'||macro.title.indexOf('Proxy context')===0)return 'Manual review required — macro observations are missing, stale or substituted; trend alignment alone is insufficient.';
+  return technical;
 }
+function spotReviewSummary(results){
+  var keys=['btc','1d','4h','1h'];
+  if(keys.some(function(k){return !results[k]||results[k].health!=='ready';}))return 'Unknown — one or more candle feeds are missing, stale or invalid.';
+  if(new Set(keys.map(function(k){return results[k].source;})).size!==1)return 'Unknown — mixed exchanges; inspect each feed separately.';
+  if(results.btc.structure.side==='unknown'||results.btc.trend==='unknown')return 'Unknown — BTC daily swings are not yet confirmed.';
+  if(results.btc.structure.side==='bear'||results.btc.trend==='bear')return 'Wait — BTC daily context opposes this spot strategy.';
+  if(['1d','4h'].some(function(k){return results[k].structure.side!=='bull'||results[k].trend!=='bull';}))return 'Wait — coin daily and 4H structure / trend must both be bullish.';
+  return 'Higher-timeframe conditions met — manually verify the exact 1H breakout, six-bar retest, execution and 2R rules below.';
+}
+function renderSpotReview(){
+  var el=document.getElementById('spot-review-out');if(!el)return;
+  var r=_spotReview,gate=spotEventGate(),macro=spotMacroReading();
+  if(!r){el.textContent=spotDecisionStatus(null,gate,macro);return;}
+  var h='<b>'+spotEsc(r.sym)+' · '+spotEsc(spotDecisionStatus(r,gate,macro))+'</b>';
+  h+='<p>'+spotEsc(gate.label)+' · '+spotEsc(macro.title)+'</p><div class="spot-review-grid">';
+  ['btc','1d','4h','1h'].forEach(function(k){var v=r.results[k];h+='<article><b>'+spotEsc(k==='btc'?'BTC · 1D':r.sym+' · '+k.toUpperCase())+'</b><p>'+spotEsc(v&&v.health==='ready'?v.structure.label+' · EMA '+v.trend:v?v.reason:'Pending')+'</p><small>'+spotEsc(v&&v.source||'Unknown')+' · '+(v&&v.closedAt?spotTime(v.closedAt)+' JST close':'Close unknown')+'</small>'+(v&&v.health==='ready'?'<p>1 candle / prior 20 base volume: '+(v.volR==null?'Unknown':v.volR.toFixed(2)+'×')+'</p>':'')+'</article>';});
+  el.innerHTML=h+'</div><p class="spot-muted">This check covers context and data quality. It does not detect the strategy’s exact entry, calculate an actual resistance target, or override the event / macro review. 15m Confluence is optional timing context for this 1H strategy.</p>';
+}
+async function checkSpotStrategy(){
+  var input=document.getElementById('spot-pair'),sym=String(input&&input.value||'').trim().toUpperCase();
+  if(!/^[A-Z0-9]{2,20}(USDT|USDC|BTC|ETH|JPY)$/.test(sym)){var el=document.getElementById('spot-review-out');if(el)el.textContent='Enter an exact pair such as BTCUSDT or ETHUSDT.';return;}
+  var request=++_spotReviewRequest;_spotReview={sym:sym,results:{},loading:true,checkedAt:Date.now()};renderSpotReview();
+  var btcSym=sym==='BTCJPY'?'BTCJPY':'BTCUSDT',jobs=[['btc',btcSym,'1d'],['1d',sym,'1d'],['4h',sym,'4h'],['1h',sym,'1h']],pending={};
+  await Promise.all(jobs.map(async function(j){
+    var key=j[1]+':'+j[2],r;
+    try{if(!pending[key])pending[key]=Promise.resolve().then(function(){if(typeof _klCache!=='undefined')delete _klCache[j[1]+'_'+j[2]+'_300'];return bybitKlines(j[1],j[2],300);});var rows=await pending[key];r=confluenceAnalyze(rows,j[1],j[2],Date.now());}catch(e){r={health:'unknown',source:'Unavailable',reason:'Candle request failed or response invalid.'};}
+    if(request===_spotReviewRequest){_spotReview.results[j[0]]=r;renderSpotReview();}
+  }));
+  if(request===_spotReviewRequest){_spotReview.loading=false;_spotReview.checkedAt=Date.now();renderSpotReview();}
+}
+function renderSpotStrategy(){
+  var el=document.getElementById('spot-strategy-body');if(!el||el.dataset.ready)return;el.dataset.ready='1';
+  var h='<div class="spot-heading"><div><h3>Spot strategy · uptrend breakout retest</h3><p>'+SPOT_STRATEGY_VERSION+' · research hypothesis · paper trading first</p></div></div><p>One setup: 1D direction → 4H structure → closed 1H breakout and retest → execution check. Base Q and on-chain reports provide context; they cannot replace price confirmation.</p><div class="spot-note"><b>Check the higher timeframes</b><p>Uses the same confirmed-swing and EMA calculations as Confluence. Four requests at most; no AI key.</p><label>Exact spot pair <input id="spot-pair" value="BTCUSDT" maxlength="30" oninput="_spotReviewRequest++;_spotReview=null;document.getElementById(\'spot-review-out\').textContent=\'Pair changed — run a new check.\'"></label> <button class="btn" onclick="checkSpotStrategy()">Check pair context</button><div id="spot-review-out" aria-live="polite">No pair checked yet.</div></div><div class="spot-rules">';
+  SPOT_RULES.forEach(function(r,i){h+='<article><b>'+(i+1)+'. '+spotEsc(r[0])+'</b><p>'+spotEsc(r[1])+'</p></article>';});h+='</div><h3>Position size and net reward / risk</h3><p>Use ONE quote currency for capital, cash and all prices. Example: USDT for BTCUSDT. Enter the nearest observed 4H resistance as target. Fee and slippage defaults are editable assumptions.</p><div class="spot-risk-grid">';
+  [['equity','Trading capital',''],['cash','Available cash',''],['risk','Risk %','0.25'],['entry','Reference entry price',''],['stop','Stop trigger price',''],['target','Observed resistance target',''],['fee','Fee % per side','0.1'],['entrySlip','Entry slippage %','0.1'],['exitSlip','Exit slippage %','0.1']].forEach(function(x){h+='<label>'+x[1]+'<input type="number" min="0" step="any" id="spot-risk-'+x[0]+'" value="'+x[2]+'" oninput="renderSpotRisk()"></label>';});
+  h+='</div><div class="spot-note" id="spot-risk-out" aria-live="polite">Enter a plan to calculate cost-adjusted R and size.</div><details><summary>Before entry and after exit</summary><p>Before entry: confirm official event dates; verify actual exchange/pair and trade availability; check a ≤15-second order-book snapshot with the proposed size; record spread, depth and fee tier. In Chart → Tools → Execution, match the execution venue. The On-chain depth check uses Binance only.</p><p>Reject synthetic targets and recheck net R using the executable price. Keep risk ≤0.25% per trial trade and aggregate risk ≤0.5%. Use protective orders supported by the venue. If the app is closed, it cannot monitor exits for you.</p><p>Record every qualifying and rejected setup, decision timestamp, closed candle times, source, planned and actual fills, fees, slippage, realized R, maximum adverse excursion and rule adherence. Fifty paper trades are an initial diagnostic, not proof. Compare unchanged rules on later data and include failed/delisted candidates.</p></details><details><summary>Evidence and limitations</summary><p>The strategy parameters are design choices for testing. Research on changing crypto-equity relationships motivates a conditional macro review, not a fixed inverse DXY rule. No study cited here validates this exact six-bar retest or 2R filter.</p><p><a href="https://copestake.info/workingpaper/cryptofinance/CryptoFinance.pdf" target="_blank" rel="noopener noreferrer">Copestake, Furceri &amp; Terracciano · August 2026 working paper</a><br><a href="https://www.davidhbailey.com/dhbpapers/backtest-prob.pdf" target="_blank" rel="noopener noreferrer">Bailey et al. · Probability of Backtest Overfitting</a><br><a href="https://www.tradingview.com/pine-script-docs/concepts/strategies/" target="_blank" rel="noopener noreferrer">TradingView · backtest costs and biases</a><br><a href="https://www.bis.org/publ/bisbull69.htm" target="_blank" rel="noopener noreferrer">BIS · Crypto shocks and retail losses</a></p><p>Existing scanner/agent signals use their own rules. This research guide and arithmetic check do not certify those signals or execute trades.</p></details>';
+  el.innerHTML=h;
+}
+// END SPOT RESEARCH + MACRO TAPE
 
 
 // Uses verified astronomical dates (NASA) + synodic interpolation for current phase
@@ -23576,7 +23607,7 @@ detectProxy().then(function(){}).catch(function(){}).then(function(){
   renderMoonPanel();
   setInterval(renderMoonPanel, 3600000); // refresh moon panel hourly
   renderMacroEvents();
-  setInterval(renderMacroEvents, 1800000); // refresh macro events every 30 min
+  setInterval(function(){renderMacroEvents();renderSpotMacro();renderSpotReview();}, 60000); // age UI only; no network polling
 
   // PERF: re-render the correct view when crossing the mobile/desktop breakpoint
   var _resizeTmr=null, _wasMobile=window.innerWidth<=820;
