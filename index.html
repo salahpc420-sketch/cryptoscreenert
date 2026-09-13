@@ -471,6 +471,24 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 .cp-sticky-head .cp-tabs{position:static}.cp-current-summary{display:grid;gap:3px;padding:8px 10px;font-size:12px;line-height:1.4;color:#bac9dc}.cp-current-summary strong{color:#eef4ff}.cp-current-summary span{overflow-wrap:anywhere}
 .cp-context-switch{display:flex;gap:4px}.cp-toolbar .cp-context-switch button{font-size:11px}
 @media(max-width:600px){.cp-current-summary{font-size:12px;padding:6px 9px}.cp-context-switch{flex-wrap:wrap}.cp-context-switch button{min-height:36px}}
+
+/* Confluence: readable cards on desktop and phones. */
+.cf-heading,.cf-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.cf-heading{margin-bottom:12px}.cf-heading small{display:block;color:var(--t2);font-size:11px;margin-top:4px}
+.cf-heading button{min-height:40px;padding:8px 12px;border:1px solid var(--bd2);border-radius:8px;background:var(--card2);color:var(--text);cursor:pointer}
+.cf-summary{padding:12px;border-left:3px solid var(--am);background:var(--card2);border-radius:8px;margin-bottom:12px}
+.cf-summary p,.cf-card p,.cf-method p{font-size:12px;line-height:1.6;margin:6px 0;color:var(--t2)}
+.cf-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.cf-card{min-width:0;background:var(--card2);border:1px solid var(--bd);border-radius:9px;padding:12px}
+.cf-card-head{font-size:13px}.cf-card-head span{font-size:11px;color:var(--t2)}
+.cf-structure{font-weight:700;font-size:13px;margin:12px 0}
+.cf-card dl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);font-size:12px;gap:8px;margin:10px 0}
+.cf-card dt{color:var(--t2)}.cf-card dd{margin:0;text-align:right;overflow-wrap:anywhere}
+.cf-card footer{font-size:10px;line-height:1.6;color:var(--t2);margin-top:12px;border-top:1px solid var(--bd);padding-top:8px}
+.cf-card details,.cf-method{font-size:12px;margin-top:10px}.cf-method{margin-bottom:14px}
+.cf-card summary,.cf-method summary{cursor:pointer;padding:8px 0}
+@media(max-width:560px){.cf-grid{grid-template-columns:1fr}.cf-card dl,.cf-card p,.cf-summary p{font-size:13px}.cf-card footer{font-size:11px}.cf-heading button{min-height:44px}}
+
 </style>
 <style id="chart-pro-style">
 #chart-fs-bar{height:auto!important;min-height:42px;flex-wrap:wrap;gap:6px!important}
@@ -1855,11 +1873,8 @@ function calcATR(h, l, c, p) {
 function calcStruct(h, l, c) {
   if (c.length < 15) return 'consolidation';
   var n = Math.min(60, c.length), hh = h.slice(-n), ll = l.slice(-n), cc = c.slice(-n);
-  var sh = [], sl = [];
-  for (var i = 3; i < hh.length - 3; i++) {
-    if (hh[i]>hh[i-1]&&hh[i]>hh[i-2]&&hh[i]>hh[i-3]&&hh[i]>hh[i+1]&&hh[i]>hh[i+2]&&hh[i]>hh[i+3]) sh.push(hh[i]);
-    if (ll[i]<ll[i-1]&&ll[i]<ll[i-2]&&ll[i]<ll[i-3]&&ll[i]<ll[i+1]&&ll[i]<ll[i+2]&&ll[i]<ll[i+3]) sl.push(ll[i]);
-  }
+  var pivots=confirmedStructurePivots(hh,ll,3,60);
+  var sh=pivots.highs.map(function(p){return p.p;}),sl=pivots.lows.map(function(p){return p.p;});
   var price = cc[cc.length-1], p6 = cc[cc.length-6] || cc[0], pct = (price - p6) / p6;
   var rsh = sh.length ? sh[sh.length-1] : Math.max.apply(null, hh.slice(0,-3));
   var rsl = sl.length ? sl[sl.length-1] : Math.min.apply(null, ll.slice(0,-3));
@@ -8067,6 +8082,7 @@ function runScanner(){
 // COIN MODAL
 // ═══════════════════════════════════════════════════════════
 function openModal(sym){
+  _confluenceRequest++;
   curSym=sym;
   var d=allData.find(function(x){return x.sym===sym;}); if(!d)return;
   window._d=d;
@@ -8097,6 +8113,7 @@ function sn(l,v,c){return '<div class="sn"><div class="sn-l">'+l+'</div><div cla
 var modalTF = TF; // track TF selected in modal
 
 function setModalTF(tf){
+  _confluenceRequest++;
   modalTF=tf;
   document.querySelectorAll('.modal-tf-btn').forEach(function(b){b.classList.toggle('active',b.id==='mtf-'+tf);});
   if(document.getElementById('chart-canvas') && chartState && chartState.sym) loadChart(tf);
@@ -8130,6 +8147,7 @@ function setModalTF(tf){
 }
 
 function switchMTab(t){
+  _confluenceRequest++;
   if (t !== 'chart') stopChartLive();
   ['entry','chart','conf','pos','news','ai','dna'].forEach(function(x){var el=document.getElementById('mt-'+x);if(el)el.classList.toggle('active',x===t);});
   var d=window._d;
@@ -12350,68 +12368,134 @@ function exportJournalCSV(){
 // ═══════════════════════════════════════════════════════════════════════════
 // CONFLUENCE TAB — Multi-TF signal grid
 // ═══════════════════════════════════════════════════════════════════════════
-function buildConfluenceTab(d) {
-  var sec = document.getElementById('msec');
-  sec.innerHTML = '<div class="spinner-wrap"><div class="sp"></div>Fetching multi-TF data…</div>';
-  var tfs = ['15m','1h','4h','1d'];
-  var results = {};
-  var done = 0;
-  tfs.forEach(function(tf) {
-    bybitKlines(d.sym, tf, 100).catch(function(){return [];})
-    .then(function(klines) {
-      if (klines && klines.length > 20) {
-        var closes = klines.map(function(k){return parseFloat(k[4]);});
-        var vols   = klines.map(function(k){return parseFloat(k[5]);});
-        function sma2(arr,n){var s=0;for(var i=arr.length-n;i<arr.length;i++)s+=arr[i];return s/n;}
-        function ema2(arr,n){if(arr.length<n)return null;var k2=2/(n+1),e=sma2(arr,n);for(var i=arr.length-n+1;i<arr.length;i++)e=arr[i]*k2+e*(1-k2);return e;}
-        function rsi2(arr){if(arr.length<15)return 50;var g=0,l=0;for(var i=arr.length-14;i<arr.length;i++){var dd=arr[i]-arr[i-1];if(dd>0)g+=dd;else l-=dd;}var ag=g/14,al=l/14;return al===0?100:100-(100/(1+ag/al));}
-        var p=closes[closes.length-1],e20=ema2(closes,20),e50=ema2(closes,50),r=rsi2(closes);
-        var avgV=sma2(vols,20)||1,volR=vols[vols.length-1]/avgV;
-        var bull=e20&&e50&&p>e20&&e20>e50&&r>=45&&r<=75&&volR>=1.2;
-        var bear=e20&&e50&&p<e20&&e20<e50&&r<50;
-        results[tf]={sig:bull?'bull':bear?'bear':'neutral',rsi:r,volR:volR,e20:e20,e50:e50,price:p};
-      } else results[tf]={sig:'na'};
-      done++;
-      if(done===tfs.length) renderConfluence(d,results);
-    });
-  });
-}
-function renderConfluence(d,results) {
-  var sec=document.getElementById('msec'); if(!sec) return;
-  var tfs=['15m','1h','4h','1d'];
-  var bullC=tfs.filter(function(tf){return results[tf]&&results[tf].sig==='bull';}).length;
-  var bearC=tfs.filter(function(tf){return results[tf]&&results[tf].sig==='bear';}).length;
-  var overall=bullC>=3?'⚡ STRONG CONFLUENCE — ENTER':bullC===2?'✅ MODERATE CONFLUENCE':bearC>=3?'🔴 BEARISH CONFLUENCE — AVOID':bearC===2?'⚠ MODERATE BEARISH':'⏳ MIXED — WAIT';
-  var overallC=bullC>=3?'var(--g)':bullC===2?'#5BAF6E':bearC>=3?'var(--r)':bearC===2?'#c9504f':'var(--am)';
-  var h='<div style="background:'+overallC+'0f;border:.5px solid '+overallC+'44;border-radius:var(--rad);padding:.875rem;margin-bottom:.75rem;text-align:center">';
-  h+='<div style="font-size:16px;font-weight:800;color:'+overallC+'">'+overall+'</div>';
-  h+='<div style="font-size:12px;color:var(--t2);margin-top:3px">'+bullC+'/4 bullish · '+bearC+'/4 bearish · Pro rule: need ≥3 to enter</div></div>';
-  h+='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:.75rem">';
-  tfs.forEach(function(tf){
-    var r=results[tf]||{sig:'na'};
-    var sc=r.sig==='bull'?'var(--g)':r.sig==='bear'?'var(--r)':r.sig==='na'?'var(--t3)':'var(--am)';
-    var si=r.sig==='bull'?'↑ Bullish':r.sig==='bear'?'↓ Bearish':r.sig==='na'?'— N/A':'⇄ Neutral';
-    var bg=r.sig==='bull'?'rgba(29,158,117,.08)':r.sig==='bear'?'rgba(226,75,74,.06)':'var(--card2)';
-    h+='<div style="background:'+bg+';border:.5px solid '+sc+'44;border-radius:var(--rad);padding:10px 12px">';
-    h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">';
-    h+='<span style="font-size:14px;font-weight:800">'+tf+'</span><span style="font-size:12px;font-weight:700;color:'+sc+'">'+si+'</span></div>';
-    if(r.sig!=='na'){
-      h+='<div style="font-size:11px;color:var(--t2)">RSI <strong style="color:'+(r.rsi>70?'var(--r)':r.rsi<30?'var(--g)':'var(--text)')+'">'+r.rsi.toFixed(0)+'</strong>  Vol <strong>'+r.volR.toFixed(2)+'×</strong></div>';
-      if(r.e20)h+='<div style="font-size:10px;color:var(--t3);margin-top:2px">EMA20 '+(r.price>r.e20?'<span style="color:var(--g)">▲ above</span>':'<span style="color:var(--r)">▼ below</span>')+'</div>';
+// Confluence v2 — closed candles, separate structure/trend/trigger evidence.
+var _confluenceRequest = 0;
+function confirmedStructurePivots(h,l,strength,lookback){
+  var start=Math.max(strength,h.length-(lookback||60)),highs=[],lows=[];
+  for(var i=start;i<h.length-strength;i++){
+    var high=true,low=true;
+    for(var j=1;j<=strength;j++){
+      if(h[i]<=h[i-j]||h[i]<=h[i+j])high=false;
+      if(l[i]>=l[i-j]||l[i]>=l[i+j])low=false;
     }
-    h+='</div>';
+    if(high)highs.push({i:i,p:h[i],confirmedAt:i+strength});
+    if(low)lows.push({i:i,p:l[i],confirmedAt:i+strength});
+  }
+  return {highs:highs,lows:lows};
+}
+function confluenceStructure(h,l,c){
+  var pivots=confirmedStructurePivots(h,l,3,60),hs=pivots.highs,ls=pivots.lows,n=c.length;
+  var high=hs[hs.length-1],low=ls[ls.length-1],price=c[n-1],atr=calcATR(h,l,c,14),buffer=atr*.1;
+  var side='unknown',label='Awaiting confirmed swings';
+  if(hs.length>=2&&ls.length>=2){
+    var hh=high.p>hs[hs.length-2].p*1.001,hl=low.p>ls[ls.length-2].p*1.001;
+    var lh=high.p<hs[hs.length-2].p,ll=low.p<ls[ls.length-2].p;
+    side=hh&&hl?'bull':lh&&ll?'bear':'mixed';
+    label=side==='bull'?'Higher highs / higher lows':side==='bear'?'Lower highs / lower lows':'Mixed swings / range';
+    if((side==='bull'&&price<low.p-buffer)||(side==='bear'&&price>high.p+buffer)){
+      side='mixed';label='Prior structure broken';
+    }
+  }
+  // Replay each latest confirmed level causally. A retest must be a later bar.
+  function track(p,bull){
+    if(!p)return null;
+    var event=null,buffer=calcATR(h.slice(0,p.confirmedAt+1),l.slice(0,p.confirmedAt+1),c.slice(0,p.confirmedAt+1),14)*.1;
+    for(var i=p.confirmedAt+1;i<n;i++){
+      var beyond=bull?c[i]>p.p+buffer:c[i]<p.p-buffer;
+      var back=bull?c[i]<p.p-buffer:c[i]>p.p+buffer;
+      if(!event||event.state==='failed'){
+        if(beyond&&(bull?c[i-1]<=p.p+buffer:c[i-1]>=p.p-buffer))event={side:bull?'bull':'bear',state:'break',i:i,breakIndex:i,level:p.p};
+      }else if(back){event.state='failed';event.i=i;}
+      else if(i>event.breakIndex&&l[i]<=p.p+buffer&&h[i]>=p.p-buffer&&(bull?c[i]>p.p+buffer:c[i]<p.p-buffer)){
+        event.state='retest';event.i=i;
+      }
+    }
+    if(event){event.barsAgo=n-1-event.i;event.text=(event.side==='bull'?'Upside':'Downside')+' '+(event.state==='failed'?'break failed':event.state==='retest'?'retest held':'close break');}
+    return event;
+  }
+  var events=[track(high,true),track(low,false)].filter(Boolean).sort(function(a,b){return b.i-a.i;});
+  return {side:side,label:label,high:high,low:low,highs:hs,lows:ls,event:events[0]||null,buffer:buffer};
+}
+function confluenceAnalyze(rows,sym,tf,now){
+  now=now==null?Date.now():now;
+  var snap=chartSnapshot(rows,sym,tf,now);
+  var r={tf:tf,health:snap.usable?'ready':'unknown',reason:snap.message,source:snap.source,closedAt:snap.lastClosedTime,checkedAt:now};
+  if(!snap.usable)return r;
+  var bars=rows.slice(0,-1),c=bars.map(function(k){return Number(k[4]);}),h=bars.map(function(k){return Number(k[2]);}),l=bars.map(function(k){return Number(k[3]);});
+  var n=bars.length,price=c[n-1],ema20=calcEMA(c,20),ema50=calcEMA(c,50),rsi=calcRSI(c);
+  var volBars=bars.slice(-21),volumeOK=volBars.every(function(k){return k[5]!=null&&k[5]!==''&&isFinite(Number(k[5]))&&Number(k[5])>=0;});
+  var average=volumeOK?volBars.slice(0,-1).reduce(function(a,k){return a+Number(k[5]);},0)/20:null;
+  var volR=average>0?Number(bars[n-1][5])/average:null;
+  var structure=confluenceStructure(h,l,c),trend=price>ema20&&ema20>ema50?'bull':price<ema20&&ema20<ema50?'bear':'mixed';
+  var tolerance=calcATR(h,l,c,14)*.1;
+  var pullback=l[n-1]<=ema20+tolerance&&h[n-1]>=ema20-tolerance&&price>ema20+tolerance&&price>Number(bars[n-1][1]);
+  var event=structure.event;
+  // A trigger is current only; an old break is context, not a fresh entry.
+  var freshBreak=!!(event&&event.side==='bull'&&event.state!=='failed'&&event.barsAgo===0);
+  return Object.assign(r,{price:price,ema20:ema20,ema50:ema50,rsi:rsi,volR:volR,structure:structure,trend:trend,
+    pullback:pullback,trigger:structure.side==='bull'&&trend==='bull'&&freshBreak&&price>Number(bars[n-1][1])&&volR!=null&&volR>=1.5,
+    confirmation:structure.side==='bull'&&trend==='bull'&&(pullback||freshBreak),bars:n});
+}
+function confluenceSummary(results){
+  var tfs=['1d','4h','1h','15m'],missing=tfs.filter(function(tf){return !results[tf]||results[tf].health!=='ready';});
+  var sources=tfs.map(function(tf){return results[tf]&&results[tf].source;}).filter(Boolean);
+  if(missing.length)return {tone:'wait',title:'Waiting for reliable data',next:'Check '+missing.join(', ')+' source status. No alignment decision yet.'};
+  if(new Set(sources).size>1)return {tone:'wait',title:'Different exchanges — review separately',next:'Timeframes came from different venues. Refresh before treating them as one aligned setup.'};
+  var day=results['1d'],setup=results['4h'],confirm=results['1h'],timing=results['15m'];
+  function bullish(r){return r.structure.side==='bull'&&r.trend==='bull';}
+  if(day.structure.side==='bear'||day.trend==='bear')return {tone:'risk',title:'Daily context opposes a spot long',next:'Lower-timeframe strength is a countertrend move. Wait for the daily context to improve.'};
+  if(!bullish(day))return {tone:'wait',title:'Daily context not aligned',next:'Wait for confirmed daily higher highs / higher lows and bullish EMA alignment.'};
+  if(!bullish(setup))return {tone:'wait',title:'Daily bullish · 4H setup pending',next:'Wait for 4H bullish structure and trend; a lower-timeframe bounce alone is insufficient.'};
+  if(!bullish(confirm)||!confirm.confirmation)return {tone:'wait',title:'Higher timeframes aligned · 1H confirmation pending',next:'Watch for a closed 1H EMA20 pullback hold or a fresh upside break / retest.'};
+  if(!timing.trigger)return {tone:'wait',title:'Setup aligned · 15m trigger pending',next:'Wait for a fresh 15m upside close break / retest, bullish structure and trend, a green close and volume ≥1.5×.'};
+  return {tone:'bull',title:'Alignment confirmed — review trade plan',next:'Check nearby resistance, invalidation, net reward/risk and market/news risks. Alignment alone does not authorize an entry.'};
+}
+function confluenceEscape(value){return String(value==null?'':value).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function confluenceTime(value){return value?new Date(value).toISOString().slice(0,16).replace('T',' ')+' UTC':'Unknown';}
+function buildConfluenceTab(d,force){
+  var sec=document.getElementById('msec');if(!sec||!d)return Promise.resolve();
+  var request=++_confluenceRequest,sym=d.sym,results={},tfs=['15m','1h','4h','1d'];
+  sec.innerHTML='<div id="confluence-root" data-request="'+request+'"><div class="spinner-wrap"><div class="sp"></div>Checking closed candles on four timeframes…</div></div>';
+  function current(){var root=document.getElementById('confluence-root'),tab=document.getElementById('mt-conf');return request===_confluenceRequest&&root&&root.getAttribute('data-request')===String(request)&&curSym===sym&&window._d&&window._d.sym===sym&&tab&&tab.classList.contains('active');}
+  return Promise.all(tfs.map(function(tf){
+    if(force&&typeof _klCache!=='undefined')delete _klCache[sym+'_'+tf+'_300'];
+    return Promise.resolve().then(function(){return bybitKlines(sym,tf,300);}).then(function(rows){
+      results[tf]=confluenceAnalyze(rows,sym,tf,Date.now());
+    }).catch(function(){results[tf]={tf:tf,health:'unknown',source:'Unavailable',reason:'Candle request failed or response was invalid. Refresh to retry.'};}).then(function(){
+      if(current())renderConfluence(d,results,request);
+    });
+  }));
+}
+function refreshConfluence(){if(window._d)return buildConfluenceTab(window._d,true);}
+function renderConfluence(d,results,request){
+  var root=document.getElementById('confluence-root');if(!root)return;
+  if(request!=null&&root.getAttribute('data-request')!==String(request))return;
+  var summary=confluenceSummary(results),colors={bull:'var(--g)',bear:'var(--r)',risk:'var(--r)',mixed:'var(--am)',wait:'var(--am)',unknown:'var(--t2)'};
+  var esc=confluenceEscape;
+  var h='<div class="cf-heading"><div><strong>Timeframe alignment</strong><small>Closed candles · v2026.09.13-r1</small></div><button onclick="refreshConfluence()">↻ Refresh all</button></div>';
+  h+='<div class="cf-summary" style="border-left-color:'+colors[summary.tone]+'"><strong style="color:'+colors[summary.tone]+'">'+esc(summary.title)+'</strong><p>'+esc(summary.next)+'</p></div>';
+  h+='<div class="cf-grid">';
+  ['1d','4h','1h','15m'].forEach(function(tf){
+    var r=results[tf],roles={'1d':'Context','4h':'Setup','1h':'Confirmation','15m':'Timing'};
+    h+='<article class="cf-card"><div class="cf-card-head"><strong>'+tf.toUpperCase()+' · '+roles[tf]+'</strong><span>'+(r?(r.health==='ready'?'Closed data':'Unknown'):'Loading…')+'</span></div>';
+    if(!r||r.health!=='ready')h+='<p>'+esc(r?r.reason:'Fetching candle history…')+'</p>';
+    else{
+      var s=r.structure,e=s.event;
+      h+='<div class="cf-structure" style="color:'+colors[s.side]+'">'+esc(s.label)+'</div>';
+      h+='<dl><dt>EMA trend</dt><dd>'+esc(r.trend==='bull'?'Bullish':r.trend==='bear'?'Bearish':'Mixed')+'</dd><dt>RSI · Wilder 14</dt><dd>'+r.rsi.toFixed(1)+'</dd>';
+      h+='<dt>Closed volume</dt><dd>'+(r.volR==null?'Unknown':r.volR.toFixed(2)+'×'+(r.volR>=1.5?' · Elevated':' · Below 1.5×'))+'</dd>';
+      h+='<dt>Level confirmation</dt><dd>'+esc(e?e.text+' · '+e.barsAgo+' bars ago':'No confirmed break')+'</dd></dl>';
+      if(tf==='1h')h+='<p class="cf-note">EMA20 pullback hold: '+(r.pullback?'Yes · last closed candle':'Not confirmed on last close')+'</p>';
+      if(tf==='15m')h+='<p class="cf-note">Timing conditions: '+(r.trigger?'Met on last close':'Waiting')+'</p>';
+      h+='<details><summary>Prices & swing evidence</summary><p>Close '+esc(fE(r.price))+' · EMA20 '+esc(fE(r.ema20))+' · EMA50 '+esc(fE(r.ema50))+'</p>';
+      h+='<p>Last two highs: '+esc(s.highs.slice(-2).map(function(p){return fE(p.p);}).join(' → ')||'Not enough pivots')+'<br>Last two lows: '+esc(s.lows.slice(-2).map(function(p){return fE(p.p);}).join(' → ')||'Not enough pivots')+'</p>';
+      if(e)h+='<p>Tested level '+esc(fE(e.level))+' · 0.1 ATR close buffer.</p>';
+      h+='</details>';
+    }
+    h+='<footer>'+esc(r?r.source||'Unknown':'Source pending')+' · Last close '+esc(confluenceTime(r&&r.closedAt))+'</footer></article>';
   });
-  h+='</div>';
-  h+='<div style="background:var(--card2);border-radius:var(--rad);padding:.75rem;margin-bottom:.75rem;border-left:3px solid var(--g)">';
-  h+='<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--t2);margin-bottom:.5rem">📐 Confluence Entry Method</div>';
-  h+='<div style="font-size:12px;color:var(--t2);line-height:1.8">';
-  h+='1. <strong>1D bullish</strong> — macro trend confirms direction<br>';
-  h+='2. <strong>4H bullish/neutral</strong> — intermediate trend aligned<br>';
-  h+='3. <strong>Enter on 1H EMA20 pullback</strong> — wait for dip to EMA20<br>';
-  h+='4. <strong>15m entry trigger</strong> — green candle + vol≥1.5× to confirm<br>';
-  h+='5. <strong>Now: </strong>'+(bullC>=3?'✅ All aligned — ready':'⚠ '+bullC+'/4 — '+(bullC>=2?'reduce size 50%':'wait for alignment'))+'</div></div>';
-  h+=buildPriceAlertUI(d);
-  sec.innerHTML=h;
+  h+='</div><details class="cf-method"><summary>How to read this</summary><p>1D context → 4H setup → 1H confirmation → 15m timing. These timeframes overlap; they are not four independent signals.</p><p>Structure uses the last 60 closed candles and strict swing pivots with 3 candles on each side, shared with the scanner. Higher highs and higher lows must each exceed the previous pivot by 0.1%. Confirmation therefore arrives after the swing, and forming pivots are excluded.</p><p>EMA20/50 and Wilder RSI use the same shared calculations and 300-candle request as the chart. Volume is the last closed candle’s base-coin volume divided by the previous 20 closed candles; it is shown separately from structure. Scanner quote-volume ratios may differ.</p><p>An upside break needs a close above a confirmed high plus a 0.1 ATR buffer. A retest needs a later touch and close above the buffer. A close back through the opposite buffer marks a failed break. These are configured conditions, not a tested win rate.</p><p>Refresh after candle close. Every card shows its own last close and venue; header values can reflect a different snapshot. No automatic entry, order or position-size instruction comes from this tab.</p></details>';
+  h+=buildPriceAlertUI(d);root.innerHTML=h;
 }
 
 // ── Price-level alerts ────────────────────────────────────────────────────
