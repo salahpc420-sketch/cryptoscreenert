@@ -749,15 +749,19 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
     <div class="intel-panel" id="ip-events">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:.625rem;flex-wrap:wrap">
         <span id="macro-risk-badge" style="font-size:11px;font-weight:700;padding:1px 9px;border-radius:99px"></span>
-        <span style="font-size:10px;font-weight:700;color:var(--t3);background:var(--card3);padding:2px 8px;border-radius:99px">📋 Scheduled dates · not live numbers</span>
+        <span style="font-size:12px;font-weight:700">Live economic calendar</span>
         <div style="margin-left:auto;display:flex;gap:6px">
           <a href="https://www.forexfactory.com/calendar" target="_blank" rel="noopener" style="font-size:11px;font-weight:600;text-decoration:none;padding:4px 10px;border-radius:6px;border:.5px solid var(--bl);color:var(--bl);background:rgba(41,98,255,.06);white-space:nowrap">🔗 ForexFactory (live)</a>
           <a href="https://www.investing.com/economic-calendar/" target="_blank" rel="noopener" style="font-size:11px;font-weight:600;text-decoration:none;padding:4px 10px;border-radius:6px;border:.5px solid var(--bd);color:var(--t2);background:var(--card2);white-space:nowrap">🔗 Investing.com</a>
         </div>
       </div>
+      <div class="spot-heading"><p class="spot-muted">US events · actual, forecast and previous figures where available. Check the timezone displayed in the provider calendar.</p><button class="btn" onclick="spotMountLiveCalendar(true)">Reload live calendar</button></div>
+      <div id="spot-live-widget-status" class="spot-muted" aria-live="polite">Open this tab to load the live calendar.</div>
+      <div id="spot-live-widget" style="min-height:600px;margin:10px 0"></div>
+      <p class="spot-muted">The live calendar supplies the displayed release figures. Strategy pause windows below use separately synchronized official event dates.</p>
       <div id="macro-risk-bar" style="margin-bottom:.75rem"></div>
       <div id="macro-events-body"><div style="font-size:11px;color:var(--t3)">Loading economic calendar…</div></div>
-      <div style="font-size:10px;color:var(--t3);margin-top:.625rem;line-height:1.6">ℹ️ <strong>These are scheduled release dates</strong> copied from BLS, BEA and Federal Reserve calendars, checked September 13, 2026. Coverage: selected US releases, September–December 2026. Japan times include US daylight-saving changes. Check each official link for revisions. This panel does not fetch actual results or consensus forecasts.</div>
+      <p class="spot-muted">Dates refresh from BLS, BEA and Federal Reserve while this app is open. Missing feeds show incomplete coverage. Actual results inside the live calendar are not interpreted as automatic buy/sell signals.</p>
     </div>
     <!-- CANDLE CLOSE -->
     <div class="intel-panel" id="ip-candle">
@@ -15895,9 +15899,9 @@ function showIntel(which){
     if(tab) tab.classList.toggle('active', t===which);
     if(panel) panel.classList.toggle('active', t===which);
   });
-  if(which==='macrotape'){renderSpotMacro();refreshMacroData(false);}
-  if(which==='spotstrategy'){renderSpotStrategy();renderSpotReview();}
-  if(which==='events')renderMacroEvents();
+  if(which==='macrotape'){renderSpotMacro();refreshMacroData(false);spotRefreshCalendar(false);}
+  if(which==='spotstrategy'){renderSpotStrategy();renderSpotReview();spotRefreshCalendar(false);}
+  if(which==='events'){renderMacroEvents();spotMountLiveCalendar(false);spotRefreshCalendar(false);}
   if(which==='buyzone') renderBuyZone();
   if(which==='marketread'){
     renderMarketRead();
@@ -23341,8 +23345,8 @@ function renderMacroRegime() {
 }
 
 
-// Computes upcoming US/global events from known recurring schedules (no API).
-// Events tracked: CPI, PPI, FOMC, NFP, GDP, Unemployment, ECB rate decision.
+// Live US event feed adapters: CPI, PPI, jobs, PCE, GDP and FOMC.
+// Provider calendars supply published times; missing coverage stays unknown.
 // ═══════════════════════════════════════════════════════════════════════════
 
 // Helper: nth weekday of a month (e.g. 1st Friday). weekday 0=Sun..6=Sat
@@ -23360,26 +23364,8 @@ function nthWeekday(year, month, weekday, n) {
 }
 
 // SPOT RESEARCH + MACRO TAPE · 2026.09.13-strategy-r1
-// Event times are a sourced snapshot, never inferred monthly dates.
-var SPOT_STRATEGY_VERSION='2026.09.14-strategy-colors-r1';
-var SPOT_CALENDAR_CHECKED='2026-09-13';
-var SPOT_CALENDAR_START=Date.parse('2026-09-01T00:00:00Z');
-var SPOT_CALENDAR_END=Date.parse('2027-01-01T00:00:00Z');
-var SPOT_EVENT_ROWS=[
- ['2026-09-04','jobs'],['2026-09-10','ppi'],['2026-09-11','cpi'],['2026-09-16','fed'],['2026-09-16','press'],['2026-09-30','pce'],['2026-09-30','gdp'],
- ['2026-10-02','jobs'],['2026-10-14','cpi'],['2026-10-15','ppi'],['2026-10-28','fed'],['2026-10-28','press'],['2026-10-29','pce'],['2026-10-29','gdp'],
- ['2026-11-06','jobs'],['2026-11-10','cpi'],['2026-11-13','ppi'],['2026-11-25','pce'],['2026-11-25','gdp'],
- ['2026-12-04','jobs'],['2026-12-09','fed'],['2026-12-09','press'],['2026-12-10','cpi'],['2026-12-15','ppi'],['2026-12-23','pce'],['2026-12-23','gdp']
-];
-var SPOT_EVENT_TYPES={
- jobs:{name:'US jobs + unemployment',impact:'high',time:'08:30',agency:'BLS'},
- cpi:{name:'US CPI',impact:'high',time:'08:30',agency:'BLS'},
- ppi:{name:'US PPI',impact:'high',time:'08:30',agency:'BLS'},
- pce:{name:'US income / outlays (PCE)',impact:'high',time:'08:30',agency:'BEA'},
- gdp:{name:'US GDP release',impact:'high',time:'08:30',agency:'BEA'},
- fed:{name:'FOMC rate decision',impact:'extreme',time:'14:00',agency:'Federal Reserve'},
- press:{name:'FOMC press conference',impact:'extreme',time:'14:30',agency:'Federal Reserve'}
-};
+// Event dates synchronize from official online feeds.
+var SPOT_STRATEGY_VERSION='2026.09.14-live-calendar-r1';
 function spotEsc(x){return String(x==null?'':x).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function spotET(date,time){
   var parts=(date+'-'+time.replace(':','-')).split('-').map(Number),nominal=Date.UTC(parts[0],parts[1]-1,parts[2],parts[3],parts[4]),guess=nominal;
@@ -23390,41 +23376,149 @@ function spotET(date,time){
   return guess;
 }
 function spotTime(ms,zone){return new Intl.DateTimeFormat('en-GB',{timeZone:zone||'Asia/Tokyo',month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(ms));}
-function spotCalendarCovered(now){return now>=SPOT_CALENDAR_START&&now+14*86400000<SPOT_CALENDAR_END;}
+// Live official event dates; no built-in release dates or recurring-date guesses.
+var SPOT_CALENDAR_VERSION='2026.09.14-live-calendar-r1';
+var SPOT_CALENDAR_REFRESH_MS=15*60000,SPOT_CALENDAR_FRESH_MS=20*60000;
+var SPOT_CALENDAR_URLS={bls:'https://www.bls.gov/schedule/news_release/bls.ics',bea:'https://www.bea.gov/news/schedule/ics/online-calendar-subscription.ics'};
+var _spotCalendar={sources:{},loading:false,lastAttempt:0},_spotCalendarPromise=null;
+function spotCalendarKind(name,agency){
+  if(agency==='bls')return /^Consumer Price Index\b/i.test(name)?'cpi':/^Producer Price Index\b/i.test(name)?'ppi':/^Employment Situation\b/i.test(name)?'jobs':null;
+  return /^Personal Income and Outlays\b/i.test(name)?'pce':/^(GDP \(|Gross Domestic Product[\s,(])/i.test(name)&&!/by (state|county)/i.test(name)?'gdp':null;
+}
+function spotCalendarET(ms){
+  var a={};new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(ms)).forEach(function(p){a[p.type]=p.value;});
+  return a.year+'-'+a.month+'-'+a.day+' '+a.hour+':'+a.minute+' ET';
+}
+function spotICSTime(raw,zone){
+  var m=/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})?(Z)?$/.exec(raw||'');
+  if(!m)return null;
+  var y=+m[1],mo=+m[2],d=+m[3],h=+m[4],mi=+m[5],sec=+(m[6]||0),nom=Date.UTC(y,mo-1,d,h,mi,sec),dt=new Date(nom);
+  if(dt.getUTCFullYear()!==y||dt.getUTCMonth()!==mo-1||dt.getUTCDate()!==d||h>23||mi>59||sec>59)return null;
+  if(m[7])return nom;
+  if(!['America/New_York','US-Eastern','US/Eastern'].includes(zone))return null;
+  return spotET(m[1]+'-'+m[2]+'-'+m[3],m[4]+':'+m[5])+sec*1000;
+}
+function spotParseICS(text,agency,now){
+  text=String(text||'').replace(/\r\n/g,'\n').replace(/\n[ \t]/g,'');
+  if(!/BEGIN:VCALENDAR/.test(text)||!/END:VCALENDAR/.test(text))throw new Error('Invalid or incomplete calendar response');
+  var all=text.match(/BEGIN:VEVENT\n[\s\S]*?END:VEVENT/g)||[],items={},dates=[],seen={},invalid=0;
+  all.forEach(function(block){
+    var fields={};block.split('\n').forEach(function(line){var i=line.indexOf(':');if(i<0)return;var p=line.slice(0,i).split(';'),name=p.shift().toUpperCase();fields[name]={value:line.slice(i+1),params:p.join(';')};});
+    function val(k){return fields[k]?fields[k].value:'';}
+    var name=val('SUMMARY').replace(/\\[nN]/g,' ').replace(/\\([,;\\])/g,'$1').trim(),kind=spotCalendarKind(name,agency);
+    if(!kind)return;
+    seen[kind]=true;
+    var tm=fields.DTSTART,zone=tm&&/TZID="?([^;"\s]+)/i.exec(tm.params),date=spotICSTime(val('DTSTART'),zone?zone[1]:null);
+    var uid=val('UID'),cancelled=val('STATUS').toUpperCase()==='CANCELLED';
+    if(!uid||date==null||val('RRULE')){invalid++;return;}
+    dates.push(date);
+    var seq=Number(val('SEQUENCE')||0),stamp=spotICSTime(val('LAST-MODIFIED')||val('DTSTAMP'),'America/New_York')||0;
+    var item={id:agency+':'+uid,name:name,kind:kind,impact:'high',time:date,source:agency==='bls'?'BLS':'BEA',url:SPOT_CALENDAR_URLS[agency],et:spotCalendarET(date),sequence:seq,modifiedAt:stamp,cancelled:cancelled};
+    var old=items[uid];if(!old||seq>old.sequence||seq===old.sequence&&stamp>=old.modifiedAt)items[uid]=item;
+  });
+  var required=agency==='bls'?['cpi','ppi','jobs']:['pce','gdp'];
+  if(invalid||required.some(function(k){return !seen[k];})||!dates.length)throw new Error('Tracked events missing, recurring, or have invalid times');
+  return {events:Object.values(items).filter(function(e){return !e.cancelled&&e.time>=now-6*3600000&&e.time<=now+90*86400000;}),coverageStart:Math.min.apply(null,dates),coverageEnd:Math.max.apply(null,dates)};
+}
+function spotFedMonthJobs(now){
+  var et=spotCalendarET(now-6*3600000).slice(0,10),end=spotCalendarET(now+14*86400000).slice(0,10),start=new Date(et+'T00:00:00Z'),last=new Date(end+'T00:00:00Z'),jobs=[];
+  start.setUTCDate(1);last.setUTCDate(1);
+  while(start<=last){var year=start.getUTCFullYear(),month=start.getUTCMonth(),name=['january','february','march','april','may','june','july','august','september','october','november','december'][month];jobs.push({year:year,month:month,name:name,url:'https://www.federalreserve.gov/newsevents/'+year+'-'+name+'.htm'});start.setUTCMonth(month+1);}
+  return jobs;
+}
+function spotParseFed(text,job){
+  var doc=new DOMParser().parseFromString(String(text),'text/html');
+  doc.querySelectorAll('script,style,nav,header,footer').forEach(function(n){n.remove();});
+  var whole=doc.body.textContent.replace(/\s+/g,' '),title=new RegExp(job.name+'\\s+'+job.year,'i');
+  if(!title.test(whole)||!/Statistical Releases|FOMC Meetings/i.test(whole))throw new Error('Federal Reserve calendar page missing or changed');
+  var events=[],matched=0;
+  Array.from(doc.querySelectorAll('tr,.row')).forEach(function(row){
+    var txt=row.textContent.replace(/\s+/g,' ').trim();
+    if(!/FOMC (?:Meeting\b|Press Conference\b)/i.test(txt)||/FOMC Meetings\b/i.test(txt))return;
+    if(Array.from(row.querySelectorAll('tr,.row')).some(function(n){return /FOMC (?:Meeting\b|Press Conference\b)/i.test(n.textContent);}))return;
+    var cells=Array.from(row.children).map(function(c){return c.textContent.replace(/\s+/g,' ').trim();});
+    var time=cells.map(function(c){return /^(\d{1,2}):(\d{2})\s*([ap])\.?m\.?$/i.exec(c);}).find(Boolean),day=cells.find(function(c){return /^\d{1,2}$/.test(c);});
+    if(!time||!day)throw new Error('FOMC date or time format changed');
+    var h=+time[1]%12+(time[3].toLowerCase()==='p'?12:0),date=job.year+'-'+String(job.month+1).padStart(2,'0')+'-'+day.padStart(2,'0'),ms=spotET(date,String(h).padStart(2,'0')+':'+time[2]),kind=/FOMC Press Conference/i.test(txt)?'press':'fed';
+    if(+day<1||+day>new Date(Date.UTC(job.year,job.month+1,0)).getUTCDate()||h>23||+time[2]>59)throw new Error('Invalid FOMC timestamp');
+    matched++;events.push({id:'fed:'+date+':'+kind,name:kind==='press'?'FOMC press conference':'FOMC rate decision',kind:kind,impact:'extreme',time:ms,source:'Federal Reserve',url:job.url,et:spotCalendarET(ms)});
+  });
+  if(!matched&&/FOMC (?:Meeting\b|Press Conference\b)/i.test(whole))throw new Error('FOMC events present but not readable');
+  return {events:events,coverageStart:spotET(job.year+'-'+String(job.month+1).padStart(2,'0')+'-01','00:00'),coverageEnd:spotET(new Date(Date.UTC(job.year,job.month+1,1)).toISOString().slice(0,10),'00:00')};
+}
+function spotCalendarSourceFresh(source,now){return !!(source&&source.state==='ready'&&Number.isFinite(source.fetchedAt)&&now>=source.fetchedAt&&now-source.fetchedAt<=SPOT_CALENDAR_FRESH_MS&&source.coverageStart<=now-6*3600000&&source.coverageEnd>now+14*86400000);}
+function spotCalendarCovered(now){return ['bls','bea','fed'].every(function(k){return spotCalendarSourceFresh(_spotCalendar.sources[k],now);});}
+function spotRestoreCalendar(){
+  try{var saved=JSON.parse(localStorage.getItem('spot-live-calendar-v1')||'null');if(!saved||saved.version!==1)return;
+    ['bls','bea','fed'].forEach(function(k){var s=saved.sources&&saved.sources[k];if(s&&Array.isArray(s.events)&&s.events.every(function(e){return Number.isFinite(e.time)&&typeof e.name==='string'&&['cpi','ppi','jobs','pce','gdp','fed','press'].includes(e.kind)&&typeof e.url==='string'&&/^https:\/\/(www\.)?(bls|bea|federalreserve)\.gov\//.test(e.url);}))_spotCalendar.sources[k]=Object.assign({},s,{state:'cached',error:'Awaiting online refresh'});});
+  }catch(e){}
+}
+function spotCalendarNotify(){renderMacroEvents();renderSpotMacro();renderSpotReview();}
+async function spotRefreshCalendar(force){
+  if(_spotCalendarPromise)return _spotCalendarPromise;
+  var now=Date.now();if(!force&&now-_spotCalendar.lastAttempt<SPOT_CALENDAR_REFRESH_MS)return _spotCalendar;
+  _spotCalendar.lastAttempt=now;_spotCalendar.loading=true;
+  _spotCalendarPromise=Promise.resolve().then(async function(){
+    var jobs=spotFedMonthJobs(now);
+    async function source(key,work){
+      try{var data=await work();_spotCalendar.sources[key]=Object.assign(data,{fetchedAt:Date.now(),state:'ready',error:''});}
+      catch(e){var old=_spotCalendar.sources[key]||{events:[],fetchedAt:0};_spotCalendar.sources[key]=Object.assign({},old,{state:'failed',error:String(e&&e.message||'Request failed').slice(0,180)});}
+      spotCalendarNotify();
+    }
+    await Promise.all([
+      source('bls',async function(){return spotParseICS(await _pfetchText(SPOT_CALENDAR_URLS.bls,8000),'bls',now);}),
+      source('bea',async function(){return spotParseICS(await _pfetchText(SPOT_CALENDAR_URLS.bea,8000),'bea',now);}),
+      source('fed',async function(){var pieces=[];for(var j of jobs)pieces.push(spotParseFed(await _pfetchText(j.url,8000),j));return {events:pieces.reduce(function(a,p){return a.concat(p.events);},[]),coverageStart:pieces[0].coverageStart,coverageEnd:pieces[pieces.length-1].coverageEnd};})
+    ]);
+    try{localStorage.setItem('spot-live-calendar-v1',JSON.stringify({version:1,sources:_spotCalendar.sources}));}catch(e){}
+    return _spotCalendar;
+  }).finally(function(){_spotCalendar.loading=false;_spotCalendarPromise=null;spotCalendarNotify();});
+  spotCalendarNotify();return _spotCalendarPromise;
+}
 function buildMacroEvents(now){
-  now=now==null?Date.now():Number(now);
-  return SPOT_EVENT_ROWS.map(function(row){
-    var t=SPOT_EVENT_TYPES[row[1]],month=row[0].slice(5,7),months={'09':'september','10':'october','11':'november','12':'december'};
-    var url=t.agency==='BLS'?'https://www.bls.gov/schedule/2026/'+month+'_sched_list.htm':t.agency==='BEA'?'https://www.bea.gov/news/schedule/full':'https://www.federalreserve.gov/newsevents/2026-'+months[month]+'.htm';
-    return {id:row.join(':'),name:t.name,kind:row[1],impact:t.impact,date:new Date(spotET(row[0],t.time)),source:t.agency,url:url,checked:SPOT_CALENDAR_CHECKED,et:row[0]+' '+t.time+' ET'};
-  }).filter(function(e){return +e.date>now-6*3600000;}).sort(function(a,b){return a.date-b.date;});
+  now=now==null?Date.now():Number(now);var out=[],seen={};
+  ['bls','bea','fed'].forEach(function(k){var s=_spotCalendar.sources[k];if(!s)return;(s.events||[]).forEach(function(e){if(!Number.isFinite(e.time)||e.time<now-6*3600000||e.time>now+14*86400000)return;var id=e.kind+':'+e.time;if(seen[id])return;seen[id]=true;out.push(Object.assign({},e,{date:new Date(e.time),fresh:spotCalendarSourceFresh(s,now),checked:s.fetchedAt}));});});
+  return out.sort(function(a,b){return a.date-b.date;});
 }
 function spotEventGate(now){
   now=now==null?Date.now():now;
-  var events=buildMacroEvents(now),active=events.filter(function(e){var delta=(+e.date-now)/60000;return delta<=60&&delta>=-(e.kind==='fed'||e.kind==='press'?120:60);});
-  if(active.length)return {state:'pause',label:'Pause new entries',events:active,note:'Research rule: 60 min before releases; 60 min after data, 120 min after the FOMC conference. Manage existing risk under its original plan.'};
-  if(!spotCalendarCovered(now))return {state:'unknown',label:'Calendar coverage incomplete',events:[],note:'The next 14 days exceed the saved US calendar. Check the official schedules; do not interpret an empty list as no event risk.'};
-  return {state:'review',label:'Check event schedule before entry',events:[],note:'Outside the saved pause windows. Snapshot checked '+SPOT_CALENDAR_CHECKED+'; releases can change. Covers CPI, PPI, jobs, PCE, GDP and FOMC only.'};
+  var active=buildMacroEvents(now).filter(function(e){var delta=(+e.date-now)/60000;return delta<=60&&delta>=-(e.kind==='fed'||e.kind==='press'?120:60);});
+  if(active.length)return {state:'pause',label:'Pause new entries',events:active,note:active.some(function(e){return !e.fresh;})?'An earlier reported event overlaps the pause window. Updates are incomplete; verify the live calendar before any new entry.':'Live event dates: pause 60 min before releases, 60 min after data and 120 min after the FOMC conference starts.'};
+  if(!spotCalendarCovered(now))return {state:'unknown',label:_spotCalendar.loading?'Updating event dates…':'Event coverage incomplete',events:[],note:'A required feed is missing, stale or does not cover the next 14 days. Check the live calendar; an empty list does not mean no event risk.'};
+  return {state:'review',label:'Event dates synced · outside pause window',events:[],note:'Official feeds checked within 20 minutes. Auto-refresh every 15 minutes while the app is visible. Unexpected news and other releases still require review.'};
 }
 function calcMacroRisk(events){
-  // Retained signature for callers. A descriptive count, not a loss probability.
   if(!spotCalendarCovered(Date.now()))return null;
-  var groups={},now=Date.now();events.forEach(function(e){var d=(+e.date-now)/86400000;if(d<0||d>14)return;var key=e.kind==='press'?'fed:'+e.et.slice(0,10):e.kind==='fed'?'fed:'+e.et.slice(0,10):String(+e.date);groups[key]=Math.max(groups[key]||0,(e.impact==='extreme'?40:25)*(1-d/14));});
+  var groups={},now=Date.now();events.forEach(function(e){var d=(+e.date-now)/86400000;if(d<0||d>14)return;var key=e.kind==='press'||e.kind==='fed'?'fed:'+e.et.slice(0,10):String(+e.date);groups[key]=Math.max(groups[key]||0,(e.impact==='extreme'?40:25)*(1-d/14));});
   return Math.min(100,Math.round(Object.values(groups).reduce(function(a,b){return a+b;},0)));
 }
 function spotCalendarMarkup(now,limit){
   now=now==null?Date.now():now;var gate=spotEventGate(now),rows=buildMacroEvents(now).slice(0,limit||8);
-  var h='<div class="spot-note"><b>'+spotEsc(gate.label)+'</b><p>'+spotEsc(gate.note)+'</p></div><div class="spot-events">';
-  rows.forEach(function(e){var delta=Math.round((+e.date-now)/60000),left=delta<0?'Released '+Math.abs(delta)+'m ago':delta<60?'In '+delta+'m':delta<1440?'In '+Math.floor(delta/60)+'h '+delta%60+'m':'In '+Math.floor(delta/1440)+'d '+Math.floor(delta%1440/60)+'h';
-    h+='<article><a href="'+e.url+'" target="_blank" rel="noopener noreferrer">'+spotEsc(e.name)+'</a><b>'+spotEsc(spotTime(+e.date))+' JST</b><span>'+spotEsc(e.et)+' · '+spotEsc(left)+'</span><small>'+spotEsc(e.source)+' · schedule snapshot</small></article>';
-  });
-  return h+(rows.length?'':'<p>No sourced upcoming dates in this snapshot. Calendar status: Unknown.</p>')+'</div>';
+  var h='<div class="spot-heading"><h3>Live event dates · Japan time (JST)</h3><button class="btn" onclick="spotRefreshCalendar(true)" '+(_spotCalendar.loading?'disabled':'')+'>'+(_spotCalendar.loading?'Updating…':'Refresh events')+'</button></div><div class="spot-note"><b>'+spotEsc(gate.label)+'</b><p>'+spotEsc(gate.note)+'</p></div><div class="spot-status-context">';
+  ['bls','bea','fed'].forEach(function(k){var s=_spotCalendar.sources[k],fresh=spotCalendarSourceFresh(s,now),name=k==='fed'?'Federal Reserve':k.toUpperCase();h+='<span class="spot-status-badge spot-status-'+(fresh?'pass':'unknown')+'" title="'+spotEsc(s&&s.error||'')+'">'+name+' · '+(fresh?'synced':s&&s.state==='failed'?'update failed':s&&s.fetchedAt?'cached / coverage incomplete':'pending')+(s&&s.fetchedAt?' · '+spotEsc(spotTime(s.fetchedAt))+' JST':'')+'</span>';});
+  h+='</div><div class="spot-events">';
+  rows.forEach(function(e){var delta=Math.round((+e.date-now)/60000),left=delta<0?'Release time passed '+Math.abs(delta)+'m ago':delta<60?'In '+delta+'m':delta<1440?'In '+Math.floor(delta/60)+'h '+delta%60+'m':'In '+Math.floor(delta/1440)+'d '+Math.floor(delta%1440/60)+'h';h+='<article><a href="'+spotEsc(e.url)+'" target="_blank" rel="noopener noreferrer">'+spotEsc(e.name)+'</a><b>'+spotEsc(spotTime(+e.date))+' JST</b><span>'+spotEsc(e.et)+' · '+spotEsc(left)+'</span><small>'+spotEsc(e.source)+' · '+(e.fresh?'online dates':'cached date · verify')+'</small></article>';});
+  return h+(rows.length?'':'<p>No readable events in this window. See source status and the live calendar.</p>')+'</div>';
 }
 function renderMacroEvents(){
   var body=document.getElementById('macro-events-body'),gate=spotEventGate();if(body)body.innerHTML=spotCalendarMarkup(Date.now(),24);
   var bar=document.getElementById('macro-risk-bar');if(bar)bar.innerHTML='';
-  ['macro-risk-badge','it-events-badge'].forEach(function(id){var el=document.getElementById(id);if(el){el.textContent=gate.state==='pause'?'PAUSE':gate.state==='unknown'?'UNKNOWN':'SCHEDULE';el.style.color=gate.state==='pause'?'var(--r)':'var(--am)';}});
+  ['macro-risk-badge','it-events-badge'].forEach(function(id){var el=document.getElementById(id);if(el){el.textContent=gate.state==='pause'?'PAUSE':gate.state==='unknown'?'INCOMPLETE':'SYNCED';el.style.color=gate.state==='pause'?'var(--r)':gate.state==='unknown'?'var(--am)':'var(--g)';}});
 }
+var _spotWidgetGeneration=0;
+function spotMountLiveCalendar(force){
+  var host=document.getElementById('spot-live-widget'),status=document.getElementById('spot-live-widget-status');if(!host||host.dataset.mounted&&!force)return;
+  host.dataset.mounted='1';var generation=++_spotWidgetGeneration;
+  host.innerHTML='<div class="tradingview-widget-container" style="width:100%;height:600px"><div class="tradingview-widget-container__widget" style="height:568px"></div><div class="tradingview-widget-copyright"><a href="https://www.tradingview.com/economic-calendar/" rel="noopener noreferrer" target="_blank">Economic calendar by TradingView</a></div></div>';
+  if(status)status.textContent='Loading live calendar…';
+  var script=document.createElement('script');script.src='https://s3.tradingview.com/external-embedding/embed-widget-events.js';script.async=true;script.type='text/javascript';
+  script.textContent=JSON.stringify({colorTheme:window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light',isTransparent:false,width:'100%',height:568,locale:'en',importanceFilter:'-1,0,1',countryFilter:'us'});
+  script.onerror=function(){if(generation===_spotWidgetGeneration&&status)status.textContent='Calendar could not load. Retry or open the provider link.';};
+  script.onload=function(){if(generation===_spotWidgetGeneration&&status)status.textContent='Provider widget loaded. Data updates inside the calendar; check its displayed timezone and latest figures.';};
+  host.firstElementChild.appendChild(script);
+  setTimeout(function(){if(generation===_spotWidgetGeneration&&!host.querySelector('iframe')&&status)status.textContent='Calendar has not appeared. Retry or open the provider link.';},15000);
+}
+
 function spotMacroQuality(m,now){
   now=now==null?Date.now():now;
   if(!m||!isFinite(m.price)||m.price<=0||m.chg==null||!isFinite(m.chg))return {usable:false,label:'Unavailable'};
@@ -23456,7 +23550,7 @@ function renderSpotMacro(){
   var el=document.getElementById('spot-macro-body');if(!el)return;
   if(document.activeElement&&el.contains&&el.contains(document.activeElement)&&document.activeElement.tagName==='INPUT')return;
   var r=spotMacroReading();
-  el.innerHTML='<div class="spot-heading"><div><h3>Macro tape</h3><p>'+SPOT_STRATEGY_VERSION+' · observations and event risk</p></div><button class="btn" onclick="refreshMacroData(true)" '+(_macroRefreshPromise?'disabled':'')+'>'+(_macroRefreshPromise?'Refreshing…':'Refresh markets')+'</button></div><div class="spot-note"><b>'+spotEsc(r.title)+'</b><p>'+spotEsc(r.note)+'</p></div>'+spotMacroCards()+'<p class="spot-muted">Daily and delayed sources are labelled. Gold and USD/JPY provide context, without a fixed bullish/bearish interpretation. A refresh does not make an old observation current.</p>'+macroSourceControlMarkup().replace(/macro-twelve-key/g,'tape-macro-twelve-key').replace(/macro-key-status/g,'tape-macro-key-status').replace('saveMacroApiKey()',"saveMacroApiKey('tape-')")+'<p class="spot-muted">'+spotEsc(typeof _externalHealth!=='undefined'?_externalHealth.macro.message:'')+'</p><h3>US releases · Japan time</h3>'+spotCalendarMarkup(Date.now(),8)+'<p class="spot-muted">No consensus or actual release numbers are fetched here. US schedule snapshot through December 2026; other events and unexpected news require separate review.</p>';
+  el.innerHTML='<div class="spot-heading"><div><h3>Macro tape</h3><p>'+SPOT_STRATEGY_VERSION+' · observations and event risk</p></div><button class="btn" onclick="refreshMacroData(true)" '+(_macroRefreshPromise?'disabled':'')+'>'+(_macroRefreshPromise?'Refreshing…':'Refresh markets')+'</button></div><div class="spot-note"><b>'+spotEsc(r.title)+'</b><p>'+spotEsc(r.note)+'</p></div>'+spotMacroCards()+'<p class="spot-muted">Daily and delayed sources are labelled. Gold and USD/JPY provide context, without a fixed bullish/bearish interpretation. A refresh does not make an old observation current.</p>'+macroSourceControlMarkup().replace(/macro-twelve-key/g,'tape-macro-twelve-key').replace(/macro-key-status/g,'tape-macro-key-status').replace('saveMacroApiKey()',"saveMacroApiKey('tape-')")+'<p class="spot-muted">'+spotEsc(typeof _externalHealth!=='undefined'?_externalHealth.macro.message:'')+'</p><h3>US releases · Japan time</h3>'+spotCalendarMarkup(Date.now(),8)+'<p class="spot-muted">Official dates refresh automatically. <button class="btn" onclick="showIntel(\'events\')">Open live calendar · actual / forecast</button> Other events and unexpected news require separate review.</p>';
 }
 var SPOT_RULES=[
  ['Market gate','BTC daily structure and trend must be bullish or mixed, never bearish or unknown. Pause under macro headwinds or the event window. Unknown macro data requires manual review before paper entry.'],
@@ -23673,8 +23767,11 @@ detectProxy().then(function(){}).catch(function(){}).then(function(){
   candleWatcher.init();
   renderMoonPanel();
   setInterval(renderMoonPanel, 3600000); // refresh moon panel hourly
+  spotRestoreCalendar();
   renderMacroEvents();
-  setInterval(function(){renderMacroEvents();renderSpotMacro();renderSpotReview();}, 60000); // age UI only; no network polling
+  spotRefreshCalendar(false);
+  setInterval(function(){renderMacroEvents();renderSpotMacro();renderSpotReview();if(!document.hidden)spotRefreshCalendar(false);},60000);
+  document.addEventListener('visibilitychange',function(){if(!document.hidden)spotRefreshCalendar(false);});
 
   // PERF: re-render the correct view when crossing the mobile/desktop breakpoint
   var _resizeTmr=null, _wasMobile=window.innerWidth<=820;
