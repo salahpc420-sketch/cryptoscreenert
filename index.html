@@ -491,6 +491,46 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 
 
 .oc-web-item{border-top:1px solid var(--bd);padding:12px 0;line-height:1.6;font-size:13px}.oc-web-item p{margin:6px 0}.oc-web-item a{overflow-wrap:anywhere}.oc-actions select{min-height:40px;max-width:100%;background:var(--card2);color:var(--text);border:1px solid var(--bd2);border-radius:6px}
+
+/* Key-event focus: full words and dates, with colour reserved for timing and data status. */
+#ip-events .spot-vital-title{font-size:18px;margin:0}
+#ip-events .spot-vital-intro{font-size:13px;color:var(--t2);line-height:1.6;margin-bottom:12px}
+.spot-vital-status{display:flex;gap:7px 16px;align-items:baseline;flex-wrap:wrap;border-left:4px solid var(--bl);background:var(--card2);padding:10px 14px;margin:12px 0;font-size:13px;line-height:1.6}
+.spot-vital-status span{color:var(--t2)}
+.spot-vital-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:16px;margin:12px 0}
+.spot-vital-hero{border:1px solid var(--bd);border-left:4px solid var(--bl);border-radius:8px;background:var(--card2);padding:16px 18px;min-width:0;overflow-wrap:anywhere}
+.spot-vital-pause{border-left-color:var(--r);background:var(--rb)}
+.spot-vital-soon{border-left-color:var(--am);background:var(--amb)}
+.spot-vital-unknown{border-left-color:var(--t2);background:var(--card2)}
+.spot-vital-kicker{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--t2);margin-bottom:7px}
+.spot-vital-hero h4{font-size:22px;line-height:1.3;margin:0 0 5px}
+#ip-events .spot-vital-hero a,#ip-events .spot-vital-row a{color:var(--text);text-decoration:none}
+#ip-events .spot-vital-hero a:hover,#ip-events .spot-vital-row a:hover{text-decoration:underline}
+.spot-vital-hero p{font-size:13px;color:var(--t2);line-height:1.6}
+.spot-vital-hero time{display:block;font-size:16px;font-weight:650;line-height:1.5;margin-top:12px}
+.spot-vital-hero strong{display:block;font-size:17px;margin:5px 0}
+.spot-vital-hero small{font-size:12px;color:var(--t2);line-height:1.5}
+.spot-vital-next{min-width:0;padding:4px 0}
+.spot-vital-next h4{font-size:14px;margin:0 0 5px;line-height:1.6}
+.spot-vital-next h4 span{font-size:12px;font-weight:400;color:var(--t2)}
+.spot-vital-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--bd);min-width:0}
+.spot-vital-row a{display:block;font-size:14px;font-weight:650;line-height:1.5}
+.spot-vital-row time{display:block;font-size:12px;color:var(--t2);line-height:1.6}
+.spot-vital-row-status{text-align:right;font-size:12px;line-height:1.6;flex-shrink:0}
+.spot-vital-row-status small{display:block;color:var(--t2);font-size:11px}
+.spot-vital-details{padding:10px 0 14px;border-bottom:1px solid var(--bd);margin:0 0 14px;font-size:13px}
+.spot-vital-details summary{cursor:pointer;font-weight:600;padding:5px 0;color:var(--t2)}
+#ip-events .spot-live-heading{margin-top:14px}
+#ip-events .spot-live-heading h3{font-size:16px}
+#ip-events .spot-live-heading p,#ip-events .spot-live-help{font-size:12px;color:var(--t2);line-height:1.7}
+#ip-events .spot-live-help{margin:8px 0 2px}
+.spot-live-controls{display:flex;gap:6px;flex-wrap:wrap}
+.spot-live-controls .btn{font-size:12px;min-height:34px}
+.spot-live-controls [aria-pressed="true"]{background:var(--bl);color:white;border-color:var(--bl)}
+#ip-events a{color:var(--bl)}
+#ip-events :is(a,button,summary):focus-visible{outline:2px solid var(--bl);outline-offset:3px}
+@media(max-width:700px){.spot-vital-grid{grid-template-columns:1fr;gap:10px}.spot-vital-hero{padding:14px}.spot-vital-hero h4{font-size:20px}.spot-vital-row{gap:8px}.spot-vital-hero time{font-size:15px}}
+
 </style>
 <style id="chart-pro-style">
 #chart-fs-bar{height:auto!important;min-height:42px;flex-wrap:wrap;gap:6px!important}
@@ -749,19 +789,17 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
     <div class="intel-panel" id="ip-events">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:.625rem;flex-wrap:wrap">
         <span id="macro-risk-badge" style="font-size:11px;font-weight:700;padding:1px 9px;border-radius:99px"></span>
-        <span style="font-size:12px;font-weight:700">Live economic calendar</span>
-        <div style="margin-left:auto;display:flex;gap:6px">
-          <a href="https://www.forexfactory.com/calendar" target="_blank" rel="noopener" style="font-size:11px;font-weight:600;text-decoration:none;padding:4px 10px;border-radius:6px;border:.5px solid var(--bl);color:var(--bl);background:rgba(41,98,255,.06);white-space:nowrap">🔗 ForexFactory (live)</a>
-          <a href="https://www.investing.com/economic-calendar/" target="_blank" rel="noopener" style="font-size:11px;font-weight:600;text-decoration:none;padding:4px 10px;border-radius:6px;border:.5px solid var(--bd);color:var(--t2);background:var(--card2);white-space:nowrap">🔗 Investing.com</a>
-        </div>
+        <h3 class="spot-vital-title">Key events for crypto</h3>
+        <button class="btn" style="margin-left:auto" onclick="spotRefreshCalendar(true)">Refresh dates</button>
       </div>
-      <div class="spot-heading"><p class="spot-muted">US events · actual, forecast and previous figures where available. Check the timezone displayed in the provider calendar.</p><button class="btn" onclick="spotMountLiveCalendar(true)">Reload live calendar</button></div>
+      <p class="spot-vital-intro">Fed decisions &amp; press conferences · CPI · PCE · US jobs · PPI · GDP</p>
+      <div id="macro-risk-bar"></div>
+      <div id="macro-events-body"><p class="spot-muted">Checking key event dates…</p></div>
+      <div class="spot-heading spot-live-heading"><div><h3>Live results</h3><p id="spot-live-filter-note">High-impact US events only · importance rated by TradingView.</p></div><div class="spot-live-controls" role="group" aria-label="Live calendar event filter"><button id="spot-live-high" class="btn" aria-pressed="true" onclick="spotSetLiveFilter('high')">High impact</button><button id="spot-live-all" class="btn" aria-pressed="false" onclick="spotSetLiveFilter('all')">All US events</button><button class="btn" onclick="spotMountLiveCalendar(true)">Reload</button></div></div>
+      <p class="spot-live-help">Compare <b>Actual → Forecast → Previous</b> where available. Check the timezone inside the live calendar; dates above use <b>Japan time (JST)</b>.</p>
       <div id="spot-live-widget-status" class="spot-muted" aria-live="polite">Open this tab to load the live calendar.</div>
       <div id="spot-live-widget" style="min-height:600px;margin:10px 0"></div>
-      <p class="spot-muted">The live calendar supplies the displayed release figures. Strategy pause windows below use separately synchronized official event dates.</p>
-      <div id="macro-risk-bar" style="margin-bottom:.75rem"></div>
-      <div id="macro-events-body"><div style="font-size:11px;color:var(--t3)">Loading economic calendar…</div></div>
-      <p class="spot-muted">Dates refresh from BLS, BEA and Federal Reserve while this app is open. Missing feeds show incomplete coverage. Actual results inside the live calendar are not interpreted as automatic buy/sell signals.</p>
+      <p class="spot-muted">Live figures are context, not a buy/sell signal. Strategy pause windows use official dates. <a href="https://www.forexfactory.com/calendar" target="_blank" rel="noopener noreferrer">ForexFactory</a> · <a href="https://www.investing.com/economic-calendar/" target="_blank" rel="noopener noreferrer">Investing.com</a></p>
     </div>
     <!-- CANDLE CLOSE -->
     <div class="intel-panel" id="ip-candle">
@@ -23365,7 +23403,7 @@ function nthWeekday(year, month, weekday, n) {
 
 // SPOT RESEARCH + MACRO TAPE · 2026.09.13-strategy-r1
 // Event dates synchronize from official online feeds.
-var SPOT_STRATEGY_VERSION='2026.09.14-live-calendar-r1';
+var SPOT_STRATEGY_VERSION='2026.09.14-vital-events-r1';
 function spotEsc(x){return String(x==null?'':x).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function spotET(date,time){
   var parts=(date+'-'+time.replace(':','-')).split('-').map(Number),nominal=Date.UTC(parts[0],parts[1]-1,parts[2],parts[3],parts[4]),guess=nominal;
@@ -23377,7 +23415,7 @@ function spotET(date,time){
 }
 function spotTime(ms,zone){return new Intl.DateTimeFormat('en-GB',{timeZone:zone||'Asia/Tokyo',month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(ms));}
 // Live official event dates; no built-in release dates or recurring-date guesses.
-var SPOT_CALENDAR_VERSION='2026.09.14-live-calendar-r1';
+var SPOT_CALENDAR_VERSION='2026.09.14-vital-events-r1';
 var SPOT_CALENDAR_REFRESH_MS=15*60000,SPOT_CALENDAR_FRESH_MS=20*60000;
 var SPOT_CALENDAR_URLS={bls:'https://www.bls.gov/schedule/news_release/bls.ics',bea:'https://www.bea.gov/news/schedule/ics/online-calendar-subscription.ics'};
 var _spotCalendar={sources:{},loading:false,lastAttempt:0},_spotCalendarPromise=null;
@@ -23500,21 +23538,66 @@ function spotCalendarMarkup(now,limit){
   rows.forEach(function(e){var delta=Math.round((+e.date-now)/60000),left=delta<0?'Release time passed '+Math.abs(delta)+'m ago':delta<60?'In '+delta+'m':delta<1440?'In '+Math.floor(delta/60)+'h '+delta%60+'m':'In '+Math.floor(delta/1440)+'d '+Math.floor(delta%1440/60)+'h';h+='<article><a href="'+spotEsc(e.url)+'" target="_blank" rel="noopener noreferrer">'+spotEsc(e.name)+'</a><b>'+spotEsc(spotTime(+e.date))+' JST</b><span>'+spotEsc(e.et)+' · '+spotEsc(left)+'</span><small>'+spotEsc(e.source)+' · '+(e.fresh?'online dates':'cached date · verify')+'</small></article>';});
   return h+(rows.length?'':'<p>No readable events in this window. See source status and the live calendar.</p>')+'</div>';
 }
-function renderMacroEvents(){
-  var body=document.getElementById('macro-events-body'),gate=spotEventGate();if(body)body.innerHTML=spotCalendarMarkup(Date.now(),24);
-  var bar=document.getElementById('macro-risk-bar');if(bar)bar.innerHTML='';
-  ['macro-risk-badge','it-events-badge'].forEach(function(id){var el=document.getElementById(id);if(el){el.textContent=gate.state==='pause'?'PAUSE':gate.state==='unknown'?'INCOMPLETE':'SYNCED';el.style.color=gate.state==='pause'?'var(--r)':gate.state==='unknown'?'var(--am)':'var(--g)';}});
+function spotVitalInfo(event){
+  var info={fed:['Fed rate decision','US interest-rate decision'],press:['Fed press conference','Policy outlook and questions'],cpi:['CPI inflation','Consumer prices · headline & core'],pce:['PCE inflation & spending','Personal income and outlays'],jobs:['US jobs report','Payrolls, unemployment & wages'],ppi:['PPI inflation','Producer prices'],gdp:['US GDP','Economic growth · check the estimate vintage']};
+  return info[event.kind]||[event.name,'Reported economic release'];
 }
-var _spotWidgetGeneration=0;
+function spotVitalCountdown(ms,now){
+  var diff=ms-now,m=Math.ceil(Math.abs(diff)/60000);
+  if(diff===0)return 'Release time now';
+  if(diff<0)return 'Release time passed · '+(m<60?m+'m':Math.floor(m/60)+'h '+m%60+'m')+' ago';
+  return 'In '+(m<60?m+'m':m<1440?Math.floor(m/60)+'h '+m%60+'m':Math.floor(m/1440)+'d '+Math.floor(m%1440/60)+'h');
+}
+function spotVitalDate(ms){return new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Tokyo',weekday:'short',month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(ms))+' JST';}
+function spotVitalTone(e,now){
+  if(!e.fresh)return 'unknown';
+  var mins=(e.time-now)/60000;
+  if(mins<=60&&mins>=-(e.kind==='fed'||e.kind==='press'?120:60))return 'pause';
+  return mins>=0&&mins<=1440?'soon':'upcoming';
+}
+function spotVitalCalendarMarkup(now){
+  now=now==null?Date.now():now;
+  var gate=spotEventGate(now),rows=buildMacroEvents(now),upcoming=rows.filter(function(e){return e.time>=now;});
+  var active=gate.events||[],lead=active.find(function(e){return e.time>=now;})||active[0]||upcoming[0];
+  var label=gate.state==='pause'?'Pause new entries':gate.state==='unknown'?'Event dates incomplete':'Dates synced';
+  var note=gate.state==='pause'?'A tracked release overlaps the strategy pause window.':gate.state==='unknown'?'Some official dates are unavailable or stale. Verify the live calendar below.':'Key dates refresh every 15 minutes while this app is visible.';
+  var h='<div class="spot-vital-status spot-vital-'+(gate.state==='pause'?'pause':gate.state==='unknown'?'unknown':'upcoming')+'"><b>'+label+'</b><span>'+note+'</span></div><div class="spot-vital-grid">';
+  if(lead){var info=spotVitalInfo(lead),tone=spotVitalTone(lead,now);
+    h+='<article class="spot-vital-hero spot-vital-'+tone+'"><div class="spot-vital-kicker">'+(active.length?'Event in pause window':'Next reported key event')+'</div><h4><a href="'+spotEsc(lead.url)+'" target="_blank" rel="noopener noreferrer" title="'+spotEsc(lead.name)+'">'+spotEsc(info[0])+'</a></h4><p>'+spotEsc(info[1])+'</p><time datetime="'+new Date(lead.time).toISOString()+'">'+spotEsc(spotVitalDate(lead.time))+'</time><strong>'+spotEsc(spotVitalCountdown(lead.time,now))+'</strong><small>'+spotEsc(lead.source)+' · '+(lead.fresh?'Date synced':'Cached date · verify before use')+'</small></article>';
+  }else{
+    h+='<article class="spot-vital-hero spot-vital-unknown"><div class="spot-vital-kicker">Next key event</div><h4>'+(gate.state==='unknown'?'Date not confirmed':'None in the checked 14 days')+'</h4><p>'+(gate.state==='unknown'?'Check the live results calendar below while official dates update.':'Check live results for other releases and speeches.')+'</p><small>Fed · CPI · PCE · jobs · PPI · GDP</small></article>';
+  }
+  var following=upcoming.filter(function(e){return !lead||e.kind!==lead.kind||e.time!==lead.time;});
+  h+='<div class="spot-vital-next"><h4>Coming next <span>· next 14 days</span></h4>';
+  following.slice(0,3).forEach(function(e){var info=spotVitalInfo(e);h+='<article class="spot-vital-row"><div><a href="'+spotEsc(e.url)+'" target="_blank" rel="noopener noreferrer" title="'+spotEsc(e.name)+'">'+spotEsc(info[0])+'</a><time datetime="'+new Date(e.time).toISOString()+'">'+spotEsc(spotVitalDate(e.time))+'</time></div><span class="spot-vital-row-status">'+spotEsc(spotVitalCountdown(e.time,now))+(e.fresh?'':'<small>Cached · verify</small>')+'</span></article>';});
+  if(!following.length)h+='<p class="spot-muted">'+(gate.state==='unknown'?'Further dates are not confirmed.':'No further tracked releases in this window.')+'</p>';
+  h+='</div></div><details id="spot-vital-details" class="spot-vital-details"><summary>All tracked dates &amp; source status'+(following.length>3?' · '+(following.length-3)+' more upcoming':'')+'</summary>'+spotCalendarMarkup(now,24)+'<p class="spot-muted">'+SPOT_CALENDAR_VERSION+' · Time passed does not confirm that figures were published. This list covers selected releases; see the live calendar for other events.</p></details>';
+  return h;
+}
+function renderMacroEvents(){
+  var body=document.getElementById('macro-events-body'),gate=spotEventGate();
+  if(body){var details=document.getElementById('spot-vital-details'),expanded=!!(details&&details.open);body.innerHTML=spotVitalCalendarMarkup(Date.now());details=document.getElementById('spot-vital-details');if(details)details.open=expanded;}
+  var bar=document.getElementById('macro-risk-bar');if(bar)bar.innerHTML='';
+  ['macro-risk-badge','it-events-badge'].forEach(function(id){var el=document.getElementById(id);if(el){el.textContent=gate.state==='pause'?'PAUSE':gate.state==='unknown'?(id==='macro-risk-badge'?'DATES INCOMPLETE':'DATES?'):'DATES SYNCED';el.style.color=gate.state==='pause'?'var(--r)':gate.state==='unknown'?'var(--am)':'var(--g)';}});
+}
+var _spotWidgetGeneration=0,_spotLiveFilter='high';
+function spotSetLiveFilter(value){
+  if(value!=='high'&&value!=='all')return;
+  if(value===_spotLiveFilter)return;
+  _spotLiveFilter=value;
+  ['high','all'].forEach(function(k){var b=document.getElementById('spot-live-'+k);if(b)b.setAttribute('aria-pressed',String(k===value));});
+  var note=document.getElementById('spot-live-filter-note');if(note)note.textContent=value==='high'?'High-impact US events only · importance rated by TradingView.':'All US events · includes lower-impact releases.';
+  spotMountLiveCalendar(true);
+}
 function spotMountLiveCalendar(force){
   var host=document.getElementById('spot-live-widget'),status=document.getElementById('spot-live-widget-status');if(!host||host.dataset.mounted&&!force)return;
   host.dataset.mounted='1';var generation=++_spotWidgetGeneration;
   host.innerHTML='<div class="tradingview-widget-container" style="width:100%;height:600px"><div class="tradingview-widget-container__widget" style="height:568px"></div><div class="tradingview-widget-copyright"><a href="https://www.tradingview.com/economic-calendar/" rel="noopener noreferrer" target="_blank">Economic calendar by TradingView</a></div></div>';
   if(status)status.textContent='Loading live calendar…';
   var script=document.createElement('script');script.src='https://s3.tradingview.com/external-embedding/embed-widget-events.js';script.async=true;script.type='text/javascript';
-  script.textContent=JSON.stringify({colorTheme:window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light',isTransparent:false,width:'100%',height:568,locale:'en',importanceFilter:'-1,0,1',countryFilter:'us'});
+  script.textContent=JSON.stringify({colorTheme:window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light',isTransparent:false,width:'100%',height:568,locale:'en',importanceFilter:_spotLiveFilter==='all'?'-1,0,1':'1',countryFilter:'us'});
   script.onerror=function(){if(generation===_spotWidgetGeneration&&status)status.textContent='Calendar could not load. Retry or open the provider link.';};
-  script.onload=function(){if(generation===_spotWidgetGeneration&&status)status.textContent='Provider widget loaded. Data updates inside the calendar; check its displayed timezone and latest figures.';};
+  script.onload=function(){if(generation===_spotWidgetGeneration&&status)status.textContent='Calendar loaded · release figures update inside the panel.';};
   host.firstElementChild.appendChild(script);
   setTimeout(function(){if(generation===_spotWidgetGeneration&&!host.querySelector('iframe')&&status)status.textContent='Calendar has not appeared. Retry or open the provider link.';},15000);
 }
