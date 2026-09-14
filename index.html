@@ -611,6 +611,27 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 <style>
 .spot-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.spot-heading h3{margin:0}.spot-heading p,.spot-muted{font-size:11px;color:var(--t2);line-height:1.6}.spot-note{background:var(--card2);border:1px solid var(--bd);padding:12px;margin:12px 0;font-size:12px;line-height:1.65}.spot-note p{margin:5px 0}.spot-tape-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:8px}.spot-tape-grid article,.spot-events article,.spot-review-grid article{border:1px solid var(--bd);padding:10px;min-width:0;overflow-wrap:anywhere}.spot-tape-grid strong{font-size:21px;margin:7px 0}.spot-tape-grid b,.spot-tape-grid strong,.spot-tape-grid span,.spot-tape-grid small,.spot-events b,.spot-events small,.spot-events span{display:block}.spot-tape-grid span,.spot-events span{font-size:11px}.spot-tape-grid small,.spot-events small,.spot-review-grid small{font-size:10px;color:var(--t2);line-height:1.7}.spot-events{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}.spot-events a{display:block;color:var(--bl);font-weight:700;font-size:12px;margin-bottom:5px}.spot-events b{font-size:12px}.spot-review-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:8px;margin-top:10px}.spot-rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin:16px 0}.spot-rules article{padding:8px 0;border-top:1px solid var(--bd);font-size:12px;line-height:1.65}.spot-rules p{margin:4px 0}.spot-risk-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}.spot-risk-grid label{font-size:11px;color:var(--t2)}.spot-risk-grid input,#spot-pair{display:block;background:var(--card2);color:var(--text);border:1px solid var(--bd);padding:9px;width:100%;min-width:0;box-sizing:border-box;margin:4px 0}.spot-note label{display:inline-block;max-width:100%}#spot-strategy-body>p,#spot-strategy-body details{font-size:12px;line-height:1.7}#spot-strategy-body details{padding:10px 0;border-top:1px solid var(--bd)}#spot-strategy-body summary{cursor:pointer;font-weight:700}#spot-strategy-body h3,#spot-macro-body h3{font-size:15px}#spot-strategy-body a{color:var(--bl)}
 @media(max-width:480px){.spot-tape-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.spot-events,.spot-rules,.spot-review-grid{grid-template-columns:1fr}.spot-risk-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* Strategy status colors always carry a text label as well. */
+.spot-status-pass{--spot-ink:#146843;--spot-fill:#e8f6ed;--spot-line:#279560}
+.spot-status-block{--spot-ink:#a5242b;--spot-fill:#fff0f0;--spot-line:#d94d55}
+.spot-status-wait{--spot-ink:#805200;--spot-fill:#fff6df;--spot-line:#bd8618}
+.spot-status-unknown{--spot-ink:#545c69;--spot-fill:#eef0f3;--spot-line:#929ba8}
+.spot-status-banner,.spot-review-grid article.spot-status-card{background:var(--spot-fill);border:1px solid var(--spot-line);border-left:5px solid var(--spot-line);padding:12px;color:var(--text)}
+.spot-status-banner{margin:12px 0 8px;line-height:1.65}
+.spot-status-banner>strong{display:block;color:var(--spot-ink);font-size:13px;margin:5px 0}
+.spot-status-badge{display:inline-block;background:var(--spot-fill);color:var(--spot-ink);border:1px solid var(--spot-line);padding:2px 7px;font-size:10px;font-weight:700;line-height:1.5}
+.spot-status-card .spot-status-badge{margin:7px 0 4px}
+.spot-status-metric{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:5px;margin:6px 0;font-size:11px}
+.spot-status-metric b{color:var(--spot-ink);font-size:11px}
+.spot-status-card small{display:block;margin-top:8px}
+.spot-status-legend,.spot-status-context{display:flex;flex-wrap:wrap;gap:6px;margin:9px 0;font-size:10px;align-items:center}
+.spot-status-legend{color:var(--t2)}
+@media(prefers-color-scheme:dark){
+ .spot-status-pass{--spot-ink:#8ae1b2;--spot-fill:#16382a;--spot-line:#4aba81}
+ .spot-status-block{--spot-ink:#ffadb2;--spot-fill:#41252b;--spot-line:#e17e86}
+ .spot-status-wait{--spot-ink:#f4d084;--spot-fill:#3b321f;--spot-line:#c69d42}
+ .spot-status-unknown{--spot-ink:#c4ccda;--spot-fill:#2a303a;--spot-line:#79889e}
+}
 </style></head>
 <body>
 
@@ -23340,7 +23361,7 @@ function nthWeekday(year, month, weekday, n) {
 
 // SPOT RESEARCH + MACRO TAPE · 2026.09.13-strategy-r1
 // Event times are a sourced snapshot, never inferred monthly dates.
-var SPOT_STRATEGY_VERSION='2026.09.13-strategy-r2';
+var SPOT_STRATEGY_VERSION='2026.09.14-strategy-colors-r1';
 var SPOT_CALENDAR_CHECKED='2026-09-13';
 var SPOT_CALENDAR_START=Date.parse('2026-09-01T00:00:00Z');
 var SPOT_CALENDAR_END=Date.parse('2027-01-01T00:00:00Z');
@@ -23487,18 +23508,64 @@ function spotReviewSummary(results){
   if(['1d','4h'].some(function(k){return results[k].structure.side!=='bull'||results[k].trend!=='bull';}))return 'Wait — coin daily and 4H structure / trend must both be bullish.';
   return 'Higher-timeframe conditions met — manually verify the exact 1H breakout, six-bar retest, execution and 2R rules below.';
 }
+function spotStatusBadge(tone,label){
+  return '<span class="spot-status-badge spot-status-'+tone+'">'+spotEsc(label)+'</span>';
+}
+function spotReviewExpired(review,now){
+  return !!(review&&(!Number.isFinite(review.checkedAt)||now<review.checkedAt||now-review.checkedAt>5*60000));
+}
+function spotFrameStatus(v,expired,loading){
+  if(expired)return {tone:'unknown',label:'Expired · refresh'};
+  if(!v)return {tone:loading?'wait':'unknown',label:loading?'Checking…':'Not checked'};
+  if(v.health!=='ready')return {tone:'unknown',label:'Data unavailable'};
+  if(!v.structure||v.structure.side==='unknown'||!v.trend||v.trend==='unknown')return {tone:'unknown',label:'Structure / trend unknown'};
+  if(v.structure.side==='bear'||v.trend==='bear')return {tone:'block',label:'Bearish context'};
+  if(v.structure.side==='bull'&&v.trend==='bull')return {tone:'pass',label:'Bullish context'};
+  return {tone:'wait',label:'Mixed · wait'};
+}
+function spotReviewStatus(review,gate,macro,now){
+  now=now==null?Date.now():now;
+  var message=spotDecisionStatus(review,gate,macro,now),tone='unknown',label='Not checked';
+  if(gate.state==='pause'||macro.state==='headwinds'){tone='block';label='Pause new entries';}
+  else if(review&&review.loading){tone='wait';label='Checking…';}
+  else if(spotReviewExpired(review,now)){label='Expired · refresh';}
+  else if(message.indexOf('Unknown')===0){label='Data unknown';}
+  else if(message.indexOf('Manual review required')===0){tone='wait';label='Manual review required';}
+  else if(message.indexOf('Higher-timeframe conditions met')===0){tone='pass';label='Context conditions met';}
+  else if(message.indexOf('Wait')===0){
+    var results=review&&review.results||{};
+    tone=['btc','1d','4h'].some(function(k){return spotFrameStatus(results[k],false,false).tone==='block';})?'block':'wait';
+    label=tone==='block'?'Context blocks strategy':'Conditions pending';
+  }
+  return {tone:tone,label:label,message:message};
+}
+function resetSpotReview(){
+  _spotReviewRequest++;_spotReview=null;renderSpotReview();
+}
 function renderSpotReview(){
   var el=document.getElementById('spot-review-out');if(!el)return;
-  var r=_spotReview,gate=spotEventGate(),macro=spotMacroReading();
-  if(!r){el.textContent=spotDecisionStatus(null,gate,macro);return;}
-  var h='<b>'+spotEsc(r.sym)+' · '+spotEsc(spotDecisionStatus(r,gate,macro))+'</b>';
-  h+='<p>'+spotEsc(gate.label)+' · '+spotEsc(macro.title)+'</p><div class="spot-review-grid">';
-  ['btc','1d','4h','1h'].forEach(function(k){var v=r.results[k];h+='<article><b>'+spotEsc(k==='btc'?'BTC · 1D':r.sym+' · '+k.toUpperCase())+'</b><p>'+spotEsc(v&&v.health==='ready'?v.structure.label+' · EMA '+v.trend:v?v.reason:'Pending')+'</p><small>'+spotEsc(v&&v.source||'Unknown')+' · '+(v&&v.closedAt?spotTime(v.closedAt)+' JST close':'Close unknown')+'</small>'+(v&&v.health==='ready'?'<p>1 candle / prior 20 base volume: '+(v.volR==null?'Unknown':v.volR.toFixed(2)+'×')+'</p>':'')+'</article>';});
-  el.innerHTML=h+'</div><p class="spot-muted">This check covers context and data quality. It does not detect the strategy’s exact entry, calculate an actual resistance target, or override the event / macro review. 15m Confluence is optional timing context for this 1H strategy.</p>';
+  var r=_spotReview,gate=spotEventGate(),macro=spotMacroReading(),now=Date.now(),status=spotReviewStatus(r,gate,macro,now),expired=spotReviewExpired(r,now);
+  var h='<div class="spot-status-banner spot-status-'+status.tone+'">'+spotStatusBadge(status.tone,status.label)+'<strong>'+(r?spotEsc(r.sym)+' · ':'')+spotEsc(status.message)+'</strong></div>';
+  h+='<div class="spot-status-context">'+spotStatusBadge(gate.state==='pause'?'block':gate.state==='unknown'?'unknown':'wait',gate.label)+spotStatusBadge(macro.state==='headwinds'?'block':macro.state==='unknown'?'unknown':'wait',macro.title)+'</div>';
+  if(!r){el.innerHTML=h;return;}
+  h+='<div class="spot-status-legend">Colors: '+spotStatusBadge('pass','Green · condition met')+spotStatusBadge('block','Red · bearish / blocked')+spotStatusBadge('wait','Amber · mixed / pending')+spotStatusBadge('unknown','Gray · unknown / expired')+'</div><div class="spot-review-grid">';
+  ['btc','1d','4h','1h'].forEach(function(k){
+    var v=r.results[k],state=spotFrameStatus(v,expired,r.loading),known=v&&v.health==='ready',active=known&&!expired;
+    function metric(label,side,value){var tone=!active||side==='unknown'?'unknown':side==='bull'?'pass':side==='bear'?'block':'wait';return '<div class="spot-status-metric spot-status-'+tone+'"><span>'+label+'</span><b>'+spotEsc(value)+'</b></div>';}
+    h+='<article class="spot-status-card spot-status-'+state.tone+'"><b>'+spotEsc(k==='btc'?'BTC · 1D':r.sym+' · '+k.toUpperCase())+'</b><br>'+spotStatusBadge(state.tone,state.label);
+    if(known){
+      h+=metric('Structure',v.structure.side,v.structure.label)+metric('EMA trend',v.trend,v.trend==='bull'?'Bullish':v.trend==='bear'?'Bearish':'Mixed');
+      var volumeKnown=v.volR!=null&&Number.isFinite(v.volR),volTone=!active||!volumeKnown?'unknown':v.volR>=1.5?'pass':'wait';
+      h+='<div class="spot-status-metric spot-status-'+volTone+'"><span>Closed volume · 1 / prior 20</span><b>'+(volumeKnown?v.volR.toFixed(2)+'×':'Unknown')+'</b></div>';
+      if(k==='1h')h+='<p class="spot-muted">Exact breakout + retest: manual review</p>';
+    }else h+='<p>'+spotEsc(v?v.reason:'Waiting for candle response…')+'</p>';
+    h+='<small>'+spotEsc(v&&v.source||'Unknown')+' · '+(v&&v.closedAt?spotTime(v.closedAt)+' JST close':'Close unknown')+'</small></article>';
+  });
+  el.innerHTML=h+'</div><p class="spot-muted">Green means the displayed condition is met, not a buy instruction. Card colors describe structure and trend; quiet volume stays separate. Entry, six-bar retest, resistance, depth and net 2R still require review.</p>';
 }
 async function checkSpotStrategy(){
   var input=document.getElementById('spot-pair'),sym=String(input&&input.value||'').trim().toUpperCase();
-  if(!/^[A-Z0-9]{2,20}(USDT|USDC|BTC|ETH|JPY)$/.test(sym)){var el=document.getElementById('spot-review-out');if(el)el.textContent='Enter an exact pair such as BTCUSDT or ETHUSDT.';return;}
+  if(!/^[A-Z0-9]{2,20}(USDT|USDC|BTC|ETH|JPY)$/.test(sym)){resetSpotReview();var el=document.getElementById('spot-review-out');if(el)el.innerHTML='<div class="spot-status-banner spot-status-unknown">'+spotStatusBadge('unknown','Pair required')+'<strong>Enter an exact pair such as BTCUSDT or NEARUSDT.</strong></div>';return;}
   var request=++_spotReviewRequest;_spotReview={sym:sym,results:{},loading:true,checkedAt:Date.now()};renderSpotReview();
   var btcSym=sym==='BTCJPY'?'BTCJPY':'BTCUSDT',jobs=[['btc',btcSym,'1d'],['1d',sym,'1d'],['4h',sym,'4h'],['1h',sym,'1h']],pending={};
   await Promise.all(jobs.map(async function(j){
@@ -23510,7 +23577,7 @@ async function checkSpotStrategy(){
 }
 function renderSpotStrategy(){
   var el=document.getElementById('spot-strategy-body');if(!el||el.dataset.ready)return;el.dataset.ready='1';
-  var h='<div class="spot-heading"><div><h3>Spot strategy · uptrend breakout retest</h3><p>'+SPOT_STRATEGY_VERSION+' · research hypothesis · paper trading first</p></div></div><p>One setup: 1D direction → 4H structure → closed 1H breakout and retest → execution check. Base Q and on-chain reports provide context; they cannot replace price confirmation.</p><div class="spot-note"><b>Check the higher timeframes</b><p>Uses the same confirmed-swing and EMA calculations as Confluence. Four requests at most; no AI key.</p><label>Exact spot pair <input id="spot-pair" value="BTCUSDT" maxlength="30" oninput="_spotReviewRequest++;_spotReview=null;document.getElementById(\'spot-review-out\').textContent=\'Pair changed — run a new check.\'"></label> <button class="btn" onclick="checkSpotStrategy()">Check pair context</button><div id="spot-review-out" aria-live="polite">No pair checked yet.</div></div><div class="spot-rules">';
+  var h='<div class="spot-heading"><div><h3>Spot strategy · uptrend breakout retest</h3><p>'+SPOT_STRATEGY_VERSION+' · research hypothesis · paper trading first</p></div></div><p>One setup: 1D direction → 4H structure → closed 1H breakout and retest → execution check. Base Q and on-chain reports provide context; they cannot replace price confirmation.</p><div class="spot-note"><b>Check the higher timeframes</b><p>Uses the same confirmed-swing and EMA calculations as Confluence. Four requests at most; no AI key.</p><label>Exact spot pair <input id="spot-pair" value="BTCUSDT" maxlength="30" oninput="resetSpotReview()" placeholder="e.g. NEARUSDT" autocapitalize="characters" spellcheck="false"></label> <button class="btn" onclick="checkSpotStrategy()">Check pair context</button><div id="spot-review-out" aria-live="polite">No pair checked yet.</div></div><div class="spot-rules">';
   SPOT_RULES.forEach(function(r,i){h+='<article><b>'+(i+1)+'. '+spotEsc(r[0])+'</b><p>'+spotEsc(r[1])+'</p></article>';});h+='</div><h3>Position size and net reward / risk</h3><p>Use ONE quote currency for capital, cash and all prices. Example: USDT for BTCUSDT. Enter the nearest observed 4H resistance as target. Fee and slippage defaults are editable assumptions.</p><div class="spot-risk-grid">';
   [['equity','Trading capital',''],['cash','Available cash',''],['risk','Risk %','0.25'],['entry','Reference entry price',''],['stop','Stop trigger price',''],['target','Observed resistance target',''],['fee','Fee % per side','0.1'],['entrySlip','Entry slippage %','0.1'],['exitSlip','Exit slippage %','0.1']].forEach(function(x){h+='<label>'+x[1]+'<input type="number" min="0" step="any" id="spot-risk-'+x[0]+'" value="'+x[2]+'" oninput="renderSpotRisk()"></label>';});
   h+='</div><div class="spot-note" id="spot-risk-out" aria-live="polite">Enter a plan to calculate cost-adjusted R and size.</div><details><summary>Before entry and after exit</summary><p>Before entry: confirm official event dates; verify actual exchange/pair and trade availability; check a ≤15-second order-book snapshot with the proposed size; record spread, depth and fee tier. In Chart → Tools → Execution, match the execution venue. The On-chain depth check uses Binance only.</p><p>Reject synthetic targets and recheck net R using the executable price. Keep risk ≤0.25% per trial trade and aggregate risk ≤0.5%. Use protective orders supported by the venue. If the app is closed, it cannot monitor exits for you.</p><p>Record every qualifying and rejected setup, decision timestamp, closed candle times, source, planned and actual fills, fees, slippage, realized R, maximum adverse excursion and rule adherence. Fifty paper trades are an initial diagnostic, not proof. Compare unchanged rules on later data and include failed/delisted candidates.</p></details><details><summary>Evidence and limitations</summary><p>The strategy parameters are design choices for testing. Research on changing crypto-equity relationships motivates a conditional macro review, not a fixed inverse DXY rule. No study cited here validates this exact six-bar retest or 2R filter.</p><p><a href="https://copestake.info/workingpaper/cryptofinance/CryptoFinance.pdf" target="_blank" rel="noopener noreferrer">Copestake, Furceri &amp; Terracciano · August 2026 working paper</a><br><a href="https://www.davidhbailey.com/dhbpapers/backtest-prob.pdf" target="_blank" rel="noopener noreferrer">Bailey et al. · Probability of Backtest Overfitting</a><br><a href="https://www.tradingview.com/pine-script-docs/concepts/strategies/" target="_blank" rel="noopener noreferrer">TradingView · backtest costs and biases</a><br><a href="https://www.bis.org/publ/bisbull69.htm" target="_blank" rel="noopener noreferrer">BIS · Crypto shocks and retail losses</a></p><p>Existing scanner/agent signals use their own rules. This research guide and arithmetic check do not certify those signals or execute trades.</p></details>';
