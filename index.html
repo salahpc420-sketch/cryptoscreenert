@@ -9219,8 +9219,8 @@ function saveJournal(j){try{localStorage.setItem('trade_journal',JSON.stringify(
 function loadSignalLog(){try{var v=localStorage.getItem('signal_log');return v?JSON.parse(v):[];}catch(e){return [];}}
 function saveSignalLog(l){try{localStorage.setItem('signal_log',JSON.stringify(l));}catch(e){}}
 
-// Observations are separate from gated paper trades: no order/bot dispatch,
-// invented TP/SL, portfolio-cap exclusion, or contribution to trade win rate.
+// Sweep paper studies stay separate from executed trades and the bot bridge.
+// Versioned, fixed rules allow older observations to be studied retrospectively.
 var buySweepLogError='';
 function loadBuySweepLog(){
   try{
@@ -9228,6 +9228,89 @@ function loadBuySweepLog(){
     if(!Array.isArray(rows)||rows.some(function(r){return !r||typeof r.id!=='string'||!isFinite(r.closedAt);}))throw new Error('Invalid sweep log');
     return rows;
   }catch(e){buySweepLogError='Cannot read saved Buy Sweeps. Existing storage has not been overwritten.';return null;}
+}
+function saveBuySweepLog(rows){
+  try{localStorage.setItem('buy_sweep_log_v1',JSON.stringify(rows));buySweepLogError='';return true;}
+  catch(e){buySweepLogError='Buy Sweeps could not be saved. Browser storage may be full or disabled.';return false;}
+}
+function initBuySweepStudy(r,now){
+  if(r.study)return false;
+  var entry=Number(r.referenceClose),sl=Number(r.low)*.999;
+  if(!(isFinite(entry)&&isFinite(sl)&&entry>sl&&sl>0))return false;
+  r.study={version:1,status:'open',entry:entry,sl:sl,tp:entry+2*(entry-sl),rr:2,
+    entryAt:r.closedAt,createdAt:now,retrospective:now>r.closedAt,
+    expiresAt:r.closedAt+48*_chartTFDuration(r.tf),nextAt:r.closedAt,
+    lastPrice:entry,lastPriceAt:r.closedAt,checkedAt:null,dataNote:'Waiting for later completed candles'};
+  return true;
+}
+// Pure evaluator. Only contiguous, completed candles AFTER the sweep count.
+// It never infers the order of high/low within one candle.
+function evaluateBuySweepStudy(r,bars,now){
+  var s=JSON.parse(JSON.stringify(r.study)),dt=_chartTFDuration(r.tf);
+  if(!s||s.status!=='open')return s;
+  s.checkedAt=now;
+  if(!bars||bars.dataSource!==r.source){s.dataNote='Waiting for '+r.source+' candles; alternate sources are not mixed.';return s;}
+  var closed=bars.filter(function(k){return Number(k[0])+dt<=now;}).slice().sort(function(a,b){return Number(a[0])-Number(b[0]);});
+  var cursor=s.nextAt;
+  s.dataNote='';
+  function finish(status,price,k){
+    s.status=status;s.exitPrice=price;s.resultPct=price==null?null:(price/s.entry-1)*100;
+    s.resultR=price==null?null:(price-s.entry)/(s.entry-s.sl);
+    s.exitBarAt=Number(k[0]);s.exitBarEnd=Number(k[0])+dt;
+  }
+  for(var i=0;i<closed.length;i++){
+    var k=closed[i],t=Number(k[0]);if(t<cursor)continue;if(cursor>=s.expiresAt)break;
+    if(t!==cursor){s.dataNote='Missing candle history from '+new Date(cursor).toISOString().slice(0,16)+' UTC; outcome not known.';break;}
+    var o=Number(k[1]),h=Number(k[2]),l=Number(k[3]),c=Number(k[4]);
+    if(![o,h,l,c].every(function(v){return isFinite(v)&&v>0;})||h<Math.max(o,c)||l>Math.min(o,c)){
+      s.dataNote='Invalid candle data; outcome not known.';break;
+    }
+    s.lastPrice=c;s.lastPriceAt=t+dt;s.nextAt=cursor=t+dt;
+    // An opening gap has known precedence over the intrabar range.
+    if(o<=s.sl){finish('sl',o,k);s.gap=true;break;}
+    if(o>=s.tp){finish('tp',s.tp,k);s.gap=true;break;}
+    var hitTP=h>=s.tp,hitSL=l<=s.sl;
+    if(hitTP&&hitSL){finish('unclear',null,k);break;}
+    if(hitSL){finish('sl',s.sl,k);break;}
+    if(hitTP){finish('tp',s.tp,k);break;}
+    if(cursor>=s.expiresAt){finish('expired',c,k);break;}
+  }
+  if(s.status==='open'&&!s.dataNote){
+    s.dataNote=cursor<s.expiresAt&&cursor+dt<=now?'Missing or delayed candle history; outcome not known.':'Up to date through the last completed candle.';
+  }
+  return s;
+}
+var buySweepCheckBusy=false,buySweepLastCheck=0;
+function refreshBuySweepPanel(){
+  var panel=document.getElementById('buy-sweep-log-panel');
+  if(panel)panel.outerHTML=buildBuySweepLogPanel();
+}
+async function checkBuySweepOutcomes(force){
+  if(buySweepCheckBusy||(!force&&Date.now()-buySweepLastCheck<60000))return;
+  buySweepCheckBusy=true;buySweepLastCheck=Date.now();
+  try{
+    var rows=loadBuySweepLog();if(!rows)return;
+    var migrated=false;rows.forEach(function(r){if(initBuySweepStudy(r,Date.now()))migrated=true;});
+    if(migrated&&!saveBuySweepLog(rows))return;
+    var groups={};rows.filter(function(r){return r.study&&r.study.status==='open';}).forEach(function(r){
+      var key=r.sym+'|'+r.tf;(groups[key]||(groups[key]=[])).push(r);
+    });
+    var jobs=Object.keys(groups),next=0;
+    async function worker(){
+      while(next<jobs.length){
+        var batch=groups[jobs[next++]],sample=batch[0],updates={};
+        try{
+          var bars=await bybitKlines(sample.sym,sample.tf,1000);
+          batch.forEach(function(r){updates[r.id]=evaluateBuySweepStudy(r,bars,Date.now());});
+        }catch(e){batch.forEach(function(r){var s=Object.assign({},r.study);s.checkedAt=Date.now();s.dataNote='Candle feed unavailable. Outcome check will retry.';updates[r.id]=s;});}
+        // Re-read before merging so scans that finish during fetch cannot be lost.
+        var latest=loadBuySweepLog();if(!latest)return;
+        latest.forEach(function(r){if(updates[r.id]&&r.study&&r.study.status==='open')r.study=updates[r.id];});
+        if(!saveBuySweepLog(latest))return;
+      }
+    }
+    await Promise.all([worker(),worker(),worker()]);
+  }finally{buySweepCheckBusy=false;refreshBuySweepPanel();}
 }
 function autoLogBuySweeps(data){
   var rows=loadBuySweepLog();if(!rows)return 0;
@@ -9243,17 +9326,17 @@ function autoLogBuySweeps(data){
     var id=d.sym+'|'+s.timeframe+'|'+b.closeTime;
     if(seen.has(id))return;
     function metric(v){return typeof v==='number'&&isFinite(v)?v:null;}
-    rows.push({id:id,kind:'buy_sweep',sym:d.sym,pair:d.pair||d.sym,tf:s.timeframe,
+    var record={id:id,kind:'buy_sweep',sym:d.sym,pair:d.pair||d.sym,tf:s.timeframe,
       closedAt:b.closeTime,observedAt:now,referenceClose:b.close,sweptLevel:b.level,
       open:b.open,high:b.high,low:b.low,source:s.source,signature:s.signature,
       rsi:metric(d.rsi),volR:metric(d.volR),btcState:typeof btcState==='string'?btcState:'unknown',
-      status:'observed',note:'Closed-candle sweep and reclaim; observation, not a trade.'});
+      status:'observed',note:'Closed-candle sweep and reclaim; simulated study, not an executed trade.'};
+    initBuySweepStudy(record,now);rows.push(record);
     seen.add(id);added++;
   });
   if(!added)return 0;
   rows.sort(function(a,b){return b.closedAt-a.closedAt||b.observedAt-a.observedAt;});
-  try{localStorage.setItem('buy_sweep_log_v1',JSON.stringify(rows.slice(0,1500)));buySweepLogError='';}
-  catch(e){buySweepLogError='Buy Sweeps could not be saved. Browser storage may be full or disabled.';return 0;}
+  if(!saveBuySweepLog(rows.slice(0,1500)))return 0;
   return added;
 }
 function exportBuySweepLog(){
@@ -9267,19 +9350,31 @@ function buildBuySweepLogPanel(){
   function esc(v){return String(v==null?'—':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
   function date(v){return isFinite(v)&&v>0?new Date(v).toISOString().slice(0,16).replace('T',' ')+' UTC':'—';}
   function price(v){return typeof v==='number'&&isFinite(v)?esc(fmtPrice(v)):'—';}
+  function pct(v){return typeof v==='number'&&isFinite(v)?(v>=0?'+':'')+v.toFixed(2)+'%':'—';}
+  var counts={tp:0,sl:0,open:0,expired:0,unclear:0};
+  rows.forEach(function(r){if(r.study&&counts[r.study.status]!=null)counts[r.study.status]++;});
+  var resolved=counts.tp+counts.sl;
   return '<section id="buy-sweep-log-panel" style="background:var(--card2);border:1px solid var(--bd);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">'+
-    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><strong>🟢 Buy Sweeps · Auto log ('+rows.length+')</strong><button class="btn" onclick="exportBuySweepLog()">⬇ Export sweeps</button></div>'+
-    '<p style="font-size:11px;color:var(--t2);line-height:1.6">Every valid closed-candle Buy Sweep detected during a scan is recorded once per coin, timeframe and candle—even when trade filters block an entry. These are observations, not buy orders or completed trades; they do not affect trade win rate.</p>'+
-    '<p style="font-size:11px;color:var(--t3)">Keep this page open and enable Auto refresh for repeated scans. Saved in this browser only; no historical backfill. Latest 1,500 retained; export for backup.</p>'+
+    '<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px"><strong>🟢 Buy Sweeps · Paper entries ('+rows.length+')</strong><div><button class="btn" onclick="checkBuySweepOutcomes(true)" '+(buySweepCheckBusy?'disabled':'')+'>'+(buySweepCheckBusy?'Checking…':'↻ Check outcomes')+'</button> <button class="btn" onclick="exportBuySweepLog()">⬇ Export sweeps</button></div></div>'+
+    '<p style="font-size:12px;color:var(--t2);line-height:1.6"><strong>Entry = sweep close · SL = 0.1% below sweep low · TP = 2× risk (2R).</strong> Fixed study rules, not a trading recommendation. Levels never move after logging. Check up to 48 later candles on the signal timeframe; then close the study at that candle’s close.</p>'+
+    '<div style="font-size:12px;padding:8px;background:var(--card);border-radius:6px"><strong>'+counts.tp+' TP hit · '+counts.sl+' SL hit · '+counts.open+' Open / data wait · '+counts.expired+' Timed out · '+counts.unclear+' Unclear</strong><br>TP hit rate: '+(resolved?(counts.tp/resolved*100).toFixed(1)+'% ('+counts.tp+'/'+resolved+' TP-or-SL outcomes)':'—')+' · excludes open, unclear and timed-out studies. Small samples do not establish an edge.</div>'+
+    '<p style="font-size:11px;color:var(--t3);line-height:1.5">Hypothetical entry at the confirmed close—not an actual fill. Old observations are reconstructed from subsequent candles and are historical studies. No fees or normal slippage deducted; stop gaps use the opening price. If both levels are touched in one candle, the result is Unclear. Uses completed candles from the original exchange only; missing history is flagged, not guessed. Separate from your trade win rate and bot.</p>'+
+    '<p style="font-size:11px;color:var(--t3)">Auto refresh finds new sweeps. Outcomes recheck every minute while this page is visible, on scans, and when opening this journal. Reopening checks saved entries; history outside the last 1,000 candles may be unavailable. Saved in this browser only; latest 1,500 retained.</p>'+
     (buySweepLogError?'<p role="alert" style="color:var(--r)">'+esc(buySweepLogError)+'</p>':'')+
     (!rows.length?'<p style="color:var(--t3)">No Buy Sweeps recorded yet. The next confirmed sweep found by the screener will appear here.</p>':
-    '<div style="overflow:auto;max-height:360px"><table style="width:100%;font-size:11px;text-align:left;border-collapse:collapse"><thead><tr>'+['Coin / TF','Candle closed','Sweep level / Low','Confirmed close','RSI / Volume','BTC context / Source'].map(function(h){return '<th style="padding:8px;white-space:nowrap">'+h+'</th>';}).join('')+'</tr></thead><tbody>'+
-    rows.slice(0,100).map(function(r){return '<tr>'+[
-      '<strong>'+esc(r.pair)+'</strong><br>'+esc(r.tf)+' · Observed',
-      esc(date(r.closedAt))+'<br><small>Logged '+esc(date(r.observedAt))+'</small>',
-      price(r.sweptLevel)+' / '+price(r.low),price(r.referenceClose),
-      esc(r.rsi==null?'—':Number(r.rsi).toFixed(1))+' / '+esc(r.volR==null?'—':Number(r.volR).toFixed(2)+'×'),
-      esc(r.btcState)+'<br>'+esc(r.source)
+    '<div style="overflow:auto;max-height:440px"><table style="width:100%;font-size:11px;text-align:left;border-collapse:collapse"><thead><tr>'+['Coin / TF','Paper entry','Stop loss','Take profit','What happened?'].map(function(h){return '<th style="padding:8px;white-space:nowrap">'+h+'</th>';}).join('')+'</tr></thead><tbody>'+
+    rows.slice(0,100).map(function(r){var s=r.study;
+      var label=s?({tp:'✅ TP hit',sl:'❌ SL hit',open:'⏳ Open',expired:'⌛ Timed out',unclear:'⚠ Unclear — TP & SL same candle'}[s.status]||'Unknown'):'Waiting to initialize';
+      var pending=s&&s.status==='open'&&/missing|unavailable|invalid|alternate/i.test(s.dataNote||'');
+      if(pending)label='⚠ Data wait — outcome unknown';
+      var change=s?(s.status==='open'?(s.lastPrice/s.entry-1)*100:s.resultPct):null;
+      var detail='<details><summary>Details / evidence</summary><div style="white-space:normal;min-width:190px;line-height:1.6">Sweep closed '+esc(date(r.closedAt))+'<br>First logged '+esc(date(r.observedAt))+'<br>Swept level '+price(r.sweptLevel)+' · Low '+price(r.low)+'<br>RSI '+esc(r.rsi)+' · Volume '+esc(r.volR)+'×<br>BTC context '+esc(r.btcState)+' · '+esc(r.source)+(s?'<br>Checked '+esc(date(s.checkedAt))+'<br>'+esc(s.dataNote)+(s.exitBarAt?'<br>Outcome candle '+esc(date(s.exitBarAt))+' → '+esc(date(s.exitBarEnd)):'<br>Latest evaluated close '+esc(date(s.lastPriceAt)))+(s.gap?'<br>Level crossed at candle open.':''):'')+'</div></details>';
+      return '<tr>'+[
+      '<strong>'+esc(r.pair)+'</strong><br>'+esc(r.tf),
+      price(s?s.entry:r.referenceClose)+'<br><small>'+esc(date(r.closedAt))+'</small>',
+      price(s&&s.sl)+(s?'<br>'+pct((s.sl/s.entry-1)*100):''),
+      price(s&&s.tp)+(s?'<br>'+pct((s.tp/s.entry-1)*100)+' · 2R':''),
+      '<strong>'+label+'</strong><br>'+pct(change)+(s&&s.status==='open'?' at latest evaluated close':s&&s.exitPrice?' · exit '+price(s.exitPrice):'')+detail
     ].map(function(v){return '<td style="padding:8px;border-top:1px solid var(--bd);white-space:nowrap">'+v+'</td>';}).join('')+'</tr>';}).join('')+'</tbody></table></div>'+
     (rows.length>100?'<p style="font-size:11px;color:var(--t3)">Showing latest 100; export includes all saved sweeps.</p>':''))+'</section>';
 }
@@ -9289,6 +9384,7 @@ function buildBuySweepLogPanel(){
 // you learn which setup type actually works best. Dedupes per coin+type.
 function autoLogSignals(){
   autoLogBuySweeps(allData);
+  checkBuySweepOutcomes();
   var sweepPanel=document.getElementById('buy-sweep-log-panel');
   if(sweepPanel)sweepPanel.outerHTML=buildBuySweepLogPanel();
   var log = loadSignalLog();
@@ -12413,6 +12509,7 @@ function importSignalLog(ev){
 function openJournal(){
   showOv('journal-ov');
   renderJournal();
+  checkBuySweepOutcomes(true);
 }
 
 var _journalTab = 'signals';
@@ -24415,6 +24512,8 @@ function renderMoonPanel() {
 
 // ═══════════════════════════════════════════════════════════
 fetchDynamicRanks();   // update market cap ranks from CoinGecko (hourly)
+setInterval(function(){if(!document.hidden)checkBuySweepOutcomes();},60000);
+setTimeout(function(){checkBuySweepOutcomes();},2000);
 fetchTopCoins();       // optionally expand coin list from CoinGecko (daily)
 loadAlPrefs();
 askNotifPerm();
