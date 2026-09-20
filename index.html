@@ -18545,8 +18545,8 @@ function _drawChartNow() {
     ema50:    '#ff9800',    // orange
     ema100:   '#b388ff',    // purple — the mid-term line between 50 and 200
     ema200:   '#43a0f7',    // blue
-    volBull:  'rgba(38,166,154,.5)',
-    volBear:  'rgba(239,83,80,.5)',
+    volBull:  'rgba(38,166,154,.78)',
+    volBear:  'rgba(239,83,80,.78)',
     sup:      'rgba(38,166,154,.7)',
     res:      'rgba(239,83,80,.7)',
     cross:    'rgba(255,255,255,.35)',
@@ -18564,7 +18564,10 @@ function _drawChartNow() {
   var TOP_PAD   = mobilePlot ? 68 : 4; // reserve OHLC and EMA rows above candles
   var BOTTOM_PAD = 28;  // time labels
   var CANDLE_H  = Math.max(300, Math.min(520, W * 0.62));   // (overridden in fullscreen, below)
-  var VOL_H     = showVol ? 56 : 0;
+  // Give volume enough vertical room to be readable at a glance. Fullscreen
+  // layouts under 520px tall still compress this below, so 112px becomes a
+  // useful 56px panel instead of the previous cramped ~32px strip.
+  var VOL_H     = showVol ? (mobilePlot ? 76 : 112) : 0;
   var RSI_H     = showRSI ? 68 : 0;
   var SEP       = 6;    // separator between panels
   // FULLSCREEN HEIGHT FIX: CANDLE_H was derived from WIDTH, so on a phone
@@ -19146,7 +19149,7 @@ function _drawChartNow() {
 
     // Volume label
     ctx.fillStyle = C.text3;
-    ctx.font = '10px -apple-system,sans-serif';
+    ctx.font = 'bold 11px -apple-system,sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText('Volume', 6, volY0 + 11);
 
@@ -19180,7 +19183,7 @@ function _drawChartNow() {
 
     // Max vol label
     ctx.fillStyle = C.text2;
-    ctx.font = '10px -apple-system,sans-serif';
+    ctx.font = '11px -apple-system,sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText(fmtVol(maxVol), chartW + 4, volY0 + 12);
   }
