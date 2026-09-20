@@ -17083,7 +17083,9 @@ function updateChartMobileHeader(plan){
 }
 function setChartView(mode){
   if(!CHART_VIEWS[mode])return;
+  var btcVisible=chartState.indicators&&chartState.indicators.btc;
   chartState.viewMode=mode;chartState.indicators=Object.assign({},CHART_VIEWS[mode]);
+  if(typeof btcVisible==='boolean')chartState.indicators.btc=btcVisible;
   chartState.sideTab=mode==='plan'?'plan':'overview';
   saveChartPreferences();syncChartProUI();drawChart();
 }
@@ -17183,6 +17185,15 @@ function chartFit(kind){
 function toggleChartMagnet(){chartState.magnet=!chartState.magnet;saveChartPreferences();syncChartProUI();}
 function toggleFibConnector(){chartState.fibConnector=!chartState.fibConnector;saveChartPreferences();syncChartProUI();drawChart();}
 function syncChartProUI(){
+  var btcShown=!!chartState.indicators.btc,isBTC=/^BTC(USDT|JPY)$/.test(chartState.sym||'');
+  document.querySelectorAll('[data-btc-toggle]').forEach(function(b){
+    b.textContent=isBTC?'₿ BTC chart':btcShown?'₿ Hide BTC':'₿ Compare BTC';
+    b.disabled=isBTC;b.setAttribute('aria-pressed',String(!isBTC&&btcShown));
+    b.title=isBTC?'This is the Bitcoin chart.':btcShown?'Hide the separate Bitcoin chart':'Compare with Bitcoin candles below: same time, separate price scale';
+    b.style.color=btcShown&&!isBTC?'#ffb454':'#d1d4dc';
+    b.style.background=btcShown&&!isBTC?'#3a2a18':'#1e222d';
+    b.style.borderColor=btcShown&&!isBTC?'#f7931a':'#536887';
+  });
   document.querySelectorAll('[data-chart-fvg]').forEach(function(b){b.value=chartState.fvgMode||'relevant';});
   document.querySelectorAll('[data-chart-fvg-min]').forEach(function(b){b.value=String(chartState.fvgMinAtr==null?.1:chartState.fvgMinAtr);});
   document.querySelectorAll('[data-chart-view]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.chartView===chartState.viewMode));});
@@ -17209,7 +17220,7 @@ function installChartProUI(){
     '<label class="cp-select-label">Fib <select data-chart-fib-scope onchange="setChartFibScope(this.value)" title="Major includes internal pullbacks; Recent measures the latest local leg. Manual preserves your chosen anchors."><option value="major">Major swing</option><option value="recent">Recent swing</option><option value="manual">Manual / locked</option></select></label>'+
     '<details class="cp-ind-menu"><summary>Fib anchors</summary><div><button onclick="editChartFib()">Edit anchors</button><button onclick="lockChartFib()">Lock / unlock Fib</button><label>Retire swing <select data-chart-fib-retirement onchange="setChartFibRetirement(this.value)"><option value="extension">2 closes past 1.618 or origin break</option><option value="origin">Origin break only</option></select></label><small>Retirement is a custom app rule, not a Fibonacci law. Unlocked manual anchors can be dragged. Manual Fib is visual only.</small></div></details>'+
     '<details class="cp-ind-menu"><summary>Layers</summary><div>'+Object.keys(CHART_VIEWS.clean).map(function(k){
-      var names={ema:'EMA 20',ema50:'EMA 50',emaLong:'EMA 100 / 200',vol:'Volume bars',rsi:'RSI',sr:'Horizontal levels',analyst:'Trade levels',fib:'Confirmed Fib',wyckoff:'Historical Wyckoff base',profile:'Estimated volume profile',preview:'Developing Fib preview',history:'Past events / lines',avwap:'Anchored VWAP estimate',sweeps:'Liquidity sweeps / reclaim',btc:'BTC normalized comparison'};
+      var names={ema:'EMA 20',ema50:'EMA 50',emaLong:'EMA 100 / 200',vol:'Volume bars',rsi:'RSI',sr:'Horizontal levels',analyst:'Trade levels',fib:'Confirmed Fib',wyckoff:'Historical Wyckoff base',profile:'Estimated volume profile',preview:'Developing Fib preview',history:'Past events / lines',avwap:'Anchored VWAP estimate',sweeps:'Liquidity sweeps / reclaim',btc:'BTC chart below'};
       return '<button data-chart-ind="'+k+'" onclick="toggleInd(\''+k+'\')">'+names[k]+'</button>';
     }).join('')+'<label>FVG <select data-chart-fvg onchange="setChartFVG(this.value)"><option value="off">Off</option><option value="relevant">Relevant · max 2</option><option value="all">All recent zones</option></select></label><label>Minimum gap / ATR <select data-chart-fvg-min onchange="setChartFVG(null,this.value)"><option value="0">No size filter</option><option value="0.1">0.10 ATR</option><option value="0.25">0.25 ATR</option><option value="0.5">0.50 ATR</option></select></label><small>Closed candles · last 240 bars. Size filter is a display rule, not a proven trading edge. Relevant hides filled / failed zones.</small><button data-chart-fib-connector onclick="toggleFibConnector()">Fib anchor connector</button></div></details>'+
     '<details class="cp-ind-menu"><summary>View</summary><div><button onclick="chartFit(\'swing\')">Fit selected swing</button><button onclick="chartFit(\'all\')">Fit all</button><button onclick="chartState.offset=Math.max(0,(chartState.klines||[]).length-chartState.zoom);drawChart()">Return to live</button></div></details>'+
@@ -17224,11 +17235,19 @@ function installChartProUI(){
       if(node.classList.contains('cp-select-label')||node.tagName==='BUTTON'||(isMenu&&title&&title.textContent!=='Layers'))toolsMenu.lastElementChild.appendChild(node);
     });
     el.insertBefore(toolsMenu,el.querySelector('.cp-build'));
+    var btcButton=document.createElement('button');btcButton.setAttribute('data-btc-toggle','');btcButton.type='button';btcButton.textContent='₿ Hide BTC';btcButton.onclick=function(){toggleInd('btc');};
+    el.insertBefore(btcButton,el.querySelector('.cp-context-switch'));
     var psychologyButton=document.createElement('button');psychologyButton.setAttribute('data-psychology-button','1');psychologyButton.textContent='🧠 Mindset';psychologyButton.title='Open the pre-entry psychology practice check';psychologyButton.onclick=function(){openPsychologyCheck(chartState.d,'practice');};
     el.insertBefore(psychologyButton,el.querySelector('.cp-build'));
     if(suffix){var top=document.getElementById('chart-fs-bar');if(top)top.after(el);}
     else{var wrap=document.getElementById('chart-canvas-wrap');if(wrap)wrap.before(el);}
-  });installChartMobileUI();syncChartProUI();syncPsychologyToolbar(chartState.d);
+  });installChartMobileUI();
+  ['#chart-fs-bar .cp-focus-controls','#cp-mobile-header'].forEach(function(selector){
+    var host=document.querySelector(selector);if(!host||host.querySelector('[data-btc-toggle]'))return;
+    var button=document.createElement('button');button.type='button';button.className='cp-focus-keep';button.setAttribute('data-btc-toggle','');
+    button.style.cssText='white-space:nowrap;font:700 11px sans-serif;padding:5px 9px;border:1px solid #f7931a;border-radius:4px;cursor:pointer';
+    button.onclick=function(){toggleInd('btc');};host.insertBefore(button,host.firstChild);
+  });syncChartProUI();syncPsychologyToolbar(chartState.d);
 }
 
 function getChartWyckoffContext(sym){
@@ -17286,6 +17305,11 @@ function refreshChartCandles(){
   if(chartState.loading||!chartState.klines||chartState.candleRefreshInFlight||Date.now()-(chartState.lastKlineSyncAt||0)<30000)return;
   var sym=chartState.sym,tf=chartState.tf,request=chartState.loadRequestId;
   chartState.candleRefreshInFlight=true;chartState.lastKlineSyncAt=Date.now();
+  var benchmark=sym.endsWith('JPY')?'BTCJPY':'BTCUSDT';
+  if(sym!==benchmark)bybitKlines(benchmark,tf,300).then(function(rows){
+    if(chartState.sym!==sym||chartState.tf!==tf||chartState.loadRequestId!==request)return;
+    chartState.btcKlines=rows;chartState.btcCompareStatus='ready';drawChart();
+  }).catch(function(){if(chartState.loadRequestId===request){chartState.btcCompareStatus='unavailable';drawChart();}});
   bybitKlines(sym,tf,300).then(function(rows){
     if(chartState.sym!==sym||chartState.tf!==tf||chartState.loadRequestId!==request||!rows.length)return;
     var old=chartState.klines,atRight=chartState.offset+chartState.zoom>=old.length;
@@ -18015,8 +18039,7 @@ function populateFSTable(d) {
   var live=card('Live price · '+esc(chartState.tf||TF),'<div class="cp-pair"><strong class="cp-price">'+fE(p.live)+'</strong><span class="cp-muted">'+(p.liveVsEntry>=0?'+':'')+p.liveVsEntry.toFixed(2)+'% vs entry</span></div><div class="cp-muted">'+freshness+' · live candle unconfirmed</div>');
   var btcCmp=chartState.btcComparison,btcCard;
   if(btcCmp&&btcCmp.status==='ready'){
-    var relCol=btcCmp.relative>=0?'#26a69a':'#ef5350';
-    btcCard=card('BTC comparison · visible window','<div class="cp-levels"><div><span class="cp-muted">THIS COIN</span><br><strong>'+(btcCmp.coinReturn>=0?'+':'')+btcCmp.coinReturn.toFixed(2)+'%</strong></div><div><span class="cp-muted">BTC</span><br><strong style="color:#f7931a">'+(btcCmp.btcReturn>=0?'+':'')+btcCmp.btcReturn.toFixed(2)+'%</strong></div></div><div class="cp-pair"><span>Relative to BTC</span><strong style="color:'+relCol+'">'+(btcCmp.relative>=0?'+':'')+btcCmp.relative.toFixed(2)+'%</strong></div><p class="cp-muted">BTC is normalized to this coin at the first common visible candle. Zooming changes the comparison window. Descriptive only—not a trade signal.</p>');
+    btcCard=card('BTC comparison · matching closed candles','<p><strong>'+esc(chartBTCPerformanceText(btcCmp))+'</strong></p><p class="cp-muted">pp = percentage points. Both returns use the same start and end. Zoom or scroll changes the window. '+(chartState.indicators.btc?'BTC has its own price scale below the coin.':'BTC chart hidden. Use Compare BTC to show it.')+'</p>'+(btcCmp.hasReturns?'<p class="cp-muted">'+esc(new Date(btcCmp.firstTime).toISOString().slice(0,16))+' → '+esc(new Date(btcCmp.lastTime).toISOString().slice(0,16))+' UTC candle opens · '+esc(btcCmp.source)+'</p>':''));
   }else if(btcCmp&&btcCmp.status==='self')btcCard=card('BTC comparison','<p>This is the BTC benchmark chart.</p>');
   else btcCard=card('BTC comparison','<p>'+(chartState.btcCompareStatus==='loading'?'Loading matching BTC candles…':'BTC comparison is unavailable for this timeframe.')+'</p>');
   var tl=getChartTrendContext(d.sym);
@@ -18478,21 +18501,60 @@ function drawChart() {
   });
 }
 
-// Compare every non-BTC chart with BTC over the currently visible window.
-// BTC is rebased to the coin's first common close, so both paths share one axis.
+// Exact shared timestamps; performance uses only common completed candles.
 function chartBTCCompareSeries(klines,btcKlines,offset,zoom,tf,sym){
   var btcSym=sym&&sym.endsWith('JPY')?'BTCJPY':'BTCUSDT';
   if(sym===btcSym)return {status:'self',label:'BTC benchmark chart'};
   if(!btcKlines||!btcKlines.length)return {status:chartState.btcCompareStatus||'loading',label:btcSym};
-  var interval=_chartTFDuration(tf),btcByBucket={};
-  btcKlines.forEach(function(k){var close=Number(k[4]),time=Number(k[0]);if(time>0&&close>0)btcByBucket[Math.round(time/interval)]=close;});
+  var interval=_chartTFDuration(tf),btcByTime={},now=Date.now();
+  btcKlines.forEach(function(k){if([0,1,2,3,4].every(function(j){return isFinite(Number(k[j]))&&Number(k[j])>0;})&&Number(k[2])>=Math.max(Number(k[1]),Number(k[4]))&&Number(k[3])<=Math.min(Number(k[1]),Number(k[4])))btcByTime[Number(k[0])]=k;});
   var visible=klines.slice(offset,offset+zoom),pairs=[];
-  visible.forEach(function(k,i){var coin=Number(k[4]),btc=btcByBucket[Math.round(Number(k[0])/interval)];if(coin>0&&btc>0)pairs.push({i:i,time:Number(k[0]),coin:coin,btc:btc});});
-  if(pairs.length<2)return {status:'unavailable',label:btcSym};
-  var first=pairs[0],last=pairs[pairs.length-1],coinReturn=(last.coin/first.coin-1)*100,btcReturn=(last.btc/first.btc-1)*100;
-  var relative=((last.coin/first.coin)/(last.btc/first.btc)-1)*100;
-  return {status:'ready',label:btcSym,firstTime:first.time,lastTime:last.time,coinReturn:coinReturn,btcReturn:btcReturn,relative:relative,
-    points:pairs.map(function(p){return {i:p.i,time:p.time,equivalent:first.coin*(p.btc/first.btc),btc:p.btc,coin:p.coin};})};
+  visible.forEach(function(k,i){var coin=Number(k[4]),bar=btcByTime[Number(k[0])];if(isFinite(coin)&&coin>0&&bar)pairs.push({i:i,time:Number(k[0]),coin:coin,btc:Number(bar[4]),bar:bar});});
+  if(!pairs.length)return {status:'unavailable',label:btcSym};
+  var closed=pairs.filter(function(p){return p.time+interval<=now;}),first=closed[0],last=closed[closed.length-1],hasReturns=closed.length>=2;
+  var coinReturn=hasReturns?(last.coin/first.coin-1)*100:null,btcReturn=hasReturns?(last.btc/first.btc-1)*100:null;
+  return {status:'ready',label:btcSym,firstTime:first&&first.time,lastTime:last&&last.time,coinReturn:coinReturn,btcReturn:btcReturn,hasReturns:hasReturns,
+    relative:hasReturns?coinReturn-btcReturn:null,points:pairs,source:btcKlines.dataSource||'Unknown',fetchedAt:btcKlines.fetchedAt||0};
+}
+
+function chartBTCPerformanceText(c){
+  if(!c||!c.hasReturns)return 'Waiting for two matching completed candles';
+  function pct(n){return (n>=0?'+':'')+n.toFixed(2)+'%';}
+  return (chartState.sym||'Coin').replace(/USDT$|JPY$/,'')+' '+pct(c.coinReturn)+' | BTC '+pct(c.btcReturn)+' | '+(Math.abs(c.relative)<.005?'Level with BTC':(c.relative>=0?'Ahead by ':'Behind by ')+Math.abs(c.relative).toFixed(2)+' pp');
+}
+
+function drawBTCPanel(ctx,c,g){
+  var xEnd=g.width,top=g.top,height=g.height,fullWidth=g.fullWidth;
+  ctx.save();ctx.beginPath();ctx.rect(0,top,fullWidth,height);ctx.clip();
+  ctx.fillStyle='#131722';ctx.fillRect(0,top,xEnd,height);ctx.fillStyle='#1e222d';ctx.fillRect(xEnd,top,fullWidth-xEnd,height);
+  ctx.fillStyle='#293347';ctx.fillRect(0,top,fullWidth,2);
+  ctx.textAlign='left';ctx.font='bold 11px sans-serif';ctx.fillStyle='#f7931a';
+  ctx.fillText('BTC / '+(/JPY$/.test(chartState.sym)?'JPY':'USDT')+' · '+chartState.tf+' · same time / own price scale',8,top+16,xEnd-16);
+  ctx.font='11px sans-serif';ctx.fillStyle='#d1d4dc';
+  ctx.fillText(chartBTCPerformanceText(c),8,top+32,xEnd-16);
+  if(!c||c.status!=='ready'){
+    ctx.fillStyle='#8992a5';ctx.fillText(chartState.btcCompareStatus==='loading'?'Loading BTC candles…':'BTC candles unavailable. Change timeframe to retry.',8,top+61,xEnd-16);ctx.restore();return null;
+  }
+  var rows=c.points,lo=Math.min.apply(null,rows.map(function(p){return Number(p.bar[3]);})),hi=Math.max.apply(null,rows.map(function(p){return Number(p.bar[2]);}));
+  var pad=(hi-lo)*.08||hi*.001;lo-=pad;hi+=pad;
+  var priceTop=top+54,volumeH=30,priceH=Math.max(30,height-54-volumeH-8),volumeTop=priceTop+priceH+5;
+  function py(p){return priceTop+priceH*(1-(p-lo)/(hi-lo));}
+  var selected=rows.find(function(p){return p.i===g.cursorIndex;}),bar=(selected||rows[rows.length-1]).bar;
+  ctx.font='10px sans-serif';ctx.fillStyle='#aab4c5';
+  ctx.fillText((selected?'Selected':'Latest')+' O '+fmtPrice(Number(bar[1]))+' H '+fmtPrice(Number(bar[2]))+' L '+fmtPrice(Number(bar[3]))+' C '+fmtPrice(Number(bar[4])),8,top+47,xEnd-16);
+  var step=nicePriceStep(hi-lo,3);
+  for(var p=Math.ceil(lo/step)*step;p<=hi;p+=step){var y=py(p);ctx.strokeStyle='#29303d';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(xEnd,y);ctx.stroke();ctx.fillStyle='#8992a5';ctx.fillText(fmtPrice(p),xEnd+5,y+3,fullWidth-xEnd-8);}
+  var maxVol=Math.max.apply(null,rows.map(function(p){return Math.max(0,Number(p.bar[5])||0);} ))||1;
+  rows.forEach(function(p){var k=p.bar,x=g.x(p.i),o=Number(k[1]),close=Number(k[4]),color=close>=o?'#26a69a':'#ef5350';
+    ctx.globalAlpha=p.time+_chartTFDuration(chartState.tf)>Date.now()?.55:1;ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(x,py(Number(k[2])));ctx.lineTo(x,py(Number(k[3])));ctx.stroke();
+    ctx.fillRect(x-g.body/2,Math.min(py(o),py(close)),g.body,Math.max(1,Math.abs(py(o)-py(close))));
+    var vh=Math.max(0,Number(k[5])||0)/maxVol*(volumeH-8);ctx.globalAlpha=.7;ctx.fillRect(x-g.body/2,volumeTop+volumeH-vh,g.body,vh);
+  });ctx.globalAlpha=1;
+  ctx.fillStyle='#8992a5';ctx.font='9px sans-serif';ctx.fillText('BTC volume',6,volumeTop+8);
+  ctx.fillText(c.source+(chartState.btcCompareStatus==='unavailable'?' · refresh failed':'')+' · forming candle dimmed',Math.max(90,xEnd-230),volumeTop+8,Math.max(0,xEnd-100));
+  if(selected){ctx.strokeStyle='#d1d4dc';ctx.lineWidth=1;ctx.beginPath();ctx.arc(g.x(selected.i),py(Number(selected.bar[4])),3,0,Math.PI*2);ctx.stroke();}
+  ctx.restore();return {top:priceTop,height:priceH,min:lo,range:hi-lo};
 }
 
 // Price-action proxy only: never infers actual resting orders or liquidation volume.
@@ -18624,7 +18686,7 @@ function updateChartSummary(){
   function esc(x){return String(x==null?'':x).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
   var lines=[];
   var btc=chartState.btcComparison;
-  if(btc&&btc.status==='ready')lines.push('<span>'+esc('BTC compare · coin '+(btc.coinReturn>=0?'+':'')+btc.coinReturn.toFixed(2)+'% · BTC '+(btc.btcReturn>=0?'+':'')+btc.btcReturn.toFixed(2)+'% · relative '+(btc.relative>=0?'+':'')+btc.relative.toFixed(2)+'%')+'</span>');
+  if(btc&&btc.status==='ready')lines.push('<span>'+esc(chartBTCPerformanceText(btc)+' · matching closed candles · pp = percentage points')+'</span>');
   if(chartState.indicators.fib){
     var txt=f&&f.valid?(f.manual?'MANUAL '+(f.locked?'LOCKED':'EDITABLE'):f.scope==='major'?'MAJOR SWING':'RECENT SWING')+' FIB · '+fmtPrice(f.startPrice)+' → '+fmtPrice(f.endPrice):'Fib · '+(f&&f.reason||'No confirmed swing');
     if(fl&&fl.valid){txt+=' · Closed: '+(fl.state==='EXTENSION COMPLETE'?'Historical Fib retired by rule':fl.state);
@@ -18713,7 +18775,6 @@ function _drawChartNow() {
     ema50:    '#ff9800',    // orange
     ema100:   '#b388ff',    // purple — the mid-term line between 50 and 200
     ema200:   '#43a0f7',    // blue
-    btc:      '#f7931a',    // Bitcoin orange — normalized comparison path
     volBull:  'rgba(38,166,154,.78)',
     volBear:  'rgba(239,83,80,.78)',
     sup:      'rgba(38,166,154,.7)',
@@ -18727,6 +18788,8 @@ function _drawChartNow() {
   var W = wrap ? wrap.clientWidth : 700;
   var showVol = ind.vol;
   var showRSI = ind.rsi;
+  var showBTC=!!ind.btc&&!/^BTC(USDT|JPY)$/.test(chartState.sym||'');
+  var BTC_H=showBTC?230:0;
   var mobilePlot=W<=820;
   var RIGHT_PAD = mobilePlot ? 72 : 126;
   var LEFT_PAD  = 0;    // no left pad — candles go edge to edge
@@ -18744,6 +18807,7 @@ function _drawChartNow() {
   // leaving a large dead black area below. In fullscreen, fill the container.
   if (chartState.fullscreen && wrap && wrap.clientHeight > 200) {
     var _availH = wrap.clientHeight;
+    if(showBTC)BTC_H=Math.max(150,Math.min(230,Math.round(_availH*.39)));
     // In tight space (phone in landscape) shrink the volume/RSI panels first —
     // candles matter more than sub-panels when there are only ~330px to work with.
     if (_availH < 520) {
@@ -18751,11 +18815,13 @@ function _drawChartNow() {
       RSI_H = Math.max(32, Math.round(RSI_H * 0.5));
     }
     var _fixed = TOP_PAD + BOTTOM_PAD
+               + (showBTC ? SEP + BTC_H : 0)
                + (showVol ? SEP + VOL_H : 0)
                + (showRSI ? SEP + RSI_H : 0);
     CANDLE_H = Math.max(110, _availH - _fixed);
   }
   var TOTAL_H   = TOP_PAD + CANDLE_H
+                + (showBTC ? SEP + BTC_H : 0)
                 + (showVol ? SEP + VOL_H : 0)
                 + (showRSI ? SEP + RSI_H : 0)
                 + BOTTOM_PAD;
@@ -18798,7 +18864,6 @@ function _drawChartNow() {
   // ── Price range ───────────────────────────────────────────────────────────
   var highs  = visible.map(function(k) { return parseFloat(k[2]); });
   var lows   = visible.map(function(k) { return parseFloat(k[3]); });
-  if(ind.btc&&btcComparison.status==='ready')btcComparison.points.forEach(function(p){highs.push(p.equivalent);lows.push(p.equivalent);});
   var pMin   = Math.min.apply(null, lows);
   var pMax   = Math.max.apply(null, highs);
   var pad    = (pMax - pMin) * 0.05;
@@ -18899,17 +18964,6 @@ function _drawChartNow() {
   var _srLbls = [], _fibLbls = [];chartState.srAxisLabels=[];
   var plotLabels=createChartLabelLayer(ctx,{top:TOP_PAD,bottom:TOP_PAD+CANDLE_H,width:chartW,candles:visible.map(function(k,i){
     return {x:cX(i)-Math.max(2,bodyW/2),y:pY(Math.max(Number(k[1]),Number(k[4]))),w:Math.max(4,bodyW),h:Math.max(3,Math.abs(pY(Number(k[1]))-pY(Number(k[4]))))};})});
-
-  // BTC comparison: same timestamps, rebased to the coin's first common close.
-  // The line shows relative movement only; it is not a second price scale or signal.
-  if(ind.btc&&btcComparison.status==='ready'&&btcComparison.points.length>1){
-    ctx.save();ctx.beginPath();ctx.rect(0,TOP_PAD,chartW,CANDLE_H);ctx.clip();
-    ctx.strokeStyle=C.btc;ctx.lineWidth=1.6;ctx.globalAlpha=.9;ctx.setLineDash([6,4]);ctx.beginPath();
-    btcComparison.points.forEach(function(p,i){var x=cX(p.i),y=pY(p.equivalent);if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});
-    ctx.stroke();ctx.setLineDash([]);ctx.restore();
-    var bp=btcComparison.points[btcComparison.points.length-1],rel=btcComparison.relative;
-    plotLabels.add({text:'BTC '+(btcComparison.btcReturn>=0?'+':'')+btcComparison.btcReturn.toFixed(1)+'% · vs BTC '+(rel>=0?'+':'')+rel.toFixed(1)+'%',col:C.btc,x:Math.max(6,cX(bp.i)-185),y:pY(bp.equivalent)-22,priority:44,maxShift:34,anchor:{x:cX(bp.i),y:pY(bp.equivalent)}});
-  }
 
   // 3a. AUTO FIB — confirmed closed-pivot impulse on the active timeframe.
   // Lines are independent of Wyckoff/SR and can be hidden with the Fib button.
@@ -19912,6 +19966,12 @@ function _drawChartNow() {
     if(lowerLiq)rememberReference('Nearest swing low',lowerLiq,'Price-action reference only; not liquidation-position data');
   }
 
+  var btcPanelMap=null;
+  if(showBTC){
+    var btcTop=TOTAL_H-BOTTOM_PAD-BTC_H;
+    var btcCursor=chartState.crosshair?Math.floor((chartState.crosshair.x*W/(chartState.crosshair.cssW||W)-LEFT_PAD)/candleW):-1;
+    btcPanelMap=drawBTCPanel(ctx,btcComparison,{top:btcTop,height:BTC_H,width:chartW,fullWidth:W,x:cX,body:Math.max(1,bodyW),cursorIndex:btcCursor});
+  }
   if (chartState.crosshair) {
     var _cr  = chartState.crosshair;
     var cxp  = _cr.x * (W / (_cr.cssW || W));
@@ -19940,6 +20000,11 @@ function _drawChartNow() {
       ctx.fill();                                                          // path
       ctx.fillStyle = '#fff'; ctx.textAlign = 'left';
       ctx.fillText(fmtPrice(cprice2), chartW + 6, cyp + 4);
+    } else if(btcPanelMap&&cyp>=btcPanelMap.top&&cyp<=btcPanelMap.top+btcPanelMap.height){
+      ctx.beginPath();ctx.moveTo(0,cyp);ctx.lineTo(chartW,cyp);ctx.stroke();ctx.setLineDash([]);
+      var btcCursorPrice=btcPanelMap.min+btcPanelMap.range*(1-(cyp-btcPanelMap.top)/btcPanelMap.height);
+      ctx.fillStyle='#b66a0e';ctx.fillRect(chartW,cyp-9,RIGHT_PAD,18);ctx.fillStyle='#fff';ctx.font='bold 11px sans-serif';ctx.textAlign='left';
+      ctx.fillText(fmtPrice(btcCursorPrice),chartW+5,cyp+4,RIGHT_PAD-8);
     } else { ctx.setLineDash([]); }
     // Date label
     var ci3 = cxp>=LEFT_PAD&&cxp<chartW?Math.floor((cxp-LEFT_PAD)/candleW):-1;
@@ -19962,6 +20027,7 @@ function _drawChartNow() {
     ctx.restore();
     // Update OHLCV legend
     var ck3 = visible[ci3];
+    if(showBTC&&ck3){ctx.save();ctx.strokeStyle='#d1d4dc';ctx.lineWidth=1;ctx.beginPath();ctx.arc(cX(ci3),pY(Number(ck3[4])),3,0,Math.PI*2);ctx.stroke();ctx.restore();}
     if (ck3) {
       var co3=parseFloat(ck3[1]),ch3=parseFloat(ck3[2]),cl3b=parseFloat(ck3[3]),cc3=parseFloat(ck3[4]);
       var cchg3=((cc3-co3)/co3*100), ccol3=cc3>=co3?C.bull:C.bear;
