@@ -3446,6 +3446,12 @@ function processSymbol(ticker, btcClosesOverride) {
       invScore:invScore, ddHigh:Math.round(ddHigh), distE200:Math.round(distE200pct),
       invEligible:invEligible, invReason:invReason, e200Rising:e200Rising, coinRank:coinRank,
       struct:st, liq:liq, sup:sr.sup, res:sr.res, sDist:sr.sDist, rDist:sr.rDist,
+      // Preserve the actual closed sweep candle, never the live ticker price.
+      sweepCandle:liq==='buy_sweep'&&klines.length>1?{
+        openTime:Number(klines[klines.length-2][0]),closeTime:analysisSnapshot.lastClosedTime,
+        open:Number(klines[klines.length-2][1]),high:h[h.length-1],low:l[l.length-1],close:closePx,
+        level:Math.max.apply(null,[sr.sup].concat(_pools||[]).filter(function(p){return isFinite(p)&&p>0&&p<closePx;}))
+      }:null,
       score:sc, bp:bp, pp:pp,
       buySignal:signalBuyActive, strongBuy:signalStrongActive, highConviction:highConviction,
       sellSignal:(sellSignal && sc >= signalThreshold),
@@ -9213,10 +9219,78 @@ function saveJournal(j){try{localStorage.setItem('trade_journal',JSON.stringify(
 function loadSignalLog(){try{var v=localStorage.getItem('signal_log');return v?JSON.parse(v):[];}catch(e){return [];}}
 function saveSignalLog(l){try{localStorage.setItem('signal_log',JSON.stringify(l));}catch(e){}}
 
+// Observations are separate from gated paper trades: no order/bot dispatch,
+// invented TP/SL, portfolio-cap exclusion, or contribution to trade win rate.
+var buySweepLogError='';
+function loadBuySweepLog(){
+  try{
+    var raw=localStorage.getItem('buy_sweep_log_v1'),rows=raw?JSON.parse(raw):[];
+    if(!Array.isArray(rows)||rows.some(function(r){return !r||typeof r.id!=='string'||!isFinite(r.closedAt);}))throw new Error('Invalid sweep log');
+    return rows;
+  }catch(e){buySweepLogError='Cannot read saved Buy Sweeps. Existing storage has not been overwritten.';return null;}
+}
+function autoLogBuySweeps(data){
+  var rows=loadBuySweepLog();if(!rows)return 0;
+  var seen=new Set(rows.map(function(r){return r.id;})),added=0,now=Date.now();
+  (data||[]).forEach(function(d){
+    var s=d&&d.analysisSnapshot,b=d&&d.sweepCandle;
+    if(!d||d._stale||d.liq!=='buy_sweep'||!s||!s.usable||s.symbol!==d.sym||!b)return;
+    if(!['15m','1h','4h','1d','1w'].includes(s.timeframe))return;
+    var duration=_chartTFDuration(s.timeframe);
+    if(![b.openTime,b.closeTime,b.open,b.high,b.low,b.close,b.level].every(function(v){return typeof v==='number'&&isFinite(v)&&v>0;}))return;
+    if(b.closeTime!==s.lastClosedTime||b.openTime+duration!==b.closeTime||b.closeTime>now||now-b.closeTime>=duration)return;
+    if(b.high<Math.max(b.open,b.close)||b.low>Math.min(b.open,b.close)||!(b.low<b.level&&b.close>b.level))return;
+    var id=d.sym+'|'+s.timeframe+'|'+b.closeTime;
+    if(seen.has(id))return;
+    function metric(v){return typeof v==='number'&&isFinite(v)?v:null;}
+    rows.push({id:id,kind:'buy_sweep',sym:d.sym,pair:d.pair||d.sym,tf:s.timeframe,
+      closedAt:b.closeTime,observedAt:now,referenceClose:b.close,sweptLevel:b.level,
+      open:b.open,high:b.high,low:b.low,source:s.source,signature:s.signature,
+      rsi:metric(d.rsi),volR:metric(d.volR),btcState:typeof btcState==='string'?btcState:'unknown',
+      status:'observed',note:'Closed-candle sweep and reclaim; observation, not a trade.'});
+    seen.add(id);added++;
+  });
+  if(!added)return 0;
+  rows.sort(function(a,b){return b.closedAt-a.closedAt||b.observedAt-a.observedAt;});
+  try{localStorage.setItem('buy_sweep_log_v1',JSON.stringify(rows.slice(0,1500)));buySweepLogError='';}
+  catch(e){buySweepLogError='Buy Sweeps could not be saved. Browser storage may be full or disabled.';return 0;}
+  return added;
+}
+function exportBuySweepLog(){
+  var rows=loadBuySweepLog();if(!rows)return;
+  var url=URL.createObjectURL(new Blob([JSON.stringify(rows,null,2)],{type:'application/json'}));
+  var a=document.createElement('a');a.href=url;a.download='buy_sweeps_'+new Date().toISOString().slice(0,10)+'.json';
+  a.click();setTimeout(function(){URL.revokeObjectURL(url);},1000);
+}
+function buildBuySweepLogPanel(){
+  var rows=loadBuySweepLog()||[];
+  function esc(v){return String(v==null?'—':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function date(v){return isFinite(v)&&v>0?new Date(v).toISOString().slice(0,16).replace('T',' ')+' UTC':'—';}
+  function price(v){return typeof v==='number'&&isFinite(v)?esc(fmtPrice(v)):'—';}
+  return '<section id="buy-sweep-log-panel" style="background:var(--card2);border:1px solid var(--bd);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">'+
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><strong>🟢 Buy Sweeps · Auto log ('+rows.length+')</strong><button class="btn" onclick="exportBuySweepLog()">⬇ Export sweeps</button></div>'+
+    '<p style="font-size:11px;color:var(--t2);line-height:1.6">Every valid closed-candle Buy Sweep detected during a scan is recorded once per coin, timeframe and candle—even when trade filters block an entry. These are observations, not buy orders or completed trades; they do not affect trade win rate.</p>'+
+    '<p style="font-size:11px;color:var(--t3)">Keep this page open and enable Auto refresh for repeated scans. Saved in this browser only; no historical backfill. Latest 1,500 retained; export for backup.</p>'+
+    (buySweepLogError?'<p role="alert" style="color:var(--r)">'+esc(buySweepLogError)+'</p>':'')+
+    (!rows.length?'<p style="color:var(--t3)">No Buy Sweeps recorded yet. The next confirmed sweep found by the screener will appear here.</p>':
+    '<div style="overflow:auto;max-height:360px"><table style="width:100%;font-size:11px;text-align:left;border-collapse:collapse"><thead><tr>'+['Coin / TF','Candle closed','Sweep level / Low','Confirmed close','RSI / Volume','BTC context / Source'].map(function(h){return '<th style="padding:8px;white-space:nowrap">'+h+'</th>';}).join('')+'</tr></thead><tbody>'+
+    rows.slice(0,100).map(function(r){return '<tr>'+[
+      '<strong>'+esc(r.pair)+'</strong><br>'+esc(r.tf)+' · Observed',
+      esc(date(r.closedAt))+'<br><small>Logged '+esc(date(r.observedAt))+'</small>',
+      price(r.sweptLevel)+' / '+price(r.low),price(r.referenceClose),
+      esc(r.rsi==null?'—':Number(r.rsi).toFixed(1))+' / '+esc(r.volR==null?'—':Number(r.volR).toFixed(2)+'×'),
+      esc(r.btcState)+'<br>'+esc(r.source)
+    ].map(function(v){return '<td style="padding:8px;border-top:1px solid var(--bd);white-space:nowrap">'+v+'</td>';}).join('')+'</tr>';}).join('')+'</tbody></table></div>'+
+    (rows.length>100?'<p style="font-size:11px;color:var(--t3)">Showing latest 100; export includes all saved sweeps.</p>':''))+'</section>';
+}
+
 // Auto-log defined setups when they fire (called from loadAll after data ready).
 // Logs SEVERAL setup types — each tracked separately — so the log fills faster AND
 // you learn which setup type actually works best. Dedupes per coin+type.
 function autoLogSignals(){
+  autoLogBuySweeps(allData);
+  var sweepPanel=document.getElementById('buy-sweep-log-panel');
+  if(sweepPanel)sweepPanel.outerHTML=buildBuySweepLogPanel();
   var log = loadSignalLog();
   // ── ONE-TIME CLEANUP — purge old signals logged with the broken TP/SL formula
   // (R:R below 1.5 = the buggy tiny-TP/huge-SL entries). Keeps the track record honest.
@@ -9455,6 +9529,8 @@ function autoLogSignals(){
 
   allData.forEach(function(d){
     if(d._stale) return;
+    // This predicate must be in the caller's scope as well as logIt's scope.
+    var isSweepReclaim = d.liq==='buy_sweep' && d.volR>=1.2;
     // Tier 1 — A+ high-conviction (rare, premium)
     if(d.highConviction) logIt(d, 'A+ (high-conviction)');
     // Tier 2 — standard buy signal (more frequent)
@@ -12417,7 +12493,7 @@ function renderSignalLog(){
   var log=loadSignalLog();
   var st=signalLogStats();
 
-  var head = _memoHTML + '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">' +
+  var head = buildBuySweepLogPanel() + _memoHTML + '<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">' +
       '<div style="font-size:13px;font-weight:700;color:var(--text)">📡 Auto-tracked A+ Signals</div>' +
       '<div style="display:flex;gap:6px">' +
