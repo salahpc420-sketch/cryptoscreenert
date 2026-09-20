@@ -579,6 +579,8 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 @media(max-width:820px){.cp-chart-summary{max-height:none;overflow:visible;padding-right:5px}#chart-fs-table.cp-mobile-open{display:flex!important;position:absolute;right:0;bottom:0;top:105px;width:min(340px,94vw)!important;z-index:60;box-shadow:-10px 0 24px #0009}#fs-table-toggle{display:inline-block!important}.cp-ind-menu>div{max-width:calc(100vw - 20px)}}
 .cp-fib-dialog{color:#d7e2ef;background:#181d29;border:1px solid #60728d;border-radius:9px;max-width:min(480px,90vw);max-height:85vh;overflow:auto;font:13px/1.5 sans-serif}.cp-fib-dialog::backdrop{background:#0009}.cp-fib-dialog label{display:block;margin:8px 0}.cp-fib-dialog input,.cp-fib-dialog select{max-width:100%;background:#252e40;color:white;border:1px solid #60728d;padding:7px}.cp-fib-dialog button{padding:8px;cursor:pointer}.cp-fib-dialog fieldset{margin:10px 0}#fib-edit-error{color:#ff8f8f}
 .cp-levels{display:grid;grid-template-columns:1fr 1fr;gap:10px}.cp-notice{border-left:3px solid #f0b90b;background:#302d231f}.cp-check{display:flex;justify-content:space-between;gap:8px;margin:7px 0}
+.psy-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.psy-field{display:flex;flex-direction:column;gap:5px}.psy-field label{font-size:10px;font-weight:750;letter-spacing:.04em;text-transform:uppercase;color:var(--t3)}.psy-field input,.psy-field select,.psy-field textarea{box-sizing:border-box;width:100%;padding:9px;border:1px solid var(--bd2);border-radius:7px;background:var(--card);color:var(--text);font:12px/1.4 inherit}.psy-field textarea{min-height:64px;resize:vertical}.psy-alert{padding:10px 12px;margin:7px 0;border-radius:7px;border-left:4px solid var(--am);background:rgba(245,158,11,.1);font-size:12px;line-height:1.5}.psy-alert.ok{border-left-color:var(--g);background:rgba(38,166,154,.1)}.psy-alert.block{border-left-color:var(--r);background:rgba(239,83,80,.1)}.psy-check{display:flex;align-items:flex-start;gap:8px;padding:7px 0;font-size:12px;color:var(--t2)}.psy-check input{margin-top:2px}.psy-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0}.psy-stat{padding:10px;border-radius:7px;background:var(--card3);text-align:center}.psy-stat strong{display:block;font-size:19px;color:var(--text)}.psy-stat span{font-size:9px;color:var(--t3);text-transform:uppercase}.psy-entry{padding:10px 0;border-bottom:1px solid var(--bd);font-size:11px;line-height:1.55;color:var(--t2)}.psy-entry strong{color:var(--text)}
+@media(max-width:600px){.psy-grid{grid-template-columns:1fr}.psy-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:900px){#chart-fs-table{width:252px!important;flex-basis:252px!important}.cp-toolbar{gap:5px;padding:6px}.cp-toolbar button,.cp-toolbar select,.cp-toolbar summary{padding:5px 7px}}
 @media(max-width:600px){#chart-fs-table{width:220px!important;flex-basis:220px!important}.cp-card{padding:10px;font-size:12px}#chart-fs-bar{padding:5px!important}.cp-ind-menu>div{left:auto;right:0}.cp-toolbar{font-size:11px}}
 /* Fullscreen Focus mode: the canvas uses the space occupied by the sidebar,
@@ -997,6 +999,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       <button class="mtab active" id="jtab-signals" onclick="setJournalTab('signals')">📡 Signal Log (auto)</button>
       <button class="mtab" id="jtab-coach" onclick="setJournalTab('coach')">🧑‍🏫 Coach</button>
       <button class="mtab" id="jtab-trades" onclick="setJournalTab('trades')">📓 Manual Trades</button>
+      <button class="mtab" id="jtab-psych" onclick="setJournalTab('psych')">🧠 Psychology</button>
     </div>
     <div id="journal-body" style="flex:1;overflow-y:auto;padding:1rem"></div>
   </div>
@@ -1132,6 +1135,20 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       <div id="msec"></div>
     </div>
     <div class="mftr"><span style="font-size:11px;color:var(--t3)">⚠ Educational only — not financial advice</span><button class="btn primary" style="margin-left:auto;font-size:12px" onclick="reanalyse()">↻ Refresh Data</button></div>
+  </div>
+</div>
+
+<!-- PSYCHOLOGY PRACTICE GATE -->
+<div class="ov" id="psych-ov" style="z-index:4200" onclick="if(event.target===this)closeOv('psych-ov')">
+  <div class="modal" style="max-width:620px;width:94vw;max-height:90vh;display:flex;flex-direction:column">
+    <div class="mhdr">
+      <div style="flex:1">
+        <div class="mtitle">🧠 Psychology Practice</div>
+        <div id="psych-sub" style="font-size:11px;color:var(--t2);margin-top:2px">Pause, label the urge, then check the plan.</div>
+      </div>
+      <button class="mclose" onclick="closeOv('psych-ov')">✕</button>
+    </div>
+    <div id="psych-body" style="padding:1rem;overflow-y:auto"></div>
   </div>
 </div>
 
@@ -8878,6 +8895,95 @@ function buildRuleTab(d){
 function pB(l,v,s,c){return '<div class="pbox"><div class="pbl">'+l+'</div><div class="pbv" style="color:'+c+'">'+v+'</div><div class="pbs">'+s+'</div></div>';}
 function tB(l,v,pct,rr,note){return '<div class="pbox" style="border:.5px solid var(--blb)"><div class="pbl" style="color:var(--bl)">'+l+'</div><div class="pbv" style="color:var(--g)">'+v+'</div><div style="font-size:12px;color:var(--g);font-weight:700">+'+pct+'%</div><div style="font-size:10px;color:var(--t3)">R:R '+rr+' · '+note+'</div></div>';}
 
+// Psychology practice stores self-reported emotion and observable discipline.
+var PSYCHOLOGY_KEY='psychology_practice_v1';
+var PSYCHOLOGY_COOLDOWN_KEY='psychology_cooldown_until_v1';
+var _pendingPsychology=null;
+function psychologyEscape(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function loadPsychologyLog(){try{var v=localStorage.getItem(PSYCHOLOGY_KEY);return v?JSON.parse(v):[];}catch(e){return [];}}
+function savePsychologyLog(rows){try{localStorage.setItem(PSYCHOLOGY_KEY,JSON.stringify((rows||[]).slice(0,250)));}catch(e){}}
+function psychologyCooldownUntil(){try{return Number(localStorage.getItem(PSYCHOLOGY_COOLDOWN_KEY)||0)||0;}catch(e){return 0;}}
+function psychologySetCooldown(minutes){try{localStorage.setItem(PSYCHOLOGY_COOLDOWN_KEY,String(Date.now()+minutes*60000));}catch(e){}}
+function psychologyCountdown(ms){var min=Math.max(1,Math.ceil(ms/60000));return min+' minute'+(min===1?'':'s');}
+function psychologyUpdateRecord(id,patch){
+  if(!id)return;var rows=loadPsychologyLog(),changed=false;
+  rows.forEach(function(r){if(r.id===id){Object.assign(r,patch||{});changed=true;}});
+  if(changed)savePsychologyLog(rows);
+}
+function psychologyPlanFor(d){
+  var price=chartState&&chartState.sym===d.sym&&Number(chartState.livePrice)>0?Number(chartState.livePrice):Number(d.price)||0;
+  var fallback={live:price,entry:Number(d.ema20)||price,zoneLow:(Number(d.ema20)||price)*.995,zoneHigh:(Number(d.ema20)||price)*1.012,sl:Number(d.sup)||price*.975,status:'PRACTICE'};
+  try{if(typeof buildCanonicalChartPlan==='function'&&chartState&&chartState.sym===d.sym)return buildCanonicalChartPlan(d);}catch(e){}
+  return fallback;
+}
+function psychologySignals(d){
+  var p=psychologyPlanFor(d),price=Number(p.live)||Number(d.price)||0,ema20=Number(d.ema20)||0;
+  var extension=ema20>0?(price-ema20)/ema20*100:null;
+  var inZone=price>0&&price>=Number(p.zoneLow)&&price<=Number(p.zoneHigh);
+  var weakVolume=d.volR==null||!isFinite(Number(d.volR))?null:Number(d.volR)<1.2;
+  var cooldown=Math.max(0,psychologyCooldownUntil()-Date.now()),warnings=[];
+  if(cooldown>0)warnings.push({type:'block',text:'Cooldown active for '+psychologyCountdown(cooldown)+' — avoid a revenge trade.'});
+  if(extension!=null&&extension>3)warnings.push({type:'warn',text:'Possible FOMO: price is '+extension.toFixed(1)+'% above EMA20.'});
+  if(!inZone)warnings.push({type:'warn',text:'Price is outside the planned entry zone '+fE(p.zoneLow)+' – '+fE(p.zoneHigh)+'.'});
+  if(weakVolume===true)warnings.push({type:'warn',text:'Volume is '+Number(d.volR).toFixed(2)+'×; the 1.2× practice confirmation is missing.'});
+  if(weakVolume===null)warnings.push({type:'warn',text:'Volume confirmation is unknown.'});
+  if(!warnings.length)warnings.push({type:'ok',text:'No automatic behavior warning. You still decide whether the setup and risk are valid.'});
+  return {plan:p,price:price,extension:extension,inZone:inZone,weakVolume:weakVolume,cooldown:cooldown,warnings:warnings};
+}
+function beginPsychologyEntry(){var d=window._d;if(d)openPsychologyCheck(d,'entry');}
+function openPsychologyCheck(d,mode){
+  d=d||window._d||chartState.d;if(!d)return;mode=mode==='entry'?'entry':'practice';
+  var s=psychologySignals(d),body=document.getElementById('psych-body'),sub=document.getElementById('psych-sub');if(!body)return;
+  if(sub)sub.textContent=d.pair+' · '+(chartState.tf||TF)+' · '+(mode==='entry'?'required before logging an entry':'practice check-in');
+  var h='<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:10px">The chart detects risky conditions; only you can label your emotion. Profit is not the score—following the plan is.</div>';
+  h+=s.warnings.map(function(w){return '<div class="psy-alert '+(w.type==='block'?'block':w.type==='ok'?'ok':'')+'">'+psychologyEscape(w.text)+'</div>';}).join('');
+  h+='<div class="psy-grid" style="margin-top:12px">'+
+    '<div class="psy-field"><label>Emotion *</label><select id="psy-emotion" onchange="updatePsychologyGate()"><option value="">Choose honestly</option><option>Calm</option><option>FOMO</option><option>Fear</option><option>Revenge</option><option>Overconfident</option><option>Frustrated</option><option>Bored</option></select></div>'+
+    '<div class="psy-field"><label>Entry urge *</label><select id="psy-urge" onchange="updatePsychologyGate()"><option value="">Choose one</option><option value="planned">Planned</option><option value="fomo">Chasing / FOMO</option><option value="revenge">Revenge</option><option value="fear">Fear of missing move</option></select></div>'+
+    '<div class="psy-field"><label>Confidence: <span id="psy-confidence-label">3</span>/5</label><input id="psy-confidence" type="range" min="1" max="5" value="3" oninput="document.getElementById(\'psy-confidence-label\').textContent=this.value"></div>'+
+    '<div class="psy-field"><label>Risk % *</label><input id="psy-risk" type="number" min="0.1" max="2" step="0.1" value="1" oninput="updatePsychologyGate()"></div>'+
+    '<div class="psy-field"><label>Invalidation price *</label><input id="psy-invalidation" type="number" min="0" step="any" value="'+(Number(s.plan.sl)>0?Number(s.plan.sl):'')+'" oninput="updatePsychologyGate()"></div>'+
+    '<div class="psy-field"><label>Planned zone</label><input value="'+fE(s.plan.zoneLow)+' – '+fE(s.plan.zoneHigh)+'" disabled></div>'+
+    '<div class="psy-field" style="grid-column:1/-1"><label>Why is this entry valid? *</label><textarea id="psy-thesis" oninput="updatePsychologyGate()" placeholder="One checkable reason, not a prediction"></textarea></div></div>';
+  h+='<div style="margin-top:10px"><label class="psy-check"><input id="psy-c1" type="checkbox" onchange="updatePsychologyGate()"><span>Price is at my planned level; I am not chasing.</span></label><label class="psy-check"><input id="psy-c2" type="checkbox" onchange="updatePsychologyGate()"><span>I checked a completed candle, not only the developing candle.</span></label><label class="psy-check"><input id="psy-c3" type="checkbox" onchange="updatePsychologyGate()"><span>My stop and maximum risk are defined before entry.</span></label></div>';
+  h+='<div id="psy-gate-note" class="psy-alert block">Complete every required field and checklist item.</div><button id="psy-save" data-mode="'+mode+'" data-sym="'+psychologyEscape(d.sym)+'" onclick="savePsychologyCheck()" disabled style="width:100%;height:40px;border:0;border-radius:7px;background:var(--g);color:white;font-weight:800;cursor:pointer">'+(mode==='entry'?'Continue to entry form':'Save practice check-in')+'</button>';
+  body.innerHTML=h;showOv('psych-ov');updatePsychologyGate();
+}
+function updatePsychologyGate(){
+  var btn=document.getElementById('psy-save');if(!btn)return;
+  function val(id){var e=document.getElementById(id);return e?String(e.value||'').trim():'';}
+  function checked(id){var e=document.getElementById(id);return !!(e&&e.checked);}
+  var blocked=btn.dataset.mode==='entry'&&psychologyCooldownUntil()>Date.now();
+  var valid=!!val('psy-emotion')&&!!val('psy-urge')&&Number(val('psy-risk'))>0&&Number(val('psy-risk'))<=2&&Number(val('psy-invalidation'))>0&&val('psy-thesis').length>=6&&checked('psy-c1')&&checked('psy-c2')&&checked('psy-c3')&&!blocked;
+  btn.disabled=!valid;btn.style.opacity=valid?'1':'.45';btn.style.cursor=valid?'pointer':'not-allowed';
+  var note=document.getElementById('psy-gate-note');if(note){note.textContent=blocked?'Entry locked until the post-loss cooldown ends.':valid?'Checklist complete. Save the discipline record before continuing.':'Complete every required field and checklist item. Risk must be 0.1–2%.';note.className='psy-alert '+(valid?'ok':'block');}
+}
+function savePsychologyCheck(){
+  var btn=document.getElementById('psy-save');if(!btn||btn.disabled)return;
+  var d=(allData||[]).find(function(x){return x.sym===btn.dataset.sym;})||window._d||chartState.d;if(!d)return;
+  var s=psychologySignals(d),mode=btn.dataset.mode;
+  function val(id){var e=document.getElementById(id);return e?String(e.value||'').trim():'';}
+  var rec={id:'psy_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),createdAt:new Date().toISOString(),status:mode==='entry'?'awaiting-position':'check-in',sym:d.sym,pair:d.pair,tf:chartState.tf||TF,price:s.price,ema20:Number(d.ema20)||null,volumeRatio:d.volR==null?null:Number(d.volR),zoneLow:Number(s.plan.zoneLow)||null,zoneHigh:Number(s.plan.zoneHigh)||null,emotion:val('psy-emotion'),urge:val('psy-urge'),confidence:Number(val('psy-confidence'))||3,riskPct:Number(val('psy-risk')),invalidation:Number(val('psy-invalidation')),thesis:val('psy-thesis'),autoWarnings:s.warnings.filter(function(w){return w.type!=='ok';}).map(function(w){return w.text;}),checks:{plannedLevel:true,closedCandle:true,stopDefined:true}};
+  var rows=loadPsychologyLog();rows.unshift(rec);savePsychologyLog(rows);closeOv('psych-ov');
+  if(mode==='entry'){_pendingPsychology=rec;showPosForm();}else{try{showToast(d,'strong','🧠 Practice check-in saved. Judge the process, not the next candle.');}catch(e){}}
+}
+function clearPsychologyData(){if(confirm('Delete ALL psychology practice history? This cannot be undone.')){savePsychologyLog([]);try{localStorage.removeItem(PSYCHOLOGY_COOLDOWN_KEY);}catch(e){}renderPsychologyJournal();}}
+function renderPsychologyJournal(){
+  var body=document.getElementById('journal-body');if(!body)return;var rows=loadPsychologyLog(),closed=rows.filter(function(r){return r.status==='closed';});
+  var followed=closed.filter(function(r){return r.review&&r.review.followedPlan==='yes';}).length;
+  var fomo=rows.filter(function(r){return r.emotion==='FOMO'||r.urge==='fomo'||r.urge==='fear';}).length;
+  var violations=closed.filter(function(r){return r.review&&(r.review.followedPlan==='no'||r.review.chased==='yes'||r.review.movedStop==='yes');}).length;
+  var cooldown=Math.max(0,psychologyCooldownUntil()-Date.now());
+  var h='<div style="background:var(--card2);border-radius:var(--rad);padding:1rem;margin-bottom:1rem"><div style="font-size:13px;font-weight:800">🧠 Psychology practice dashboard</div><div style="font-size:11px;color:var(--t2);line-height:1.55;margin-top:4px">Self-reported emotions plus observable discipline. A profitable rule-break is still bad execution.</div><div class="psy-stats"><div class="psy-stat"><strong>'+rows.length+'</strong><span>check-ins</span></div><div class="psy-stat"><strong>'+(closed.length?Math.round(followed/closed.length*100)+'%':'—')+'</strong><span>plan followed</span></div><div class="psy-stat"><strong>'+fomo+'</strong><span>FOMO flags</span></div><div class="psy-stat"><strong>'+violations+'</strong><span>rule violations</span></div></div>'+(cooldown?'<div class="psy-alert block">Post-loss cooldown: '+psychologyCountdown(cooldown)+' remaining.</div>':'')+'</div>';
+  if(!rows.length)h+='<div style="text-align:center;padding:2rem;color:var(--t3)">No psychology check-ins yet. Open a chart and use 🧠 Mindset, or start a tracked position.</div>';
+  rows.slice(0,40).forEach(function(r){
+    var review=r.review||{},bad=review.followedPlan==='no'||review.chased==='yes'||review.movedStop==='yes';
+    h+='<div class="psy-entry"><div style="display:flex;justify-content:space-between;gap:8px"><strong>'+psychologyEscape(r.pair||r.sym)+' · '+psychologyEscape(r.tf||'')+'</strong><span>'+psychologyEscape(new Date(r.createdAt).toLocaleString())+'</span></div><div>'+psychologyEscape(r.emotion||'Unknown')+' · '+psychologyEscape(r.urge||'Unknown')+' · confidence '+(r.confidence||'—')+'/5 · risk '+(r.riskPct||'—')+'%</div><div>'+psychologyEscape(r.thesis||'')+'</div>'+(r.status==='closed'?'<div style="color:'+(bad?'var(--r)':'var(--g)')+'">'+(r.pnlPct>=0?'+':'')+Number(r.pnlPct||0).toFixed(2)+'% · '+(bad?'Rule violation':'Plan followed')+'</div>':'<div style="color:var(--am)">'+psychologyEscape(r.status||'check-in')+'</div>')+(r.autoWarnings&&r.autoWarnings.length?'<div style="color:var(--am)">Auto warnings: '+psychologyEscape(r.autoWarnings.join(' · '))+'</div>':'')+'</div>';
+  });
+  if(rows.length)h+='<div style="text-align:center;margin-top:1rem"><button onclick="clearPsychologyData()" style="font-size:11px;padding:5px 14px;border-radius:6px;border:1px solid var(--r);background:transparent;color:var(--r);cursor:pointer">🗑 Clear psychology history</button></div>';
+  body.innerHTML=h;
+}
+
 // ─── Position tracker tab ─────────────────────────────────────────
 function posKey(sym){return 'csp_'+sym;}
 function loadPos(sym){try{var v=localStorage.getItem(posKey(sym));return v?JSON.parse(v):null;}catch(e){return null;}}
@@ -8904,7 +9010,7 @@ function buildPosTab(d){
     document.getElementById('msec').innerHTML='<div>'+
       '<div style="font-size:13px;font-weight:700;margin-bottom:14px">Have you entered a position on <strong>'+d.pair+'</strong>?</div>'+
       '<div style="display:flex;gap:10px;margin-bottom:.875rem">'+
-        '<button onclick="showPosForm()" style="flex:1;padding:12px;border-radius:var(--rad);border:1.5px solid var(--g);background:var(--gb);color:var(--gt);cursor:pointer;font-weight:700;font-size:13px;font-family:inherit">✅ Yes — I\'m IN<br><span style="font-weight:400;font-size:11px;opacity:.8">Track my trade</span></button>'+
+        '<button onclick="beginPsychologyEntry()" style="flex:1;padding:12px;border-radius:var(--rad);border:1.5px solid var(--g);background:var(--gb);color:var(--gt);cursor:pointer;font-weight:700;font-size:13px;font-family:inherit">🧠 Check mindset first<br><span style="font-weight:400;font-size:11px;opacity:.8">Required before tracking entry</span></button>'+
         '<button onclick="showSuggestedLvls()" style="flex:1;padding:12px;border-radius:var(--rad);border:1.5px solid var(--bd);background:var(--card2);color:var(--t2);cursor:pointer;font-weight:700;font-size:13px;font-family:inherit">⏳ Not yet<br><span style="font-weight:400;font-size:11px;opacity:.8">See suggested levels</span></button>'+
       '</div></div>';
   } else {
@@ -8992,10 +9098,10 @@ function showPosForm(){
     pf('ef-t3','TP3',fE(tp3),'Third target')+pf('ef-sl','Stop Loss',fE(sl),'Your stop')+
     '</div>'+
     '<button onclick="doSavePosForm()" style="width:100%;height:36px;border-radius:var(--rad);border:none;background:var(--g);color:#fff;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer">💾 Save & Track</button></div>'+
-    '<button onclick="buildPosTab(window._d)" style="width:100%;margin-top:6px;height:32px;border-radius:var(--rad);border:.5px solid var(--bd);background:transparent;color:var(--t2);font-size:12px;font-family:inherit;cursor:pointer">← Back</button>';
+    '<button onclick="_pendingPsychology=null;buildPosTab(window._d)" style="width:100%;margin-top:6px;height:32px;border-radius:var(--rad);border:.5px solid var(--bd);background:transparent;color:var(--t2);font-size:12px;font-family:inherit;cursor:pointer">← Back</button>';
 }
 function pf(id,l,v,ph){return '<div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:110px"><label style="font-size:10px;color:var(--t3);font-weight:700;text-transform:uppercase">'+l+'</label><input id="'+id+'" type="number" step="any" value="'+v+'" placeholder="'+ph+'" style="height:33px;padding:0 9px;border-radius:var(--rad);border:.5px solid var(--bd2);background:var(--card);color:var(--text);font-size:13px;font-family:inherit;outline:none"></div>';}
-function doSavePosForm(){var d=window._d;function gv(id){var el=document.getElementById(id);return el&&el.value?parseFloat(el.value):0;}var pos={entry:gv('ef-e'),size:gv('ef-sz'),tp1:gv('ef-t1'),tp2:gv('ef-t2'),tp3:gv('ef-t3'),sl:gv('ef-sl'),date:new Date().toISOString(),scoreAtEntry:d.score};if(!pos.entry){alert('Entry price required');return;}savePos(d.sym,pos);buildPosTab(d);render();}
+function doSavePosForm(){var d=window._d;function gv(id){var el=document.getElementById(id);return el&&el.value?parseFloat(el.value):0;}var pos={entry:gv('ef-e'),size:gv('ef-sz'),tp1:gv('ef-t1'),tp2:gv('ef-t2'),tp3:gv('ef-t3'),sl:gv('ef-sl'),date:new Date().toISOString(),scoreAtEntry:d.score,psychologyId:_pendingPsychology&&_pendingPsychology.sym===d.sym?_pendingPsychology.id:null};if(!pos.entry){alert('Entry price required');return;}savePos(d.sym,pos);if(pos.psychologyId)psychologyUpdateRecord(pos.psychologyId,{status:'open-position',positionOpenedAt:pos.date,entry:pos.entry,stop:pos.sl});_pendingPsychology=null;buildPosTab(d);render();}
 function showSuggestedLvls(){var d=window._d,p=d.price,tp1=Math.min(d.res*0.998,p*1.03),tp2=p*1.06,tp3=p*1.10,sl=d.sup*0.985;
   document.getElementById('msec').innerHTML=
     '<div style="font-size:12px;color:var(--t2);margin-bottom:.625rem">Suggested levels for <strong>'+d.pair+'</strong> if you enter now:</div>'+
@@ -9004,7 +9110,7 @@ function showSuggestedLvls(){var d=window._d,p=d.price,tp1=Math.min(d.res*0.998,
     lv('💰 TP2',fE(tp2),'+8.00%','var(--bl)')+lv('💰 TP3',fE(tp3),'+15.00%','var(--bl)')+
     lv('🛡 SL',fE(sl),'-'+(((p-sl)/p)*100).toFixed(2)+'%','var(--r)')+
     '</div>'+
-    '<button onclick="showPosForm()" style="width:100%;margin-bottom:6px;padding:9px;border-radius:var(--rad);border:1.5px solid var(--g);background:var(--gb);color:var(--gt);font-weight:700;font-size:13px;font-family:inherit;cursor:pointer">✅ I entered — log this trade</button>'+
+    '<button onclick="beginPsychologyEntry()" style="width:100%;margin-bottom:6px;padding:9px;border-radius:var(--rad);border:1.5px solid var(--g);background:var(--gb);color:var(--gt);font-weight:700;font-size:13px;font-family:inherit;cursor:pointer">🧠 Mindset check → log entry</button>'+
     '<button onclick="buildPosTab(window._d)" style="width:100%;height:32px;border-radius:var(--rad);border:.5px solid var(--bd);background:transparent;color:var(--t2);font-size:12px;font-family:inherit;cursor:pointer">← Back</button>';
 }
 function buildPosTracker(d,pos){
@@ -9046,6 +9152,11 @@ function closeTradeConfirm(){
   html+='<input id="close-exit" type="number" step="any" value="'+curPrice+'" style="height:34px;padding:0 10px;border-radius:var(--rad);border:.5px solid var(--bd2);background:var(--card);color:var(--text);font-size:13px;font-family:inherit;outline:none"></div>';
   html+='<div style="display:flex;flex-direction:column;gap:3px;margin-bottom:.75rem"><label style="font-size:10px;color:var(--t3);font-weight:700;text-transform:uppercase">Note (optional)</label>';
   html+='<input id="close-note" type="text" placeholder="e.g. hit TP1, trailed stop" style="height:34px;padding:0 10px;border-radius:var(--rad);border:.5px solid var(--bd2);background:var(--card);color:var(--text);font-size:13px;font-family:inherit;outline:none"></div>';
+  html+='<div style="border:1px solid var(--bd);border-radius:8px;padding:10px;margin-bottom:.75rem"><div style="font-size:12px;font-weight:800;margin-bottom:8px">🧠 Discipline review — required</div><div class="psy-grid">'+
+    '<div class="psy-field"><label>Followed the plan?</label><select id="close-followed"><option value="">Choose</option><option value="yes">Yes</option><option value="no">No</option></select></div>'+
+    '<div class="psy-field"><label>Chased the entry?</label><select id="close-chased"><option value="">Choose</option><option value="no">No</option><option value="yes">Yes</option></select></div>'+
+    '<div class="psy-field"><label>Moved stop farther?</label><select id="close-moved-stop"><option value="">Choose</option><option value="no">No</option><option value="yes">Yes</option></select></div>'+
+    '<div class="psy-field"><label>Emotion at exit</label><select id="close-emotion"><option value="">Choose</option><option>Calm</option><option>Fear</option><option>Greed</option><option>Relief</option><option>Frustrated</option><option>Revenge</option></select></div></div></div>';
   html+='<button onclick="logClosedTrade()" style="width:100%;height:36px;border-radius:var(--rad);border:none;background:var(--g);color:#fff;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;margin-bottom:6px">📓 Log to Journal & Close</button>';
   html+='<button onclick="buildPosTab(window._d)" style="width:100%;height:32px;border-radius:var(--rad);border:.5px solid var(--bd);background:transparent;color:var(--t2);font-size:12px;font-family:inherit;cursor:pointer">← Cancel</button>';
   html+='</div>';
@@ -9059,6 +9170,9 @@ function logClosedTrade(){
   var noteEl=document.getElementById('close-note');
   var exitPrice=exitEl&&exitEl.value?parseFloat(exitEl.value):d.price;
   var note=noteEl?noteEl.value:'';
+  function rv(id){var el=document.getElementById(id);return el?el.value:'';}
+  var review={followedPlan:rv('close-followed'),chased:rv('close-chased'),movedStop:rv('close-moved-stop'),exitEmotion:rv('close-emotion')};
+  if(!review.followedPlan||!review.chased||!review.movedStop||!review.exitEmotion){alert('Complete the discipline review before closing the trade.');return;}
   var pnlPct=(exitPrice-pos.entry)/pos.entry*100;
   var pnlUSD=pos.size>0?(exitPrice-pos.entry)*pos.size:null;
   var holdDays=pos.date?Math.round((Date.now()-new Date(pos.date).getTime())/86400000*10)/10:0;
@@ -9069,13 +9183,15 @@ function logClosedTrade(){
     pnlPct:pnlPct, pnlUSD:pnlUSD,
     win:pnlPct>0,
     entryDate:pos.date, exitDate:new Date().toISOString(),
-    holdDays:holdDays, note:note,
+    holdDays:holdDays, note:note, psychologyId:pos.psychologyId||null, psychologyReview:review,
     scoreAtEntry:pos.scoreAtEntry||d.score
   };
   // Save to journal
   var journal=loadJournal();
   journal.unshift(trade);
   saveJournal(journal);
+  if(pos.psychologyId)psychologyUpdateRecord(pos.psychologyId,{status:'closed',closedAt:trade.exitDate,exit:exitPrice,pnlPct:pnlPct,review:review});
+  if(pnlPct<0)psychologySetCooldown(15);
   // Remove the open position
   deletePos(d.sym);
   render();
@@ -9083,7 +9199,7 @@ function logClosedTrade(){
   showToast({pair:d.pair,sym:d.sym,price:exitPrice,rsi:d.rsi,score:d.score,chg:pnlPct,ema20:d.ema20},
     pnlPct>0?'strong':'sweepSell',
     (pnlPct>0?'✅ Win logged: ':'❌ Loss logged: ')+d.pair+' '+(pnlPct>=0?'+':'')+pnlPct.toFixed(2)+'%');
-  openJournal();
+  openJournal();setJournalTab('psych');
 }
 
 // ── TRADE JOURNAL ─────────────────────────────────────────────────────────────
@@ -12226,16 +12342,18 @@ function openJournal(){
 var _journalTab = 'signals';
 function setJournalTab(t){
   _journalTab = t;
-  var s=document.getElementById('jtab-signals'), tr=document.getElementById('jtab-trades'), co=document.getElementById('jtab-coach');
+  var s=document.getElementById('jtab-signals'), tr=document.getElementById('jtab-trades'), co=document.getElementById('jtab-coach'), ps=document.getElementById('jtab-psych');
   if(s) s.classList.toggle('active', t==='signals');
   if(co) co.classList.toggle('active', t==='coach');
   if(tr) tr.classList.toggle('active', t==='trades');
+  if(ps) ps.classList.toggle('active', t==='psych');
   renderJournal();
 }
 
 function renderJournal(){
   if(_journalTab==='signals') return renderSignalLog();
   if(_journalTab==='coach') return renderCoach();
+  if(_journalTab==='psych') return renderPsychologyJournal();
   return renderManualTrades();
 }
 
@@ -16860,6 +16978,9 @@ setInterval(function(){
 
 var chartState = {
   klines: null,
+  btcKlines: null,
+  btcComparison: null,
+  btcCompareStatus: null,
   sym: null,
   tf: null,
   zoom: 80,
@@ -16879,9 +17000,9 @@ var chartState = {
 
 // Chart presentation settings are local preferences, never trading authority.
 var CHART_VIEWS={
-  clean:{ema:true,ema50:false,emaLong:false,vol:true,rsi:false,sr:true,analyst:false,fib:false,wyckoff:false,profile:false,preview:false,history:false,avwap:false,sweeps:true},
-  analysis:{ema:true,ema50:true,emaLong:false,vol:true,rsi:false,sr:true,analyst:false,fib:true,wyckoff:true,profile:false,preview:false,history:false,avwap:false,sweeps:true},
-  plan:{ema:false,ema50:false,emaLong:false,vol:true,rsi:false,sr:false,analyst:true,fib:false,wyckoff:false,profile:false,preview:false,history:false,avwap:false,sweeps:false}
+  clean:{ema:true,ema50:false,emaLong:false,vol:true,rsi:false,sr:true,analyst:false,fib:false,wyckoff:false,profile:false,preview:false,history:false,avwap:false,sweeps:true,btc:true},
+  analysis:{ema:true,ema50:true,emaLong:false,vol:true,rsi:false,sr:true,analyst:false,fib:true,wyckoff:true,profile:false,preview:false,history:false,avwap:false,sweeps:true,btc:true},
+  plan:{ema:false,ema50:false,emaLong:false,vol:true,rsi:false,sr:false,analyst:true,fib:false,wyckoff:false,profile:false,preview:false,history:false,avwap:false,sweeps:false,btc:true}
 };
 function saveChartPreferences(){
   try{localStorage.setItem(chartState.preferenceLayout==='mobile'?'chart_mobile_preferences_v1':'chart_pro_preferences_v1',JSON.stringify({readabilityVersion:1,view:chartState.viewMode,
@@ -17073,6 +17194,11 @@ function syncChartProUI(){
   document.querySelectorAll('[data-chart-fib-connector]').forEach(function(b){b.setAttribute('aria-pressed',String(!!chartState.fibConnector));});
   var bar=document.getElementById('chart-analyst-bar');if(bar)bar.style.display='block';
 }
+function syncPsychologyToolbar(d){
+  d=d||chartState.d;if(!d)return;var s=psychologySignals(d),count=s.warnings.filter(function(w){return w.type!=='ok';}).length;
+  var label=s.cooldown>0?'🧠 Cooldown':count?'🧠 '+count+' flag'+(count===1?'':'s'):'🧠 Mindset';
+  document.querySelectorAll('[data-psychology-button]').forEach(function(b){b.textContent=label;b.title=s.warnings.map(function(w){return w.text;}).join(' ');b.style.borderColor=s.cooldown>0?'#ef5350':count?'#f0b90b':'#26a69a';b.style.color=s.cooldown>0?'#ff9b9b':count?'#ffd36b':'#7de0d3';});
+}
 function installChartProUI(){
   ['','-fs'].forEach(function(suffix){
     var id='chart-pro-tools'+suffix,old=document.getElementById(id);if(old)old.remove();
@@ -17083,7 +17209,7 @@ function installChartProUI(){
     '<label class="cp-select-label">Fib <select data-chart-fib-scope onchange="setChartFibScope(this.value)" title="Major includes internal pullbacks; Recent measures the latest local leg. Manual preserves your chosen anchors."><option value="major">Major swing</option><option value="recent">Recent swing</option><option value="manual">Manual / locked</option></select></label>'+
     '<details class="cp-ind-menu"><summary>Fib anchors</summary><div><button onclick="editChartFib()">Edit anchors</button><button onclick="lockChartFib()">Lock / unlock Fib</button><label>Retire swing <select data-chart-fib-retirement onchange="setChartFibRetirement(this.value)"><option value="extension">2 closes past 1.618 or origin break</option><option value="origin">Origin break only</option></select></label><small>Retirement is a custom app rule, not a Fibonacci law. Unlocked manual anchors can be dragged. Manual Fib is visual only.</small></div></details>'+
     '<details class="cp-ind-menu"><summary>Layers</summary><div>'+Object.keys(CHART_VIEWS.clean).map(function(k){
-      var names={ema:'EMA 20',ema50:'EMA 50',emaLong:'EMA 100 / 200',vol:'Volume bars',rsi:'RSI',sr:'Horizontal levels',analyst:'Trade levels',fib:'Confirmed Fib',wyckoff:'Historical Wyckoff base',profile:'Estimated volume profile',preview:'Developing Fib preview',history:'Past events / lines',avwap:'Anchored VWAP estimate',sweeps:'Liquidity sweeps / reclaim'};
+      var names={ema:'EMA 20',ema50:'EMA 50',emaLong:'EMA 100 / 200',vol:'Volume bars',rsi:'RSI',sr:'Horizontal levels',analyst:'Trade levels',fib:'Confirmed Fib',wyckoff:'Historical Wyckoff base',profile:'Estimated volume profile',preview:'Developing Fib preview',history:'Past events / lines',avwap:'Anchored VWAP estimate',sweeps:'Liquidity sweeps / reclaim',btc:'BTC normalized comparison'};
       return '<button data-chart-ind="'+k+'" onclick="toggleInd(\''+k+'\')">'+names[k]+'</button>';
     }).join('')+'<label>FVG <select data-chart-fvg onchange="setChartFVG(this.value)"><option value="off">Off</option><option value="relevant">Relevant · max 2</option><option value="all">All recent zones</option></select></label><label>Minimum gap / ATR <select data-chart-fvg-min onchange="setChartFVG(null,this.value)"><option value="0">No size filter</option><option value="0.1">0.10 ATR</option><option value="0.25">0.25 ATR</option><option value="0.5">0.50 ATR</option></select></label><small>Closed candles · last 240 bars. Size filter is a display rule, not a proven trading edge. Relevant hides filled / failed zones.</small><button data-chart-fib-connector onclick="toggleFibConnector()">Fib anchor connector</button></div></details>'+
     '<details class="cp-ind-menu"><summary>View</summary><div><button onclick="chartFit(\'swing\')">Fit selected swing</button><button onclick="chartFit(\'all\')">Fit all</button><button onclick="chartState.offset=Math.max(0,(chartState.klines||[]).length-chartState.zoom);drawChart()">Return to live</button></div></details>'+
@@ -17098,9 +17224,11 @@ function installChartProUI(){
       if(node.classList.contains('cp-select-label')||node.tagName==='BUTTON'||(isMenu&&title&&title.textContent!=='Layers'))toolsMenu.lastElementChild.appendChild(node);
     });
     el.insertBefore(toolsMenu,el.querySelector('.cp-build'));
+    var psychologyButton=document.createElement('button');psychologyButton.setAttribute('data-psychology-button','1');psychologyButton.textContent='🧠 Mindset';psychologyButton.title='Open the pre-entry psychology practice check';psychologyButton.onclick=function(){openPsychologyCheck(chartState.d,'practice');};
+    el.insertBefore(psychologyButton,el.querySelector('.cp-build'));
     if(suffix){var top=document.getElementById('chart-fs-bar');if(top)top.after(el);}
     else{var wrap=document.getElementById('chart-canvas-wrap');if(wrap)wrap.before(el);}
-  });installChartMobileUI();syncChartProUI();
+  });installChartMobileUI();syncChartProUI();syncPsychologyToolbar(chartState.d);
 }
 
 function getChartWyckoffContext(sym){
@@ -17329,9 +17457,10 @@ function buildChartTab(d) {
           '<button id="draw-btn-fs" onclick="toggleDrawMode()" title="Draw your own trendlines — click two points" style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:var(--t2);cursor:pointer;font-family:inherit">✏️ Draw</button>' +
           '<button onclick="undoDrawing()" title="Undo last drawing" style="font-size:10px;padding:0 8px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">↶</button>' +
           '<button onclick="clearDrawings()" title="Clear all drawings on this chart" style="font-size:10px;padding:0 8px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">🗑</button>' +
-          '<button onclick="chartReset()"  style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">Reset</button>' +
-          '<button onclick="toggleFSTable()" id="fs-table-toggle" style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#d1d4dc;cursor:pointer;font-family:inherit">📊 Details</button>' +
-          '<button onclick="toggleChartFocus()" id="fs-focus-toggle" class="cp-focus-keep" aria-pressed="false" title="Hide or show the sidebar and upper chart controls" style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #536887;background:#263651;color:#e2ecff;cursor:pointer;font-family:inherit;font-weight:700">⛶ Chart only</button>' +
+           '<button onclick="chartReset()"  style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#787b86;cursor:pointer;font-family:inherit">Reset</button>' +
+           '<button onclick="toggleFSTable()" id="fs-table-toggle" style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #2a2e39;background:transparent;color:#d1d4dc;cursor:pointer;font-family:inherit">📊 Details</button>' +
+          '<button onclick="openPsychologyCheck(chartState.d,\'practice\')" data-psychology-button="1" class="cp-focus-keep" title="Psychology practice check" style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #f0b90b;background:#302d23;color:#ffd36b;cursor:pointer;font-family:inherit;font-weight:700">🧠 Mindset</button>' +
+           '<button onclick="toggleChartFocus()" id="fs-focus-toggle" class="cp-focus-keep" aria-pressed="false" title="Hide or show the sidebar and upper chart controls" style="font-size:10px;padding:0 10px;height:26px;border-radius:3px;border:1px solid #536887;background:#263651;color:#e2ecff;cursor:pointer;font-family:inherit;font-weight:700">⛶ Chart only</button>' +
           '<button onclick="collapseChartFull()" id="fs-focus-close" class="cp-focus-keep" style="font-size:12px;padding:0 14px;height:26px;border-radius:3px;border:none;background:#f23645;color:#fff;cursor:pointer;font-family:inherit;font-weight:700">✕ Close</button>' +
         '</div>' +
       '</div>' +
@@ -17869,6 +17998,7 @@ function chartFVGDisplaySelection(zones,price){
 function populateFSTable(d) {
   d=chartMetrics(d);if(!d)return;
   var p=buildCanonicalChartPlan(d),tab=chartState.sideTab||'overview',fl=p.fibLadder,wx=p.wyckoff;
+  syncPsychologyToolbar(d);
   var badge=document.getElementById('fs-signal-badge');
   if(badge&&badge.parentElement)badge.parentElement.style.display=tab==='overview'?'none':'';
   if(badge){badge.textContent=p.status;badge.style.color=p.color;badge.style.background=p.color+'18';badge.style.border='1px solid '+p.color+'55';}
@@ -17883,6 +18013,12 @@ function populateFSTable(d) {
   var freshness=p.freshSec==null?'Waiting for live quote':p.freshSec>30?'STALE · '+p.freshSec+'s since quote':'Quote updated '+p.freshSec+'s ago';
   freshness+=' · candles: '+esc(chartState.snapshot&&chartState.snapshot.source||'Unknown')+' · quote: '+esc(chartState.quoteSource||'awaiting ticker');
   var live=card('Live price · '+esc(chartState.tf||TF),'<div class="cp-pair"><strong class="cp-price">'+fE(p.live)+'</strong><span class="cp-muted">'+(p.liveVsEntry>=0?'+':'')+p.liveVsEntry.toFixed(2)+'% vs entry</span></div><div class="cp-muted">'+freshness+' · live candle unconfirmed</div>');
+  var btcCmp=chartState.btcComparison,btcCard;
+  if(btcCmp&&btcCmp.status==='ready'){
+    var relCol=btcCmp.relative>=0?'#26a69a':'#ef5350';
+    btcCard=card('BTC comparison · visible window','<div class="cp-levels"><div><span class="cp-muted">THIS COIN</span><br><strong>'+(btcCmp.coinReturn>=0?'+':'')+btcCmp.coinReturn.toFixed(2)+'%</strong></div><div><span class="cp-muted">BTC</span><br><strong style="color:#f7931a">'+(btcCmp.btcReturn>=0?'+':'')+btcCmp.btcReturn.toFixed(2)+'%</strong></div></div><div class="cp-pair"><span>Relative to BTC</span><strong style="color:'+relCol+'">'+(btcCmp.relative>=0?'+':'')+btcCmp.relative.toFixed(2)+'%</strong></div><p class="cp-muted">BTC is normalized to this coin at the first common visible candle. Zooming changes the comparison window. Descriptive only—not a trade signal.</p>');
+  }else if(btcCmp&&btcCmp.status==='self')btcCard=card('BTC comparison','<p>This is the BTC benchmark chart.</p>');
+  else btcCard=card('BTC comparison','<p>'+(chartState.btcCompareStatus==='loading'?'Loading matching BTC candles…':'BTC comparison is unavailable for this timeframe.')+'</p>');
   var tl=getChartTrendContext(d.sym);
   var contextLines=tl?[tl.support,tl.resistance].filter(Boolean):[];
   function describeTrend(L){
@@ -17951,7 +18087,7 @@ function populateFSTable(d) {
   if(chartState.snapshot&&!chartState.snapshot.usable)html+=card('Data health','<p>'+esc(chartState.snapshot.message)+'. New setup confirmation withheld.</p>');
   if(tab==='overview'){
     var ov=chartMarketOverview();
-    html+=card('Market overview · '+esc(chartState.tf||TF),'<h3 class="cp-market-heading">'+esc(ov.headline)+'</h3><div class="cp-market-meta"><span>Trend · <strong>'+esc(ov.trend)+'</strong> · closed candles</span><span>Location · <strong>'+esc(ov.location)+'</strong></span><span>'+esc(ov.ema)+'</span></div>')+live+
+    html+=card('Market overview · '+esc(chartState.tf||TF),'<h3 class="cp-market-heading">'+esc(ov.headline)+'</h3><div class="cp-market-meta"><span>Trend · <strong>'+esc(ov.trend)+'</strong> · closed candles</span><span>Location · <strong>'+esc(ov.location)+'</strong></span><span>'+esc(ov.ema)+'</span></div>')+live+btcCard+
       card('Nearest important levels',(ov.resistance?row(esc(ov.resistance.label),ov.resistance.price,'#ef9b9b','Above price · '+(p.live>0?((ov.resistance.price/p.live-1)*100).toFixed(2)+'% away':'distance unknown')): '<p>Above price · none mapped</p>')+(ov.support?row(esc(ov.support.label),ov.support.price,'#64c6b6','Below price · '+(p.live>0?((1-ov.support.price/p.live)*100).toFixed(2)+'% away':'distance unknown')):'<p>Below price · none mapped</p>'))+
       card('What remains unconfirmed','<p class="cp-overview-note">'+esc(trigger)+'</p>'+(ov.resistance?'<p>Strength to watch: close above '+fE(ov.resistance.price)+', followed by a held retest.</p>':'')+(ov.support?'<p>Weakness to watch: close below '+fE(ov.support.price)+', followed by a failed reclaim.</p>':'')+'<p class="cp-muted">Read reactions after the '+esc(chartState.tf||TF)+' candle closes. A developing candle does not confirm a break or reclaim.</p>')+
       card('Setup readiness · '+esc(p.status),'<p>'+esc(p.action)+'</p><details><summary>Where the setup fails</summary>'+invalid+'</details><button onclick="setChartTab(\'plan\')">Open trade plan</button>')+
@@ -18086,6 +18222,19 @@ function loadChart(tf) {
   var requestSym=chartState.sym;
   var requestId=chartState.loadRequestId=(chartState.loadRequestId||0)+1;
   chartState.klines=null;
+  chartState.btcKlines=null;chartState.btcComparison=null;
+  var btcCompareSym=requestSym&&requestSym.endsWith('JPY')?'BTCJPY':'BTCUSDT';
+  var isBtcChart=requestSym===btcCompareSym;
+  chartState.btcCompareStatus=isBtcChart?'self':'loading';
+  if(!isBtcChart){
+    bybitKlines(btcCompareSym,tf,300).then(function(rows){
+      if(chartState.loadRequestId!==requestId||chartState.sym!==requestSym||chartState.tf!==tf)return;
+      chartState.btcKlines=rows;chartState.btcCompareStatus='ready';drawChart();
+    }).catch(function(){
+      if(chartState.loadRequestId!==requestId||chartState.sym!==requestSym||chartState.tf!==tf)return;
+      chartState.btcCompareStatus='unavailable';drawChart();
+    });
+  }
   chartState.autoFib=null;chartState.fibLadder=null;chartState.wyckoff=null;chartState.chartAtr=null;
   chartState.trendlines=null;chartState.metrics=null;chartState._trendKey=null;
   chartState.snapshot=null;chartState.sourceNotice=null;chartState.quoteSource=null;chartState.fibHits=[];
@@ -18329,6 +18478,23 @@ function drawChart() {
   });
 }
 
+// Compare every non-BTC chart with BTC over the currently visible window.
+// BTC is rebased to the coin's first common close, so both paths share one axis.
+function chartBTCCompareSeries(klines,btcKlines,offset,zoom,tf,sym){
+  var btcSym=sym&&sym.endsWith('JPY')?'BTCJPY':'BTCUSDT';
+  if(sym===btcSym)return {status:'self',label:'BTC benchmark chart'};
+  if(!btcKlines||!btcKlines.length)return {status:chartState.btcCompareStatus||'loading',label:btcSym};
+  var interval=_chartTFDuration(tf),btcByBucket={};
+  btcKlines.forEach(function(k){var close=Number(k[4]),time=Number(k[0]);if(time>0&&close>0)btcByBucket[Math.round(time/interval)]=close;});
+  var visible=klines.slice(offset,offset+zoom),pairs=[];
+  visible.forEach(function(k,i){var coin=Number(k[4]),btc=btcByBucket[Math.round(Number(k[0])/interval)];if(coin>0&&btc>0)pairs.push({i:i,time:Number(k[0]),coin:coin,btc:btc});});
+  if(pairs.length<2)return {status:'unavailable',label:btcSym};
+  var first=pairs[0],last=pairs[pairs.length-1],coinReturn=(last.coin/first.coin-1)*100,btcReturn=(last.btc/first.btc-1)*100;
+  var relative=((last.coin/first.coin)/(last.btc/first.btc)-1)*100;
+  return {status:'ready',label:btcSym,firstTime:first.time,lastTime:last.time,coinReturn:coinReturn,btcReturn:btcReturn,relative:relative,
+    points:pairs.map(function(p){return {i:p.i,time:p.time,equivalent:first.coin*(p.btc/first.btc),btc:p.btc,coin:p.coin};})};
+}
+
 // Price-action proxy only: never infers actual resting orders or liquidation volume.
 // Input must be completed candles. Replay is independent of chart zoom/pan.
 // FVG is descriptive chart context only. No signal, score or agent vote.
@@ -18457,6 +18623,8 @@ function updateChartSummary(){
   var s=chartState.snapshot||{},f=chartState.autoFib,fl=chartState.fibLadder,w=chartState.wyckoff,tl=chartState.trendlines||{};
   function esc(x){return String(x==null?'':x).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
   var lines=[];
+  var btc=chartState.btcComparison;
+  if(btc&&btc.status==='ready')lines.push('<span>'+esc('BTC compare · coin '+(btc.coinReturn>=0?'+':'')+btc.coinReturn.toFixed(2)+'% · BTC '+(btc.btcReturn>=0?'+':'')+btc.btcReturn.toFixed(2)+'% · relative '+(btc.relative>=0?'+':'')+btc.relative.toFixed(2)+'%')+'</span>');
   if(chartState.indicators.fib){
     var txt=f&&f.valid?(f.manual?'MANUAL '+(f.locked?'LOCKED':'EDITABLE'):f.scope==='major'?'MAJOR SWING':'RECENT SWING')+' FIB · '+fmtPrice(f.startPrice)+' → '+fmtPrice(f.endPrice):'Fib · '+(f&&f.reason||'No confirmed swing');
     if(fl&&fl.valid){txt+=' · Closed: '+(fl.state==='EXTENSION COMPLETE'?'Historical Fib retired by rule':fl.state);
@@ -18545,6 +18713,7 @@ function _drawChartNow() {
     ema50:    '#ff9800',    // orange
     ema100:   '#b388ff',    // purple — the mid-term line between 50 and 200
     ema200:   '#43a0f7',    // blue
+    btc:      '#f7931a',    // Bitcoin orange — normalized comparison path
     volBull:  'rgba(38,166,154,.78)',
     volBear:  'rgba(239,83,80,.78)',
     sup:      'rgba(38,166,154,.7)',
@@ -18617,6 +18786,8 @@ function _drawChartNow() {
   var offset  = Math.max(0, Math.min(klines.length - zoom, chartState.offset));
   var visible = klines.slice(offset, offset + zoom);
   if (!visible.length) return;
+  var btcComparison=chartBTCCompareSeries(klines,chartState.btcKlines,offset,zoom,chartState.tf,chartState.sym);
+  chartState.btcComparison=btcComparison;
 
   // Right-edge whitespace (research/TradingView convention): reserve ~4 candle
   // widths of empty space so the live candle isn't jammed against the price axis.
@@ -18627,6 +18798,7 @@ function _drawChartNow() {
   // ── Price range ───────────────────────────────────────────────────────────
   var highs  = visible.map(function(k) { return parseFloat(k[2]); });
   var lows   = visible.map(function(k) { return parseFloat(k[3]); });
+  if(ind.btc&&btcComparison.status==='ready')btcComparison.points.forEach(function(p){highs.push(p.equivalent);lows.push(p.equivalent);});
   var pMin   = Math.min.apply(null, lows);
   var pMax   = Math.max.apply(null, highs);
   var pad    = (pMax - pMin) * 0.05;
@@ -18727,6 +18899,17 @@ function _drawChartNow() {
   var _srLbls = [], _fibLbls = [];chartState.srAxisLabels=[];
   var plotLabels=createChartLabelLayer(ctx,{top:TOP_PAD,bottom:TOP_PAD+CANDLE_H,width:chartW,candles:visible.map(function(k,i){
     return {x:cX(i)-Math.max(2,bodyW/2),y:pY(Math.max(Number(k[1]),Number(k[4]))),w:Math.max(4,bodyW),h:Math.max(3,Math.abs(pY(Number(k[1]))-pY(Number(k[4]))))};})});
+
+  // BTC comparison: same timestamps, rebased to the coin's first common close.
+  // The line shows relative movement only; it is not a second price scale or signal.
+  if(ind.btc&&btcComparison.status==='ready'&&btcComparison.points.length>1){
+    ctx.save();ctx.beginPath();ctx.rect(0,TOP_PAD,chartW,CANDLE_H);ctx.clip();
+    ctx.strokeStyle=C.btc;ctx.lineWidth=1.6;ctx.globalAlpha=.9;ctx.setLineDash([6,4]);ctx.beginPath();
+    btcComparison.points.forEach(function(p,i){var x=cX(p.i),y=pY(p.equivalent);if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});
+    ctx.stroke();ctx.setLineDash([]);ctx.restore();
+    var bp=btcComparison.points[btcComparison.points.length-1],rel=btcComparison.relative;
+    plotLabels.add({text:'BTC '+(btcComparison.btcReturn>=0?'+':'')+btcComparison.btcReturn.toFixed(1)+'% · vs BTC '+(rel>=0?'+':'')+rel.toFixed(1)+'%',col:C.btc,x:Math.max(6,cX(bp.i)-185),y:pY(bp.equivalent)-22,priority:44,maxShift:34,anchor:{x:cX(bp.i),y:pY(bp.equivalent)}});
+  }
 
   // 3a. AUTO FIB — confirmed closed-pivot impulse on the active timeframe.
   // Lines are independent of Wyckoff/SR and can be hidden with the Fib button.
