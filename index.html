@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="chart-build" content="2026.09.21-btc-focus-r3">
+<meta name="chart-build" content="2026.09.21-market-charts-r5">
 <meta name="agent-build" content="2026.09.07-keyless-r2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -330,8 +330,21 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 .intel-panel.active{display:block}
 .intel-collapse{margin-left:auto;flex:0 0 auto;padding:10px 14px;font-size:14px;color:var(--t3);cursor:pointer;background:transparent;border:none;font-family:inherit;white-space:nowrap}
 #intel-body.collapsed{display:none}
+.market-chart-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.market-chart-btn{min-height:34px;padding:6px 12px;border:.5px solid var(--bd2);border-radius:7px;background:var(--card2);color:var(--t2);font:700 11px/1.2 inherit;cursor:pointer}
+.market-chart-btn:hover{color:var(--text);border-color:var(--bl)}
+.market-chart-btn[aria-pressed="true"]{background:var(--bl);border-color:var(--bl);color:#fff}
+.market-chart-heading{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;margin-bottom:8px}
+.market-chart-heading h3{font-size:14px;margin:0 0 3px}
+.market-chart-heading p{font-size:11px;line-height:1.5;color:var(--t2);margin:0}
+.market-chart-heading a{font-size:11px;color:var(--bl);white-space:nowrap;text-decoration:none}
+.market-chart-frame{height:clamp(430px,68vh,680px);min-height:430px;border:.5px solid var(--bd);border-radius:10px;overflow:hidden;background:#131722;position:relative}
+.market-chart-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#aab4c5;font-size:12px;text-align:center;padding:20px}
+.market-chart-note{font-size:10px;line-height:1.55;color:var(--t3);margin-top:8px}
 @media (max-width: 820px){
   .intel-tab{padding:9px 11px;font-size:11px}
+  .market-chart-frame{height:520px;min-height:420px}
+  .market-chart-heading{display:block}.market-chart-heading a{display:inline-block;margin-top:5px}
 }
 
 /* ═══ MOBILE-RESPONSIVE LAYOUT (iPhone & small screens) ═══ */
@@ -755,6 +768,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 <div id="intel-bar">
   <div class="intel-tabs">
     <button class="intel-tab active" id="it-macro" onclick="showIntel('macro')">🌍 Macro</button>
+    <button class="intel-tab" id="it-charts" onclick="showIntel('charts')">📈 Market Charts</button>
     <button class="intel-tab" id="it-macrotape" onclick="showIntel('macrotape')">Macro tape</button>
     <button class="intel-tab" id="it-spotstrategy" onclick="showIntel('spotstrategy')">Spot strategy</button>
     <button class="intel-tab" id="it-marketread" onclick="showIntel('marketread')">🧭 Market Read</button>
@@ -777,6 +791,21 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       </div>
       <div class="macro-grid" id="macro-grid"><div style="font-size:12px;color:var(--t3)">Loading macro data…</div></div>
       <div id="btc-detail" style="margin-top:.8rem"></div>
+    </div>
+    <div class="intel-panel" id="ip-charts">
+      <div class="market-chart-tools" role="group" aria-label="Crypto market chart">
+        <button class="market-chart-btn" id="market-chart-btn-usdtd" data-market-chart="usdtd" aria-pressed="false" onclick="renderMarketChart('usdtd')">₮ USDT.D</button>
+        <button class="market-chart-btn" id="market-chart-btn-btcd" data-market-chart="btcd" aria-pressed="true" onclick="renderMarketChart('btcd')">₿ BTC.D</button>
+        <button class="market-chart-btn" id="market-chart-btn-total3" data-market-chart="total3" aria-pressed="false" onclick="renderMarketChart('total3')">TOTAL3</button>
+        <button class="market-chart-btn" id="market-chart-btn-total" data-market-chart="total" aria-pressed="false" onclick="renderMarketChart('total')">TOTAL</button>
+        <button class="btn" style="margin-left:auto" onclick="renderMarketChart(_marketChartKey,true)">↻ Reload chart</button>
+      </div>
+      <div class="market-chart-heading">
+        <div><h3 id="market-chart-title">BTC Dominance · BTC.D</h3><p id="market-chart-description">Bitcoin market cap as a percentage of TradingView's TOTAL crypto index.</p></div>
+        <a id="market-chart-open" href="https://www.tradingview.com/chart/?symbol=CRYPTOCAP%3ABTC.D" target="_blank" rel="noopener noreferrer">Open on TradingView ↗</a>
+      </div>
+      <div class="market-chart-frame" id="market-chart-host"><div class="market-chart-loading">Open Market Charts to load the historical chart.</div></div>
+      <p class="market-chart-note">Source: TradingView CRYPTOCAP indexes · Daily chart by default · UTC market data shown in Japan time. TOTAL covers the top-125 cryptocurrencies in TradingView's Crypto Coins Screener. TOTAL3 excludes BTC and ETH but still includes stablecoins. Index composition can change and may create chart spikes. These charts describe market structure; they do not predict the next move.</p>
     </div>
     <div class="intel-panel" id="ip-macrotape"><div id="spot-macro-body"></div></div>
     <div class="intel-panel" id="ip-spotstrategy"><div id="spot-strategy-body"></div></div>
@@ -2851,7 +2880,7 @@ function calcPP(rsi, trend, volR, st, chg, price, e20, e50, liq) {
 // ═══════════════════════════════════════════════════════════
 // PROCESS SYMBOL — wires all indicator fixes
 // ═══════════════════════════════════════════════════════════
-function processSymbol(ticker, btcClosesOverride) {
+function processSymbol(ticker, btcReferenceOverride) {
   var sym = ticker.symbol;
   var catalystTF = TF; // retain the timeframe used by this request
   return bybitKlines(sym, TF, 300).then(function(klines) {
@@ -2884,10 +2913,22 @@ function processSymbol(ticker, btcClosesOverride) {
 
     // Cache BTC CLOSED closes globally so other coins compute relative strength.
     // Callers may provide an immutable snapshot to avoid concurrent-scan races.
-    var btcClosesForCalc = (btcClosesOverride && btcClosesOverride.length) ? btcClosesOverride.slice() : (_btcCloses ? _btcCloses.slice() : null);
+    // BTC-relative metrics need both prices and candle timestamps. Older callers
+    // may still pass a close-only array; keep that for JPY compatibility, but the
+    // USDT scanner only trusts exact timestamp matches from btcReferenceSnapshot().
+    var btcClosesForCalc = Array.isArray(btcReferenceOverride)
+      ? btcReferenceOverride.slice()
+      : (btcReferenceOverride&&btcReferenceOverride.closes&&btcReferenceOverride.closes.length
+          ? btcReferenceOverride.closes.slice() : (_btcCloses?_btcCloses.slice():null));
+    var btcBarsForCalc = !Array.isArray(btcReferenceOverride)&&btcReferenceOverride&&btcReferenceOverride.bars
+      ? btcReferenceOverride.bars.map(function(x){return [Number(x[0]),Number(x[1])];})
+      : (_btcRSBars?_btcRSBars.map(function(x){return [Number(x[0]),Number(x[1])];}):null);
+    var coinBarsForCalc = klines.slice(0,-1).map(function(k){return [Number(k[0]),Number(k[4])];});
     if (sym === 'BTCUSDT' || sym === 'BTCJPY') {
       _btcCloses = c.slice();
+      _btcRSBars = coinBarsForCalc.map(function(x){return x.slice();});
       btcClosesForCalc = c.slice();
+      btcBarsForCalc = _btcRSBars.map(function(x){return x.slice();});
     }
 
     // FIX 1: Full-history EMAs (on closed candles)
@@ -3151,7 +3192,10 @@ function processSymbol(ticker, btcClosesOverride) {
     // PHASE 7+6: Relative strength + accumulation + trend quality are computed
     // BEFORE signal construction so the combined confirmation is available to
     // the actual BUY gate, not merely displayed after the fact.
-    var relStr = calcRelStrength(c, btcClosesForCalc);
+    var relativeSeries = sym.endsWith('JPY') ? null : alignRelativeCloses(coinBarsForCalc,btcBarsForCalc,catalystTF);
+    var relativeCoinCloses = relativeSeries ? relativeSeries.coin : (sym.endsWith('JPY')?c:null);
+    var relativeBTCCloses = relativeSeries ? relativeSeries.btc : (sym.endsWith('JPY')?btcClosesForCalc:null);
+    var relStr = calcRelStrength(relativeCoinCloses, relativeBTCCloses);
     var accum  = calcAccumulation(h, l, c, v, relStr, e20, e50);
     var trendQ = calcTrendQuality(c, e20, e50, e200);
     var wyckoff = calcWyckoff(h, l, c, v, atr, trend, analysisContext);
@@ -3364,8 +3408,8 @@ function processSymbol(ticker, btcClosesOverride) {
     var meta = META[sym] || {cat:'', col:'#888'};
 
     // PHASE 7+6 supporting metrics (calculated before signal construction)
-    var resil = calcResilience(c, btcClosesForCalc);
-    var dbeta = calcDownBeta(c, btcClosesForCalc);
+    var resil = calcResilience(relativeCoinCloses, relativeBTCCloses);
+    var dbeta = calcDownBeta(relativeCoinCloses, relativeBTCCloses);
     // Smart Money Concepts — BOS / CHoCH structure markers
     var smc = calcSMC(h, l, c);
 
@@ -3561,6 +3605,27 @@ function calcResilience(closes, btcCloses){
   };
 }
 
+// Build one trailing, gap-free series of exact timestamp matches. This prevents
+// a missing exchange candle (or a source with a shifted candle boundary) from
+// silently comparing different market periods. Full scanner RS needs 61 closed
+// matches so all 7/14/30/60-bar windows describe the same elapsed candles.
+function alignRelativeCloses(coinBars,btcBars,tf) {
+  if(!Array.isArray(coinBars)||!Array.isArray(btcBars)||!coinBars.length||!btcBars.length)return null;
+  var interval=_chartTFDuration(tf),btcByTime={},coinLast=null,btcLast=null;
+  coinBars.forEach(function(x){var t=Number(x&&x[0]),c=Number(x&&x[1]);if(isFinite(t)&&isFinite(c)&&c>0&&(!coinLast||t>coinLast[0]))coinLast=[t,c];});
+  btcBars.forEach(function(x){var t=Number(x&&x[0]),c=Number(x&&x[1]);if(isFinite(t)&&isFinite(c)&&c>0){btcByTime[t]=c;if(!btcLast||t>btcLast[0])btcLast=[t,c];}});
+  if(!coinLast||!btcLast||coinLast[0]!==btcLast[0])return null;
+  var pairs=[];
+  coinBars.forEach(function(x){var t=Number(x&&x[0]),c=Number(x&&x[1]),b=btcByTime[t];if(isFinite(t)&&isFinite(c)&&c>0&&isFinite(b)&&b>0)pairs.push([t,c,b]);});
+  pairs.sort(function(a,b){return a[0]-b[0];});
+  if(!pairs.length||pairs[pairs.length-1][0]!==coinLast[0])return null;
+  var start=pairs.length-1;
+  while(start>0&&(!interval||pairs[start][0]-pairs[start-1][0]===interval))start--;
+  pairs=pairs.slice(start);
+  if(pairs.length<61)return null;
+  return {coin:pairs.map(function(x){return x[1];}),btc:pairs.map(function(x){return x[2];}),count:pairs.length,lastTime:pairs[pairs.length-1][0]};
+}
+
 function calcRelStrength(closes, btcCloses) {
   if (!closes || closes.length < 30 || !btcCloses || btcCloses.length < 30) return null;
   // Multi-lookback relative performance (weighted: recent matters more)
@@ -3583,6 +3648,25 @@ function calcRelStrength(closes, btcCloses) {
     rs += (coinRet - btcRet) * p.w;
   });
   return rs; // raw value, ranked later
+}
+
+// Assign percentile ranks without inventing a neutral reading for missing or
+// stale data. Equal raw values share the midpoint rank of their tied positions.
+function rankRelativeStrength(rows) {
+  rows=Array.isArray(rows)?rows:[];
+  rows.forEach(function(d){d.rsRank=null;});
+  var valid=rows.filter(function(d){return !d._stale&&Number.isFinite(d.relStr);})
+    .sort(function(a,b){return a.relStr-b.relStr;});
+  if(valid.length===1){valid[0].rsRank=50;return 1;}
+  for(var i=0;i<valid.length;){
+    var end=i+1;
+    while(end<valid.length&&Math.abs(valid[end].relStr-valid[i].relStr)<=1e-12)end++;
+    var midpoint=(i+end-1)/2;
+    var rank=Math.round(1+(midpoint/Math.max(1,valid.length-1))*98);
+    for(var j=i;j<end;j++)valid[j].rsRank=rank;
+    i=end;
+  }
+  return valid.length;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -4174,7 +4258,7 @@ function calcOpportunity(d) {
   else if (d.ema20 > d.ema200) s += 8;
   // Relative Strength (20) — uses rank 1-99 once computed
   if (d.rsRank != null) s += (d.rsRank / 99) * 20;
-  else s += 8; // neutral if not yet ranked
+  // Unknown/stale RS contributes no points; absence is not neutral evidence.
   // Volume (15)
   if (d.volR >= 3) s += 15;
   else if (d.volR >= 2) s += 12;
@@ -4213,7 +4297,11 @@ var btcTrendScore = 0;  // live BTC score — updated every scan, used as macro 
 var chartBtcEvidence = null; // observed scanner context; null is not a zero-score observation
 var btcState = 'stable'; // 'bullish' | 'stable' | 'falling' | 'dumping' — gates alt buys
 var _ethVsBtc = 0, _ethWeak = false, _breadth = 50, _breadthWeak = false, _btcDominanceRising = false; // market-context gates
-var _btcCloses = null;  // BTC close prices for relative-strength calc
+var _btcCloses = null;  // BTC close prices for market-state calculations
+var _btcRSBars = null;  // [open timestamp, closed price] pairs for aligned relative metrics
+function btcReferenceSnapshot(){
+  return {closes:_btcCloses?_btcCloses.slice():null,bars:_btcRSBars?_btcRSBars.map(function(x){return x.slice();}):null};
+}
 var PRECISION_MODE = false; // true = tighter filter (~72% WR in backtest, fewer signals)
 var BTC_FILTER_ENABLED = true;  // toggle: true = only buy when BTC bullish
 var BTC_FILTER_THRESHOLD = CONFIG.BTC_FILTER_THRESHOLD; // from CONFIG
@@ -4271,11 +4359,11 @@ function loadAll() {
       qItems.splice(qItems.indexOf(btcScanItem), 1);
       btcScanPromise = processSymbol(btcScanItem.t, null).then(function(res){
         results[btcScanItem.i] = res;
-        btcScanSnapshot = _btcCloses ? _btcCloses.slice() : null;
+        btcScanSnapshot = btcReferenceSnapshot();
         completed = 1;
         setLP(20, 'BTC reference loaded · scanning ' + (total-1) + ' coins…');
       }).catch(function(){
-        btcScanSnapshot = _btcCloses ? _btcCloses.slice() : null;
+        btcScanSnapshot = btcReferenceSnapshot();
         completed = 1;
         setLP(20, 'BTC reference unavailable · using last known BTC snapshot…');
       });
@@ -4457,14 +4545,9 @@ function loadAll() {
       _reclaim = checkReclaim(allData);
     })();
 
-    // PHASE 7: Rank Relative Strength 1-99 across all coins (percentile)
-    var withRS = allData.filter(function(d){return d.relStr != null;});
-    withRS.sort(function(a,b){return a.relStr - b.relStr;}); // weakest first
-    withRS.forEach(function(d, i){
-      d.rsRank = Math.round(1 + (i / Math.max(1, withRS.length - 1)) * 98); // 1-99
-    });
-    // Coins without RS data get neutral rank
-    allData.forEach(function(d){ if(d.rsRank == null) d.rsRank = 50; });
+    // PHASE 7: Rank fresh, timestamp-aligned Relative Strength 1-99.
+    // Missing/stale readings remain Unknown and tied values share one rank.
+    rankRelativeStrength(allData);
 
     // CROSS-SECTIONAL MOMENTUM (evidence audit: most reproducible crypto alpha).
     // Rank all coins by 24h momentum; tag top/bottom quintile. RECORDED on signals,
@@ -4940,6 +5023,9 @@ function render() {
     var sCl=SCLS[d.struct]||SCLS['HH_HL']||'pgr';
     var vC=d.volR>=2?'var(--g)':d.volR>=1.5?'var(--gt)':'var(--t2)';
     var barC=d.score>=76?'var(--g)':d.score<=45?'var(--r)':'var(--am)';
+    var rsKnown=Number.isFinite(d.rsRank);
+    var rsCol=rsKnown?(d.rsRank>=70?'var(--g)':d.rsRank>=40?'var(--am)':'var(--r)'):'var(--t3)';
+    var rsLabel=rsKnown?(d.rsRank>=70?'strong':d.rsRank>=40?'neutral':'weak'):'unknown';
     var sig=d.strongBuy?'<span class="sdot" style="background:var(--am)"></span><strong>⚡ Strong</strong>':
              d.liq==='buy_sweep'?'<span class="sdot" style="background:var(--g)"></span><strong>🟢 Sweep</strong>':
              d.signal==='buy'?'<span class="sdot" style="background:var(--g)"></span><strong>Buy</strong>':
@@ -4999,7 +5085,7 @@ function render() {
       '<td class="adv-col"><span style="color:var(--g);font-weight:700">'+fE(d.sup)+'</span><br><span style="color:var(--t3);font-size:10px">-'+d.sDist+'%</span></td>'+
       '<td class="adv-col"><span style="color:var(--r);font-weight:700">'+fE(d.res)+'</span><br><span style="color:var(--t3);font-size:10px">+'+d.rDist+'%</span></td>'+
       (function(){ if(_investMode&&d.invScore==null)return '<td title="'+investEsc(d.invReason)+'">Unavailable</td>'; var mv = _investMode ? d.invScore : (d.opportunity||0); var mc = mv>=70?'#7c4dff':mv>=50?'var(--am)':'var(--t3)'; var mtc = mv>=70?'#7c4dff':mv>=50?'var(--am)':'var(--t2)'; return '<td style="background:rgba(124,77,255,.05)"><div style="display:flex;align-items:center;gap:5px"><div style="flex:1;height:5px;background:var(--card3);border-radius:3px;overflow:hidden"><div style="width:'+mv+'%;height:100%;background:'+mc+';border-radius:3px"></div></div><span style="font-weight:800;font-size:12px;color:'+mtc+'">'+mv+'</span></div></td>'; })()+
-      '<td class="adv-col" style="text-align:center"><span style="font-weight:800;font-size:12px;color:'+(d.rsRank>=70?'var(--g)':d.rsRank>=40?'var(--am)':'var(--r)')+'">'+(d.rsRank!=null?d.rsRank:'—')+'</span><br><span style="font-size:9px;color:var(--t3)">'+(d.rsRank>=70?'strong':d.rsRank>=40?'neutral':'weak')+'</span></td>'+
+      '<td class="adv-col" style="text-align:center"><span style="font-weight:800;font-size:12px;color:'+rsCol+'">'+(rsKnown?d.rsRank:'—')+'</span><br><span style="font-size:9px;color:var(--t3)">'+rsLabel+'</span></td>'+
       '<td class="adv-col" style="text-align:center"><span style="font-weight:700;font-size:12px;color:'+((d.trendQ||0)>=60?'var(--g)':(d.trendQ||0)>=45?'var(--am)':'var(--t3)')+'">'+(d.trendQ||0)+'</span><br><span style="font-size:9px;color:var(--t3)">'+(d.trendQDir==='up'?'↑ ':d.trendQDir==='down'?'↓ ':'')+(d.trendQLabel||'')+'</span></td>'+
       '<td class="adv-col" style="text-align:center"><span style="font-weight:700;font-size:11px;color:'+(d.accum>=60?'var(--g)':d.accum>=40?'var(--am)':'var(--t3)')+'">'+rowMetricText(d.accum)+'</span>'+(rowMetricText(d.accum)>=60?'<br><span style="font-size:9px;color:var(--g)">Base candidate</span>':'')+'</td>'+
       '<td class="adv-col" style="text-align:center"><span title="Trend + Base quality confluence" style="font-weight:800;font-size:11px;color:'+(d.trendAccumGrade==='A'?'var(--g)':d.trendAccumGrade==='B'?'var(--am)':'var(--t3)')+'">'+rowMetricText(d.trendAccumScore)+'</span><br><span style="font-size:8px;color:var(--t3)">'+(d.trendAccumGrade||'D')+(d.trendAccumAligned?' ✓':'')+'</span></td>'+
@@ -5056,7 +5142,8 @@ function renderMobileCards(rows) {
     if(d.rowDataReady===false)setup='';
     var oppCol = (d.opportunity||0)>=70?'#7c4dff':(d.opportunity||0)>=50?'var(--am)':'var(--t2)';
     var scoreCol = d.score>=76?'var(--g)':d.score<=45?'var(--r)':'var(--am)';
-    var rsCol = d.rsRank>=70?'var(--g)':d.rsRank>=40?'var(--am)':'var(--r)';
+    var rsKnown = Number.isFinite(d.rsRank);
+    var rsCol = rsKnown?(d.rsRank>=70?'var(--g)':d.rsRank>=40?'var(--am)':'var(--r)'):'var(--t3)';
     // Investing-mode: the primary metric becomes Value score, with accumulation context
     var invCol = (d.invScore||0)>=70?'#7c4dff':(d.invScore||0)>=50?'var(--am)':'var(--t2)';
     var primaryLabel = _investMode ? '💎 Daily score' : '⭐ Opp';
@@ -5088,7 +5175,7 @@ function renderMobileCards(rows) {
       '<div class="adv-col">' +
         '<div class="m-metrics" style="margin-top:6px">' +
           '<div class="m-metric"><div class="m-metric-l">Score</div><div class="m-metric-v" style="color:'+scoreCol+'">'+(d.rowDataReady===false?'Partial':d.score)+'</div></div>' +
-          '<div class="m-metric"><div class="m-metric-l">RS Rank</div><div class="m-metric-v" style="color:'+rsCol+'">'+(d.rsRank!=null?d.rsRank:'—')+'</div></div>' +
+          '<div class="m-metric"><div class="m-metric-l">RS Rank</div><div class="m-metric-v" style="color:'+rsCol+'">'+(rsKnown?d.rsRank:'—')+'</div></div>' +
           '<div class="m-metric"><div class="m-metric-l">Trend Q</div><div class="m-metric-v" style="font-size:12px;color:'+((d.trendQ||0)>=60?'var(--g)':(d.trendQ||0)>=45?'var(--am)':'var(--t3)')+'">'+(d.trendQ||0)+'</div></div>' +
           '<div class="m-metric"><div class="m-metric-l">Base Q</div><div class="m-metric-v" style="font-size:12px;color:'+(d.accum>=60?'var(--g)':'var(--t2)')+'">'+rowMetricText(d.accum)+'</div></div>' +
           '<div class="m-metric"><div class="m-metric-l">Trend+Base</div><div class="m-metric-v" style="font-size:12px;color:'+(d.trendAccumAligned?'var(--g)':'var(--t2)')+'">'+rowMetricText(d.trendAccumScore)+' '+(d.trendAccumGrade||'D')+'</div></div>' +
@@ -8082,13 +8169,14 @@ function renderSectorRotation(data) {
     var s = sectors[cat];
     var n = s.coins.length;
     var avgChg = s.coins.reduce(function(a,d){return a+(d.chg||0);}, 0) / n;
-    var avgRS  = s.coins.reduce(function(a,d){return a+(d.rsRank||50);}, 0) / n;
+    var validRS=s.coins.filter(function(d){return Number.isFinite(d.rsRank);});
+    var avgRS=validRS.length?validRS.reduce(function(a,d){return a+d.rsRank;},0)/validRS.length:null;
     var validVolumes=s.coins.filter(function(d){return rowMetricKnown(d.volR);});
     var avgVol=validVolumes.length?validVolumes.reduce(function(a,d){return a+d.volR;},0)/validVolumes.length:null;
     var bos    = s.coins.filter(function(d){return d.struct==='breakout'||d.struct==='HH/HL';}).length;
     var avgOpp = s.coins.reduce(function(a,d){return a+(d.opportunity||0);}, 0) / n;
     // Rotation score: weighted combo of momentum + RS + breakouts + volume
-    var rotScore = avgChg * 2 + (avgRS - 50) * 0.4 + (bos/n) * 20 + (avgVol==null?0:(avgVol-1)*5) + avgOpp * 0.2;
+    var rotScore = avgChg * 2 + (avgRS==null?0:(avgRS - 50) * 0.4) + (bos/n) * 20 + (avgVol==null?0:(avgVol-1)*5) + avgOpp * 0.2;
     return {cat:cat, n:n, avgChg:avgChg, avgRS:avgRS, avgVol:avgVol, bos:bos, avgOpp:avgOpp, rotScore:rotScore};
   }).filter(function(s){ return s.n >= 1; });
 
@@ -8117,7 +8205,7 @@ function renderSectorRotation(data) {
     html += '<span style="font-size:15px;font-weight:800;color:'+chgCol+'">'+(s.avgChg>=0?'+':'')+s.avgChg.toFixed(1)+'%</span>';
     html += '<span style="font-size:10px;color:var(--t3)">'+s.n+' coin'+(s.n>1?'s':'')+'</span>';
     html += '</div>';
-    html += '<div style="font-size:10px;color:var(--t3);margin-top:2px">RS '+Math.round(s.avgRS)+' · '+s.bos+' setup'+(s.bos!==1?'s':'')+(isLeader?' · 🔥 leading':'')+'</div>';
+    html += '<div style="font-size:10px;color:var(--t3);margin-top:2px">RS '+(s.avgRS==null?'—':Math.round(s.avgRS))+' · '+s.bos+' setup'+(s.bos!==1?'s':'')+(isLeader?' · 🔥 leading':'')+'</div>';
     html += '</div>';
   });
 
@@ -9902,10 +9990,10 @@ function backgroundLogAllTFs(){
         if(tickers[bt].symbol === 'BTCUSDT' || tickers[bt].symbol === 'BTCJPY'){ btcTicker = tickers[bt]; break; }
       }
       if(!btcTicker) return Promise.all(tickers.map(function(t){
-        return processSymbol(t, _btcCloses ? _btcCloses.slice() : null).catch(function(){ return null; });
+        return processSymbol(t, btcReferenceSnapshot()).catch(function(){ return null; });
       }));
       return processSymbol(btcTicker, null).then(function(btcData){
-        var snapshot = _btcCloses ? _btcCloses.slice() : null;
+        var snapshot = btcReferenceSnapshot();
         return Promise.all(tickers.map(function(t){
           if(t === btcTicker) return Promise.resolve(btcData);
           return processSymbol(t, snapshot).catch(function(){ return null; });
@@ -16345,8 +16433,36 @@ function togglePanel(id){
 }
 
 // ── Market Intel tabbed bar ──────────────────────────────────────────────────
+var MARKET_CHARTS={
+  usdtd:{symbol:'CRYPTOCAP:USDT.D',label:'USDT Dominance · USDT.D',description:'Tether market cap as a percentage of TradingView\'s TOTAL crypto index.'},
+  btcd:{symbol:'CRYPTOCAP:BTC.D',label:'BTC Dominance · BTC.D',description:'Bitcoin market cap as a percentage of TradingView\'s TOTAL crypto index.'},
+  total3:{symbol:'CRYPTOCAP:TOTAL3',label:'Altcoin Market Cap · TOTAL3',description:'Top-125 crypto market cap excluding Bitcoin and Ethereum; stablecoins remain included.'},
+  total:{symbol:'CRYPTOCAP:TOTAL',label:'Total Crypto Market Cap · TOTAL',description:'Combined market cap of the top-125 cryptocurrencies in TradingView\'s Crypto Coins Screener.'}
+};
+var _marketChartKey='btcd',_marketChartSerial=0;
+function renderMarketChart(key,force){
+  key=MARKET_CHARTS[key]?key:_marketChartKey;_marketChartKey=key;
+  var cfg=MARKET_CHARTS[key],host=document.getElementById('market-chart-host');if(!host)return;
+  document.querySelectorAll('[data-market-chart]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.marketChart===key));});
+  var title=document.getElementById('market-chart-title'),description=document.getElementById('market-chart-description'),open=document.getElementById('market-chart-open');
+  if(title)title.textContent=cfg.label;if(description)description.textContent=cfg.description;
+  if(open){open.href='https://www.tradingview.com/chart/?symbol='+encodeURIComponent(cfg.symbol);open.setAttribute('aria-label','Open '+cfg.label+' on TradingView');}
+  if(!force&&host.dataset.marketChart===key&&host.querySelector('script,iframe'))return;
+  host.dataset.marketChart=key;var serial=++_marketChartSerial;host.innerHTML='';
+  var dark=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;
+  var wrap=document.createElement('div');wrap.className='tradingview-widget-container';wrap.style.cssText='height:100%;width:100%';
+  var widget=document.createElement('div');widget.className='tradingview-widget-container__widget';widget.style.cssText='height:calc(100% - 24px);width:100%';
+  widget.innerHTML='<div class="market-chart-loading">Loading '+cfg.label+'…</div>';wrap.appendChild(widget);
+  var credit=document.createElement('div');credit.className='tradingview-widget-copyright';credit.style.cssText='height:24px;box-sizing:border-box;padding:4px 8px;background:'+(dark?'#131722':'#fff')+';font:10px sans-serif;color:'+(dark?'#8b98ad':'#667085')+';text-align:right';
+  credit.innerHTML='<a href="https://www.tradingview.com/chart/?symbol='+encodeURIComponent(cfg.symbol)+'" rel="noopener nofollow" target="_blank" style="color:#2962ff;text-decoration:none">'+cfg.label+'</a> by TradingView';wrap.appendChild(credit);host.appendChild(wrap);
+  var script=document.createElement('script');script.type='text/javascript';script.async=true;script.src='https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
+  script.text=JSON.stringify({autosize:true,symbol:cfg.symbol,interval:'D',timezone:'Asia/Tokyo',theme:dark?'dark':'light',backgroundColor:dark?'rgba(19, 23, 34, 1)':'rgba(255, 255, 255, 1)',gridColor:dark?'rgba(255, 255, 255, 0.06)':'rgba(46, 46, 46, 0.06)',style:'1',locale:'en',withdateranges:true,hide_side_toolbar:false,hide_top_toolbar:false,hide_legend:false,hide_volume:true,allow_symbol_change:false,save_image:true,show_popup_button:true,popup_width:'1200',popup_height:'750',calendar:false,details:false,hotlist:false,studies:[],support_host:'https://www.tradingview.com'});
+  script.onerror=function(){if(serial!==_marketChartSerial)return;host.innerHTML='<div class="market-chart-loading">TradingView chart could not load. <a href="https://www.tradingview.com/chart/?symbol='+encodeURIComponent(cfg.symbol)+'" target="_blank" rel="noopener noreferrer" style="color:#64b5f6">Open '+cfg.label+' on TradingView ↗</a></div>';};
+  wrap.appendChild(script);
+}
+
 function showIntel(which){
-  var tabs = ['macro','macrotape','spotstrategy','marketread','buyzone','regime','narr','sector','events','candle','moon','agent','beta'];
+  var tabs = ['macro','charts','macrotape','spotstrategy','marketread','buyzone','regime','narr','sector','events','candle','moon','agent','beta'];
   tabs.forEach(function(t){
     var tab = document.getElementById('it-'+t);
     var panel = document.getElementById('ip-'+t);
@@ -16354,6 +16470,7 @@ function showIntel(which){
     if(panel) panel.classList.toggle('active', t===which);
   });
   if(which==='macrotape'){renderSpotMacro();refreshMacroData(false);spotRefreshCalendar(false);}
+  if(which==='charts')renderMarketChart(_marketChartKey);
   if(which==='spotstrategy'){renderSpotStrategy();renderSpotReview();spotRefreshCalendar(false);if(!_spotReview)checkSpotStrategy();}
   if(which==='events'){renderMacroEvents();spotMountLiveCalendar(false);spotRefreshCalendar(false);spotRenderCoinCalendar();}
   if(which==='buyzone') renderBuyZone();
@@ -17502,7 +17619,7 @@ function installChartProUI(){
     '<span class="cp-context-switch" role="group" aria-label="Chart viewing range"><button onclick="chartFit(\'recent\')" title="Last 60 candles; 42 on mobile. Analysis anchors stay fixed.">Recent structure</button><button onclick="chartFit(\'all\')">Full context</button></span>'+
     '<button onclick="editChartExecution()">Execution</button><button onclick="recordChartDecision()" title="Save the current data, settings and decision for later review">Record decision</button>'+
     '<details class="cp-ind-menu"><summary>Edit lines</summary><div><button onclick="toggleDrawMode()">Draw two anchors</button><button data-chart-magnet onclick="toggleChartMagnet()">Snap to candle</button><button onclick="editSelectedDrawing(\'lock\')">Lock / unlock selected</button><button onclick="editSelectedDrawing(\'extend\')">Extend selected right</button><button onclick="editSelectedDrawing(\'delete\')">Delete selected</button><small>Click a manual line to select. Drag an unlocked anchor. Manual lines are visual only.</small></div></details>';
-    el.innerHTML+='<span class="cp-build" title="BTC Focus · verify this label after uploading">Chart 2026.09.21-btc-focus-r3</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
+    el.innerHTML+='<span class="cp-build" title="Market Charts · verify this label after uploading">Chart 2026.09.21-market-charts-r5</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
     var toolsMenu=document.createElement('details');toolsMenu.className='cp-ind-menu cp-tools-menu';
     toolsMenu.innerHTML='<summary>Tools</summary><div></div>';
     Array.from(el.children).forEach(function(node){
@@ -23925,11 +24042,10 @@ function detectMacroRegime() {
   var totalAboveEMA200 = aboveEMA200Count / allData.length > 0.5;
 
   // Altseason proxy: % of coins outperforming BTC (rsRank > 50)
-  var outperformBTC = allData.filter(function(d){
-    return d.sym!=='BTCUSDT' && d.sym!=='BTCJPY' && d.rsRank > 55;
-  }).length;
-  var altCount = allData.filter(function(d){return d.sym!=='BTCUSDT'&&d.sym!=='BTCJPY';}).length;
-  var altOutperformPct = altCount > 0 ? outperformBTC / altCount * 100 : 0;
+  var rankedAlts=allData.filter(function(d){return d.sym!=='BTCUSDT'&&d.sym!=='BTCJPY'&&Number.isFinite(d.rsRank);});
+  var outperformBTC = rankedAlts.filter(function(d){return d.rsRank>55;}).length;
+  var altCount = rankedAlts.length;
+  var altOutperformPct = altCount > 0 ? outperformBTC / altCount * 100 : null;
 
   // BTC dominance trend (if available)
   var btcDom = macroData.btcdom && macroData.btcdom.value ? macroData.btcdom.value : null;
@@ -23958,7 +24074,7 @@ function detectMacroRegime() {
     var bullConf = [];
     if (btcEMA200Dist > 5) bullConf.push('BTC well above 200 EMA');
     if (dxyRising === false) bullConf.push('DXY falling');
-    if (altOutperformPct > 40) bullConf.push('alts participating');
+    if (Number.isFinite(altOutperformPct)&&altOutperformPct>40) bullConf.push('alts participating');
     alerts.push({type:'bull', emoji:'🚀', title:'Macro Bull Market Confirmed',
       desc:'BTC + market above 200 EMA' + (bullConf.length?' · '+bullConf.join(' · '):''),
       color:'var(--g)', conf: bullConf.length>=2?'High':'Moderate'});
@@ -23977,7 +24093,8 @@ function detectMacroRegime() {
   if (totalAboveEMA200) riskOnConds++; else riskOffConds++;
   if (dxyRising === false) riskOnConds++; else if (dxyRising === true) riskOffConds++;
   if (btc.chg > 2) riskOnConds++; else if (btc.chg < -2) riskOffConds++;
-  if (altOutperformPct > 45) riskOnConds++; else if (altOutperformPct < 25) riskOffConds++;
+  if (Number.isFinite(altOutperformPct)&&altOutperformPct>45) riskOnConds++;
+  else if (Number.isFinite(altOutperformPct)&&altOutperformPct<25) riskOffConds++;
 
   if (riskOffConds >= 3 && riskOffConds > riskOnConds) {
     alerts.push({type:'riskoff', emoji:'🔴', title:'Risk-Off Environment',
@@ -23990,11 +24107,11 @@ function detectMacroRegime() {
   }
 
   // Altseason detection
-  if (altOutperformPct >= 60 && btcDomFalling === true) {
+  if (Number.isFinite(altOutperformPct)&&altOutperformPct>=60 && btcDomFalling === true) {
     alerts.push({type:'altseason', emoji:'🔥', title:'Altseason Starting',
       desc:Math.round(altOutperformPct)+'% of coins outperforming BTC · dominance falling',
       color:'#7c4dff', conf:'High'});
-  } else if (altOutperformPct >= 55) {
+  } else if (Number.isFinite(altOutperformPct)&&altOutperformPct>=55) {
     alerts.push({type:'altseason', emoji:'🔥', title:'Alt Strength Building',
       desc:Math.round(altOutperformPct)+'% of coins outperforming BTC',
       color:'#7c4dff', conf:'Moderate'});
