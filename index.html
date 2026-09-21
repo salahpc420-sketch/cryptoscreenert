@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="chart-build" content="2026.09.07-sweeps-r1">
+<meta name="chart-build" content="2026.09.21-btc-focus-r3">
 <meta name="agent-build" content="2026.09.07-keyless-r2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -2221,6 +2221,7 @@ function chartTrendIsHistorical(L){
   return isFinite(price)&&price>0&&age>8&&Math.abs(L.valueNow-price)>distance;
 }
 function drawChartTrendlines(ctx,g){
+  if(chartState.btcFocus)return;
   var mode=chartState.trendMode||'auto',tl=chartState.trendlines||{},k=chartState.klines||[];
   chartState.manualHits=[];if(mode==='off')return;
   var used=[];
@@ -17501,7 +17502,7 @@ function installChartProUI(){
     '<span class="cp-context-switch" role="group" aria-label="Chart viewing range"><button onclick="chartFit(\'recent\')" title="Last 60 candles; 42 on mobile. Analysis anchors stay fixed.">Recent structure</button><button onclick="chartFit(\'all\')">Full context</button></span>'+
     '<button onclick="editChartExecution()">Execution</button><button onclick="recordChartDecision()" title="Save the current data, settings and decision for later review">Record decision</button>'+
     '<details class="cp-ind-menu"><summary>Edit lines</summary><div><button onclick="toggleDrawMode()">Draw two anchors</button><button data-chart-magnet onclick="toggleChartMagnet()">Snap to candle</button><button onclick="editSelectedDrawing(\'lock\')">Lock / unlock selected</button><button onclick="editSelectedDrawing(\'extend\')">Extend selected right</button><button onclick="editSelectedDrawing(\'delete\')">Delete selected</button><small>Click a manual line to select. Drag an unlocked anchor. Manual lines are visual only.</small></div></details>';
-    el.innerHTML+='<span class="cp-build" title="Readable Overview · verify this label after uploading">Chart 2026.09.12-focus-r2</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
+    el.innerHTML+='<span class="cp-build" title="BTC Focus · verify this label after uploading">Chart 2026.09.21-btc-focus-r3</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
     var toolsMenu=document.createElement('details');toolsMenu.className='cp-ind-menu cp-tools-menu';
     toolsMenu.innerHTML='<summary>Tools</summary><div></div>';
     Array.from(el.children).forEach(function(node){
@@ -17792,7 +17793,7 @@ function buildChartTab(d) {
       if(!full||!full.classList.contains('show')||/INPUT|SELECT|TEXTAREA/.test((e.target&&e.target.tagName)||''))return;
       if (e.key === 'Escape') {
         e.stopImmediatePropagation();
-        if(chartState.mobilePanel)chartMobilePanel('');else if(full.classList.contains('cp-focus'))toggleChartFocus(false);else collapseChartFull();
+        if(chartState.btcFocus)setBTCFocus(false);else if(chartState.mobilePanel)chartMobilePanel('');else if(full.classList.contains('cp-focus'))toggleChartFocus(false);else collapseChartFull();
       } else if(e.key==='f'||e.key==='F'){
         e.preventDefault();e.stopImmediatePropagation();toggleChartFocus();
       }
@@ -17851,6 +17852,7 @@ function expandChartFull() {
   if (d) populateFSTable(d);
 
   fsOv.classList.add('show');
+  setBTCFocus(!!chartState.indicators.btc);
   syncChartTFBtns(chartState.tf || TF);
 
   setTimeout(function() {
@@ -18289,6 +18291,7 @@ function chartMarketOverview(){
   return out;
 }
 function chartFVGDisplaySelection(zones,price){
+  if(chartState.btcFocus)return [];
   var mode=chartState.fvgMode||'relevant',selected=chartFVGSelection(zones,price,mode);
   return chartState.viewMode==='clean'&&mode==='relevant'?selected.slice(0,1):selected;
 }
@@ -18458,6 +18461,8 @@ function resizeFullscreenChart(){
   setTimeout(fit,60);
 }
 function toggleChartFocus(force){
+  if(chartState.btcFocus&&force===undefined){setBTCFocus(false);return false;}
+  if(force!==false&&!chartState.btcFocus&&chartState.indicators.btc&&!/^BTC(USDT|JPY)$/.test(chartState.sym||'')){setBTCFocus(true);return true;}
   var ov=document.getElementById('chart-fullscreen-ov'),btn=document.getElementById('fs-focus-toggle');
   if(!ov)return false;
   var focus=typeof force==='boolean'?force:!ov.classList.contains('cp-focus');
@@ -18470,6 +18475,7 @@ function toggleChartFocus(force){
   resizeFullscreenChart();return focus;
 }
 function collapseChartFull() {
+  setBTCFocus(false);
   chartMobilePanel('');
   var fsOv = document.getElementById('chart-fullscreen-ov');
   if (fsOv){fsOv.classList.remove('show','cp-focus');}
@@ -18490,6 +18496,10 @@ function collapseChartFull() {
 
 function toggleInd(name) {
   chartState.indicators[name] = !chartState.indicators[name];
+  if(name==='btc'){
+    if(chartState.indicators.btc&&!chartState.fullscreen)expandChartFull();
+    else setBTCFocus(chartState.indicators.btc);
+  }
   var btn = document.getElementById('ind-' + name);
   if (btn) btn.classList.toggle('active', chartState.indicators[name]);
   var btnFS = document.getElementById('ind-fs-' + name);
@@ -18544,6 +18554,7 @@ function loadChart(tf) {
   var loading = document.getElementById('chart-loading');
   if (loading) loading.style.display = 'flex';
   chartState.loading = true;
+  updateBTCFocusSummary();
   chartState.loadError=null;
   updateChartMobileHeader(null);
   if(chartState.fullscreen){
@@ -18791,6 +18802,99 @@ function chartBTCCompareSeries(klines,btcKlines,offset,zoom,tf,sym){
     relative:hasReturns?coinReturn-btcReturn:null,points:pairs,source:btcKlines.dataSource||'Unknown',fetchedAt:btcKlines.fetchedAt||0};
 }
 
+// Compare structure using the same confirmed-pivot rules for both assets.
+// Levels do not depend on the visible window or on a forming candle.
+function chartCompareStructure(rows,sym,tf,now){
+  var snap=chartSnapshot(rows,sym,tf,now),out={ready:false,symbol:sym,source:snap.source,reason:snap.message};
+  if(!snap.usable)return out;
+  var bars=rows.slice(0,-1).slice(-240),last=bars[bars.length-1],price=Number(last[4]),prev=Number(bars[bars.length-2][4]),pivots=[];
+  var tr=bars.slice(-14).map(function(k,i){var pc=Number(bars[bars.length-15+i][4]);return Math.max(Number(k[2])-Number(k[3]),Math.abs(Number(k[2])-pc),Math.abs(Number(k[3])-pc));});
+  var atr=tr.reduce(function(a,b){return a+b;},0)/14,near=Math.max(atr*.5,price*.001);
+  for(var i=2;i<bars.length-2;i++){
+    var hi=Number(bars[i][2]),lo=Number(bars[i][3]);
+    if([-2,-1,1,2].every(function(j){return hi>Number(bars[i+j][2]);}))pivots.push({price:hi,origin:'swing high',time:Number(bars[i][0])});
+    if([-2,-1,1,2].every(function(j){return lo<Number(bars[i+j][3]);}))pivots.push({price:lo,origin:'swing low',time:Number(bars[i][0])});
+  }
+  var support=pivots.filter(function(l){return l.price<=price;}).sort(function(a,b){return b.price-a.price;})[0]||null;
+  var resistance=pivots.filter(function(l){return l.price>price;}).sort(function(a,b){return a.price-b.price;})[0]||null;
+  var atS=!!support&&price-support.price<=near,atR=!!resistance&&resistance.price-price<=near;
+  var state=atS&&atR?'tight':atS?'support':atR?'resistance':support&&resistance?'between':support?'above':resistance?'below':'unknown';
+  var cross=pivots.filter(function(l){return (prev<=l.price&&price>l.price)||(prev>=l.price&&price<l.price);}).sort(function(a,b){return Math.abs(a.price-price)-Math.abs(b.price-price);})[0];
+  return {ready:true,symbol:sym,source:snap.source,closedAt:snap.lastClosedTime,price:price,atr:atr,threshold:near,support:support,resistance:resistance,state:state,
+    location:{tight:'Between tight levels',support:'Near support',resistance:'Near resistance',between:'Between levels',above:'No resistance mapped above',below:'No support mapped below',unknown:'No confirmed pivots'}[state],
+    event:cross?(price>cross.price?'Closed above ':'Closed below ')+fmtPrice(cross.price)+' · retest unconfirmed':null};
+}
+function chartCompareWatch(coin,btc){
+  if(!coin.ready||!btc.ready)return 'Comparison unavailable until both feeds have fresh, valid closed candles. No next-move assessment.';
+  if(coin.closedAt!==btc.closedAt)return 'Candle close times do not match. Wait for aligned data before comparing structure.';
+  if(coin.state==='unknown'||btc.state==='unknown')return 'Not enough confirmed swing levels to describe a joint setup. Do not substitute an invented target.';
+  if(coin.state==='tight'||btc.state==='tight')return 'Nearby levels are tightly spaced. Wait for a closed-candle break and retest; either direction is possible.';
+  if(btc.state==='resistance')return coin.state==='resistance'?'Both are near resistance. Watch for closes above and successful retests; rejection at either level would weaken the upside case.':'BTC is near resistance. A BTC rejection could pressure the coin; a break and held retest would improve the backdrop. Check the coin’s own levels.';
+  if(btc.state==='support')return coin.state==='resistance'?'Coin near resistance; BTC near support. Watch whether BTC holds while the coin breaks and retests resistance. BTC losing support would weaken that case.':coin.state==='support'?'Both are near support. Watch for holds and higher closes; losing support on either chart weakens the rebound case.':'BTC is near support. Watch for a hold or a closed-candle loss; compare the coin’s response at its own next level.';
+  if(coin.state==='resistance')return 'Coin near resistance; BTC has no nearby test. Watch the coin’s break-and-retest or rejection; BTC is not confirming either outcome.';
+  if(coin.state==='support')return 'Coin near support; BTC has no nearby test. Watch the coin’s hold or closed-candle loss; BTC is not confirming either outcome.';
+  return 'No shared nearby test. Watch which asset reaches its next level first, then compare closed-candle reactions. Missing levels mean unknown—not unlimited upside or downside.';
+}
+function installBTCFocusUI(){
+  var ov=document.getElementById('chart-fullscreen-ov');if(!ov||document.getElementById('btc-focus-dock'))return;
+  var style=document.createElement('style');style.textContent=`
+    #btc-focus-dock,#btc-focus-summary{display:none}
+    #chart-fullscreen-ov.cp-btc-focus #chart-fs-bar,#chart-fullscreen-ov.cp-btc-focus #chart-pro-tools-fs,#chart-fullscreen-ov.cp-btc-focus #chart-fs-table,#chart-fullscreen-ov.cp-btc-focus .cp-mobile-chrome,#chart-fullscreen-ov.cp-btc-focus #chart-rotate-hint{display:none!important}
+    #chart-fullscreen-ov.cp-btc-focus #chart-legend-fs{top:24px!important;max-height:35px;overflow:hidden}
+    #chart-fullscreen-ov.cp-btc-focus #btc-focus-dock{display:flex;position:absolute;right:8px;top:5px;z-index:90;gap:4px;align-items:center;background:#131722e8;border-radius:6px;padding:3px}
+    #btc-focus-dock button,#btc-focus-dock select{min-height:30px;border:1px solid #536887;border-radius:4px;background:#243247;color:#e2ecff;font:11px sans-serif;padding:4px 7px;cursor:pointer}
+    #chart-fullscreen-ov.cp-btc-focus #btc-focus-summary{display:block;flex:none;background:#192230;border-top:1px solid #445169;color:#dce5f3;padding:7px 12px;font:12px/1.4 sans-serif;max-height:28vh;overflow:auto}
+    #btc-focus-summary .btc-structure-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    #btc-focus-summary strong{color:#fff}#btc-focus-summary .btc-sup{color:#53dfbf}#btc-focus-summary .btc-res{color:#ff949b}
+    #btc-focus-summary p{margin:4px 0 0}#btc-focus-summary small{font-size:10px;color:#a5b4ca}
+    @media(max-width:820px){#chart-fullscreen-ov.cp-btc-focus #chart-legend-fs{top:70px!important;max-height:17px;max-width:calc(100% - 10px)!important}}
+    @media(max-width:600px){#btc-focus-dock button,#btc-focus-dock select{min-height:36px;padding:4px}#btc-focus-summary .btc-structure-grid{gap:8px}#chart-fullscreen-ov.cp-btc-focus #btc-focus-summary{font-size:11px;padding:5px 8px}}
+    @media(max-height:480px){#chart-fullscreen-ov.cp-btc-focus #chart-legend-fs{display:none!important}}
+  `;ov.appendChild(style);
+  var dock=document.createElement('div');dock.id='btc-focus-dock';dock.setAttribute('aria-label','BTC comparison controls');
+  dock.innerHTML='<select aria-label="Comparison timeframe" onchange="loadChart(this.value)">'+['15m','1h','4h','1d','1w'].map(function(tf){return '<option>'+tf+'</option>';}).join('')+'</select><button onclick="chartReturnLive()" title="Return to latest candles">Latest</button><button onclick="chartCompareNativeFull()" title="Hide browser bars using browser fullscreen">⛶</button><button onclick="setBTCFocus(false)" title="Restore sidebar and chart tools">Panels</button><button onclick="toggleInd(\'btc\')">Hide BTC</button><button onclick="collapseChartFull()" aria-label="Close comparison">✕</button>';
+  ov.appendChild(dock);
+  var summary=document.createElement('section');summary.id='btc-focus-summary';summary.setAttribute('aria-label','Coin and BTC support resistance comparison');ov.appendChild(summary);
+}
+function setBTCFocus(on){
+  var ov=document.getElementById('chart-fullscreen-ov');if(!ov)return;
+  on=!!on&&!/^BTC(USDT|JPY)$/.test(chartState.sym||'');
+  installBTCFocusUI();chartState.btcFocus=on;ov.classList.toggle('cp-btc-focus',on);
+  if(on){chartState.drawMode=false;chartState.drawPending=null;chartState.manualDrag=null;chartState.crosshair=null;chartMobilePanel('');toggleChartFocus(false);updateBTCFocusSummary();}
+  else if(document.fullscreenElement===ov&&document.exitFullscreen)document.exitFullscreen().catch(function(){});
+  resizeFullscreenChart();
+}
+function chartCompareNativeFull(){
+  var ov=document.getElementById('chart-fullscreen-ov');
+  if(document.fullscreenElement===ov){if(document.exitFullscreen)document.exitFullscreen().catch(function(){});}
+  else if(ov&&ov.requestFullscreen)ov.requestFullscreen().catch(function(){window.alert('Browser fullscreen is unavailable. The comparison still fills the page.');});
+  else window.alert('Use your browser fullscreen control to hide browser bars.');
+}
+function updateBTCFocusSummary(){
+  if(!chartState.btcFocus)return;
+  var el=document.getElementById('btc-focus-summary');if(!el)return;
+  var btcSym=/JPY$/.test(chartState.sym)?'BTCJPY':'BTCUSDT',now=Date.now();
+  var coin=chartCompareStructure(chartState.klines||[],chartState.sym,chartState.tf,now),btc=chartCompareStructure(chartState.btcKlines||[],btcSym,chartState.tf,now);
+  chartState.compareStructures={coin:coin,btc:btc};
+  function card(x){
+    var h='<strong>'+investEsc(x.symbol)+' · '+investEsc(chartState.tf)+'</strong> · ';
+    if(!x.ready)return h+'Unavailable<br><small>'+investEsc(x.reason)+'</small>';
+    function level(l,isSupport){return l?fmtPrice(l.price)+' ('+(Math.abs(l.price/x.price-1)*100).toFixed(2)+'% away)':'Not mapped';}
+    return h+investEsc(x.location)+' · close '+fmtPrice(x.price)+'<br><span class="btc-sup">Support '+level(x.support,true)+'</span> · <span class="btc-res">Resistance '+level(x.resistance,false)+'</span><br><small>'+investEsc(x.source)+' · '+new Date(x.closedAt).toISOString().slice(0,16)+' UTC'+(x.event?' · '+investEsc(x.event):'')+'</small>';
+  }
+  var html='<div class="btc-structure-grid"><div>'+card(coin)+'</div><div>'+card(btc)+'</div></div><p><strong>Watch next:</strong> '+investEsc(chartCompareWatch(coin,btc))+'</p><small>Closed-candle context, not a prediction or buy signal. Two-candle-confirmed swing pivots in the last 240 closed bars; nearby = max(0.5 ATR, 0.1%). Levels can change roles; retests are not assumed. Pan/zoom does not change this latest snapshot. Separate price scales.</small>';
+  if(el.innerHTML!==html)el.innerHTML=html;
+  var select=document.querySelector('#btc-focus-dock select');if(select)select.value=chartState.tf;
+}
+function drawCompareLevels(ctx,s,map){
+  if(!s||!s.ready)return;
+  ctx.save();ctx.setLineDash([5,4]);ctx.font='bold 10px sans-serif';ctx.textAlign='left';
+  [[s.support,'SUP','#53dfbf'],[s.resistance,'RES','#ff949b']].forEach(function(x){
+    if(!x[0])return;var y=map.y(x[0].price);if(y<map.top||y>map.bottom)return;
+    ctx.strokeStyle=x[2];ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(map.width,y);ctx.stroke();
+    ctx.fillStyle='#131722';ctx.fillRect(6,y-13,155,13);ctx.fillStyle=x[2];ctx.fillText(x[1]+' '+fmtPrice(x[0].price),8,y-3,150);
+  });ctx.restore();
+}
 function chartBTCPerformanceText(c){
   if(!c||!c.hasReturns)return 'Waiting for two matching completed candles';
   function pct(n){return (n>=0?'+':'')+n.toFixed(2)+'%';}
@@ -18811,11 +18915,11 @@ function drawBTCPanel(ctx,c,g){
   }
   var rows=c.points,lo=Math.min.apply(null,rows.map(function(p){return Number(p.bar[3]);})),hi=Math.max.apply(null,rows.map(function(p){return Number(p.bar[2]);}));
   var pad=(hi-lo)*.08||hi*.001;lo-=pad;hi+=pad;
-  var priceTop=top+54,volumeH=30,priceH=Math.max(30,height-54-volumeH-8),volumeTop=priceTop+priceH+5;
+  var priceTop=top+54,volumeH=chartState.btcFocus?Math.max(24,Math.min(60,Math.round(height*.18))):30,priceH=Math.max(30,height-54-volumeH-8),volumeTop=priceTop+priceH+5;
   function py(p){return priceTop+priceH*(1-(p-lo)/(hi-lo));}
   var selected=rows.find(function(p){return p.i===g.cursorIndex;}),bar=(selected||rows[rows.length-1]).bar;
   ctx.font='10px sans-serif';ctx.fillStyle='#aab4c5';
-  ctx.fillText((selected?'Selected':'Latest')+' O '+fmtPrice(Number(bar[1]))+' H '+fmtPrice(Number(bar[2]))+' L '+fmtPrice(Number(bar[3]))+' C '+fmtPrice(Number(bar[4])),8,top+47,xEnd-16);
+  ctx.fillText((selected?'Selected':'Window last')+' O '+fmtPrice(Number(bar[1]))+' H '+fmtPrice(Number(bar[2]))+' L '+fmtPrice(Number(bar[3]))+' C '+fmtPrice(Number(bar[4])),8,top+47,xEnd-16);
   var step=nicePriceStep(hi-lo,3);
   for(var p=Math.ceil(lo/step)*step;p<=hi;p+=step){var y=py(p);ctx.strokeStyle='#29303d';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(xEnd,y);ctx.stroke();ctx.fillStyle='#8992a5';ctx.fillText(fmtPrice(p),xEnd+5,y+3,fullWidth-xEnd-8);}
   var maxVol=Math.max.apply(null,rows.map(function(p){return Math.max(0,Number(p.bar[5])||0);} ))||1;
@@ -18825,6 +18929,9 @@ function drawBTCPanel(ctx,c,g){
     ctx.fillRect(x-g.body/2,Math.min(py(o),py(close)),g.body,Math.max(1,Math.abs(py(o)-py(close))));
     var vh=Math.max(0,Number(k[5])||0)/maxVol*(volumeH-8);ctx.globalAlpha=.7;ctx.fillRect(x-g.body/2,volumeTop+volumeH-vh,g.body,vh);
   });ctx.globalAlpha=1;
+  if(chartState.btcFocus)drawCompareLevels(ctx,chartState.compareStructures&&chartState.compareStructures.btc,{y:py,top:priceTop,bottom:priceTop+priceH,width:xEnd});
+  var latest=rows[rows.length-1],cy=py(Number(latest.bar[4]));
+  ctx.save();ctx.strokeStyle='#f7931a';ctx.setLineDash([2,3]);ctx.beginPath();ctx.moveTo(0,cy);ctx.lineTo(xEnd,cy);ctx.stroke();ctx.fillStyle='#f7931a';ctx.fillRect(xEnd,cy-8,fullWidth-xEnd,16);ctx.fillStyle='#131722';ctx.font='bold 10px sans-serif';ctx.fillText(fmtPrice(Number(latest.bar[4])),xEnd+4,cy+4,fullWidth-xEnd-6);ctx.restore();
   ctx.fillStyle='#8992a5';ctx.font='9px sans-serif';ctx.fillText('BTC volume',6,volumeTop+8);
   ctx.fillText(c.source+(chartState.btcCompareStatus==='unavailable'?' · refresh failed':'')+' · forming candle dimmed',Math.max(90,xEnd-230),volumeTop+8,Math.max(0,xEnd-100));
   if(selected){ctx.strokeStyle='#d1d4dc';ctx.lineWidth=1;ctx.beginPath();ctx.arc(g.x(selected.i),py(Number(selected.bar[4])),3,0,Math.PI*2);ctx.stroke();}
@@ -19029,6 +19136,10 @@ function _drawChartNow() {
   var klines = chartState.klines;
   var d = chartState.d;
   var ind = chartState.indicators;
+  if(chartState.btcFocus){
+    updateBTCFocusSummary();
+    ind=Object.assign({},ind);Object.keys(ind).forEach(function(k){ind[k]=k==='btc'||k==='vol';});
+  }
 
   // ── ALWAYS DARK like TradingView ─────────────────────────────────────────
   var C = {
@@ -19068,6 +19179,7 @@ function _drawChartNow() {
   var RIGHT_PAD = mobilePlot ? 72 : 126;
   var LEFT_PAD  = 0;    // no left pad — candles go edge to edge
   var TOP_PAD   = mobilePlot ? 68 : 4; // reserve OHLC and EMA rows above candles
+  if(chartState.btcFocus)TOP_PAD=mobilePlot?96:62;
   var BOTTOM_PAD = 28;  // time labels
   var CANDLE_H  = Math.max(300, Math.min(520, W * 0.62));   // (overridden in fullscreen, below)
   // Give volume enough vertical room to be readable at a glance. Fullscreen
@@ -19079,9 +19191,14 @@ function _drawChartNow() {
   // FULLSCREEN HEIGHT FIX: CANDLE_H was derived from WIDTH, so on a phone
   // (≈390px wide) the chart came out ~300px tall inside a ~750px container,
   // leaving a large dead black area below. In fullscreen, fill the container.
-  if (chartState.fullscreen && wrap && wrap.clientHeight > 200) {
+  if (chartState.fullscreen && wrap && (wrap.clientHeight > 200||chartState.btcFocus)) {
     var _availH = wrap.clientHeight;
     if(showBTC)BTC_H=Math.max(150,Math.min(230,Math.round(_availH*.39)));
+    if(chartState.btcFocus){
+      BTC_H=Math.floor((_availH-BOTTOM_PAD-SEP)/2);
+      if(_availH<350)TOP_PAD=42;
+      VOL_H=Math.max(16,Math.min(60,Math.round(BTC_H*.18)));
+    }
     // In tight space (phone in landscape) shrink the volume/RSI panels first —
     // candles matter more than sub-panels when there are only ~330px to work with.
     if (_availH < 520) {
@@ -19092,7 +19209,7 @@ function _drawChartNow() {
                + (showBTC ? SEP + BTC_H : 0)
                + (showVol ? SEP + VOL_H : 0)
                + (showRSI ? SEP + RSI_H : 0);
-    CANDLE_H = Math.max(110, _availH - _fixed);
+    CANDLE_H = Math.max(chartState.btcFocus?8:110, _availH - _fixed);
   }
   var TOTAL_H   = TOP_PAD + CANDLE_H
                 + (showBTC ? SEP + BTC_H : 0)
@@ -20241,6 +20358,10 @@ function _drawChartNow() {
   }
 
   var btcPanelMap=null;
+  if(chartState.btcFocus){
+    drawCompareLevels(ctx,chartState.compareStructures&&chartState.compareStructures.coin,{y:pY,top:TOP_PAD,bottom:TOP_PAD+CANDLE_H,width:chartW});
+    ctx.save();ctx.textAlign='left';ctx.font='bold 12px sans-serif';ctx.fillStyle='#e2ecff';ctx.fillText((chartState.sym||'Coin')+' · '+chartState.tf+' · price / volume',8,mobilePlot&&TOP_PAD>60?57:18,chartW-12);ctx.restore();
+  }
   if(showBTC){
     var btcTop=TOTAL_H-BOTTOM_PAD-BTC_H;
     var btcCursor=chartState.crosshair?Math.floor((chartState.crosshair.x*W/(chartState.crosshair.cssW||W)-LEFT_PAD)/candleW):-1;
