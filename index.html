@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="chart-build" content="2026.09.21-market-charts-r5">
+<meta name="chart-build" content="2026.09.21-market-auto-r6">
 <meta name="agent-build" content="2026.09.07-keyless-r2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -334,6 +334,8 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 .market-chart-btn{min-height:34px;padding:6px 12px;border:.5px solid var(--bd2);border-radius:7px;background:var(--card2);color:var(--t2);font:700 11px/1.2 inherit;cursor:pointer}
 .market-chart-btn:hover{color:var(--text);border-color:var(--bl)}
 .market-chart-btn[aria-pressed="true"]{background:var(--bl);border-color:var(--bl);color:#fff}
+.market-chart-auto{display:inline-flex;align-items:center;gap:5px;min-height:34px;padding:6px 10px;border:.5px solid rgba(38,166,154,.42);border-radius:7px;background:rgba(38,166,154,.09);color:#26a69a;font-size:10px;font-weight:700;white-space:nowrap}
+.market-chart-auto::before{content:'\25CF';font-size:8px}
 .market-chart-heading{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;margin-bottom:8px}
 .market-chart-heading h3{font-size:14px;margin:0 0 3px}
 .market-chart-heading p{font-size:11px;line-height:1.5;color:var(--t2);margin:0}
@@ -798,14 +800,15 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
         <button class="market-chart-btn" id="market-chart-btn-btcd" data-market-chart="btcd" aria-pressed="true" onclick="renderMarketChart('btcd')">₿ BTC.D</button>
         <button class="market-chart-btn" id="market-chart-btn-total3" data-market-chart="total3" aria-pressed="false" onclick="renderMarketChart('total3')">TOTAL3</button>
         <button class="market-chart-btn" id="market-chart-btn-total" data-market-chart="total" aria-pressed="false" onclick="renderMarketChart('total')">TOTAL</button>
+        <span class="market-chart-auto" title="Moving average on price, with Rate of Change and Stochastic RSI panels">AUTO INDICATORS ON</span>
         <button class="btn" style="margin-left:auto" onclick="renderMarketChart(_marketChartKey,true)">↻ Reload chart</button>
       </div>
       <div class="market-chart-heading">
-        <div><h3 id="market-chart-title">BTC Dominance · BTC.D</h3><p id="market-chart-description">Bitcoin market cap as a percentage of TradingView's TOTAL crypto index.</p></div>
+        <div><h3 id="market-chart-title">BTC Dominance · BTC.D</h3><p id="market-chart-description">Bitcoin market cap as a percentage of TradingView's TOTAL crypto index. Automatic MA, ROC and Stochastic RSI are enabled.</p></div>
         <a id="market-chart-open" href="https://www.tradingview.com/chart/?symbol=CRYPTOCAP%3ABTC.D" target="_blank" rel="noopener noreferrer">Open on TradingView ↗</a>
       </div>
       <div class="market-chart-frame" id="market-chart-host"><div class="market-chart-loading">Open Market Charts to load the historical chart.</div></div>
-      <p class="market-chart-note">Source: TradingView CRYPTOCAP indexes · Daily chart by default · UTC market data shown in Japan time. TOTAL covers the top-125 cryptocurrencies in TradingView's Crypto Coins Screener. TOTAL3 excludes BTC and ETH but still includes stablecoins. Index composition can change and may create chart spikes. These charts describe market structure; they do not predict the next move.</p>
+      <p class="market-chart-note">Source: TradingView CRYPTOCAP indexes · Daily chart by default · UTC market data shown in Japan time. The moving average is drawn on price automatically; ROC and Stochastic RSI appear in lower panels. The left toolbar remains available for manual levels. TOTAL covers the top-125 cryptocurrencies in TradingView's Crypto Coins Screener. TOTAL3 excludes BTC and ETH but still includes stablecoins. Index composition can change and may create chart spikes. These charts describe market structure; they do not predict the next move.</p>
     </div>
     <div class="intel-panel" id="ip-macrotape"><div id="spot-macro-body"></div></div>
     <div class="intel-panel" id="ip-spotstrategy"><div id="spot-strategy-body"></div></div>
@@ -16445,7 +16448,7 @@ function renderMarketChart(key,force){
   var cfg=MARKET_CHARTS[key],host=document.getElementById('market-chart-host');if(!host)return;
   document.querySelectorAll('[data-market-chart]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.marketChart===key));});
   var title=document.getElementById('market-chart-title'),description=document.getElementById('market-chart-description'),open=document.getElementById('market-chart-open');
-  if(title)title.textContent=cfg.label;if(description)description.textContent=cfg.description;
+  if(title)title.textContent=cfg.label;if(description)description.textContent=cfg.description+' Automatic MA, ROC and Stochastic RSI are enabled.';
   if(open){open.href='https://www.tradingview.com/chart/?symbol='+encodeURIComponent(cfg.symbol);open.setAttribute('aria-label','Open '+cfg.label+' on TradingView');}
   if(!force&&host.dataset.marketChart===key&&host.querySelector('script,iframe'))return;
   host.dataset.marketChart=key;var serial=++_marketChartSerial;host.innerHTML='';
@@ -16456,7 +16459,7 @@ function renderMarketChart(key,force){
   var credit=document.createElement('div');credit.className='tradingview-widget-copyright';credit.style.cssText='height:24px;box-sizing:border-box;padding:4px 8px;background:'+(dark?'#131722':'#fff')+';font:10px sans-serif;color:'+(dark?'#8b98ad':'#667085')+';text-align:right';
   credit.innerHTML='<a href="https://www.tradingview.com/chart/?symbol='+encodeURIComponent(cfg.symbol)+'" rel="noopener nofollow" target="_blank" style="color:#2962ff;text-decoration:none">'+cfg.label+'</a> by TradingView';wrap.appendChild(credit);host.appendChild(wrap);
   var script=document.createElement('script');script.type='text/javascript';script.async=true;script.src='https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
-  script.text=JSON.stringify({autosize:true,symbol:cfg.symbol,interval:'D',timezone:'Asia/Tokyo',theme:dark?'dark':'light',backgroundColor:dark?'rgba(19, 23, 34, 1)':'rgba(255, 255, 255, 1)',gridColor:dark?'rgba(255, 255, 255, 0.06)':'rgba(46, 46, 46, 0.06)',style:'1',locale:'en',withdateranges:true,hide_side_toolbar:false,hide_top_toolbar:false,hide_legend:false,hide_volume:true,allow_symbol_change:false,save_image:true,show_popup_button:true,popup_width:'1200',popup_height:'750',calendar:false,details:false,hotlist:false,studies:[],support_host:'https://www.tradingview.com'});
+  script.innerHTML=JSON.stringify({autosize:true,symbol:cfg.symbol,interval:'D',timezone:'Asia/Tokyo',theme:dark?'dark':'light',backgroundColor:dark?'rgba(19, 23, 34, 1)':'rgba(255, 255, 255, 1)',gridColor:dark?'rgba(255, 255, 255, 0.06)':'rgba(46, 46, 46, 0.06)',style:'1',locale:'en',withdateranges:true,hide_side_toolbar:false,hide_top_toolbar:false,hide_legend:false,hide_volume:true,allow_symbol_change:false,save_image:true,show_popup_button:true,popup_width:'1200',popup_height:'750',calendar:false,details:false,hotlist:false,studies:['MASimple@tv-basicstudies','ROC@tv-basicstudies','StochasticRSI@tv-basicstudies'],support_host:'https://www.tradingview.com'});
   script.onerror=function(){if(serial!==_marketChartSerial)return;host.innerHTML='<div class="market-chart-loading">TradingView chart could not load. <a href="https://www.tradingview.com/chart/?symbol='+encodeURIComponent(cfg.symbol)+'" target="_blank" rel="noopener noreferrer" style="color:#64b5f6">Open '+cfg.label+' on TradingView ↗</a></div>';};
   wrap.appendChild(script);
 }
@@ -16470,7 +16473,6 @@ function showIntel(which){
     if(panel) panel.classList.toggle('active', t===which);
   });
   if(which==='macrotape'){renderSpotMacro();refreshMacroData(false);spotRefreshCalendar(false);}
-  if(which==='charts')renderMarketChart(_marketChartKey);
   if(which==='spotstrategy'){renderSpotStrategy();renderSpotReview();spotRefreshCalendar(false);if(!_spotReview)checkSpotStrategy();}
   if(which==='events'){renderMacroEvents();spotMountLiveCalendar(false);spotRefreshCalendar(false);spotRenderCoinCalendar();}
   if(which==='buyzone') renderBuyZone();
@@ -16489,6 +16491,9 @@ function showIntel(which){
     body.classList.remove('collapsed');
     if(btn) btn.textContent='▲';
   }
+  // TradingView measures its parent at startup. Wait until this panel and the
+  // Intel body are visible so the embedded canvas receives a real width/height.
+  if(which==='charts')window.requestAnimationFrame(function(){renderMarketChart(_marketChartKey);});
 }
 
 function renderBuyZone(){
@@ -17619,7 +17624,7 @@ function installChartProUI(){
     '<span class="cp-context-switch" role="group" aria-label="Chart viewing range"><button onclick="chartFit(\'recent\')" title="Last 60 candles; 42 on mobile. Analysis anchors stay fixed.">Recent structure</button><button onclick="chartFit(\'all\')">Full context</button></span>'+
     '<button onclick="editChartExecution()">Execution</button><button onclick="recordChartDecision()" title="Save the current data, settings and decision for later review">Record decision</button>'+
     '<details class="cp-ind-menu"><summary>Edit lines</summary><div><button onclick="toggleDrawMode()">Draw two anchors</button><button data-chart-magnet onclick="toggleChartMagnet()">Snap to candle</button><button onclick="editSelectedDrawing(\'lock\')">Lock / unlock selected</button><button onclick="editSelectedDrawing(\'extend\')">Extend selected right</button><button onclick="editSelectedDrawing(\'delete\')">Delete selected</button><small>Click a manual line to select. Drag an unlocked anchor. Manual lines are visual only.</small></div></details>';
-    el.innerHTML+='<span class="cp-build" title="Market Charts · verify this label after uploading">Chart 2026.09.21-market-charts-r5</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
+    el.innerHTML+='<span class="cp-build" title="Market Charts · automatic indicators enabled">Chart 2026.09.21-market-auto-r6</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
     var toolsMenu=document.createElement('details');toolsMenu.className='cp-ind-menu cp-tools-menu';
     toolsMenu.innerHTML='<summary>Tools</summary><div></div>';
     Array.from(el.children).forEach(function(node){
