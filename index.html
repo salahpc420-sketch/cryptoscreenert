@@ -719,7 +719,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
     <button id="btc-filter-btn" class="btn" onclick="toggleBTCFilter()" title="BTC Trend Filter — only show buy signals when BTC score ≥ 52" style="color:var(--g);border-color:var(--g)">₿ ON</button>
     <button id="precision-btn" class="btn" onclick="togglePrecision()" title="Precision Mode — tighter experimental filter. No validated win rate. Test separately on real, later data after costs." style="color:var(--t3)">🎯 Precision: OFF</button>
     <button class="btn" id="auto-btn" onclick="toggleAuto()">⏱ Auto Off</button>
-    <button class="btn" id="trade-mode-btn" onclick="toggleTradeMode()" title="Trading = short-term setups (needs momentum, BTC stable/bullish). Investing = accumulate quality coins at a discount (downturns are good)." style="color:var(--g);border-color:var(--g);font-weight:700">🎯 Trading</button>
+    <button class="btn" id="trade-mode-btn" onclick="toggleTradeMode()" title="Trading = short-term setups. Investing = separate closed daily/weekly technical watchlist, not a valuation or buy signal." style="color:var(--g);border-color:var(--g);font-weight:700">🎯 Trading</button>
     <button class="btn" id="view-mode-btn" onclick="toggleViewMode()" title="Basic shows just the essentials; Advanced shows every metric column." style="color:var(--t3)">📊 Basic view</button>
     <span class="lupd" id="lupd"></span>
     <span id="data-source-badge" style="font-size:10px;color:var(--t3);background:var(--card3);padding:2px 8px;border-radius:99px;margin-left:6px"></span>
@@ -1000,6 +1000,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       <button class="mtab" id="jtab-coach" onclick="setJournalTab('coach')">🧑‍🏫 Coach</button>
       <button class="mtab" id="jtab-trades" onclick="setJournalTab('trades')">📓 Manual Trades</button>
       <button class="mtab" id="jtab-psych" onclick="setJournalTab('psych')">🧠 Psychology</button>
+      <button class="mtab" id="jtab-invest" onclick="setJournalTab('invest')">💎 Investing</button>
     </div>
     <div id="journal-body" style="flex:1;overflow-y:auto;padding:1rem"></div>
   </div>
@@ -3367,64 +3368,10 @@ function processSymbol(ticker, btcClosesOverride) {
     // Smart Money Concepts — BOS / CHoCH structure markers
     var smc = calcSMC(h, l, c);
 
-    // ── INVESTING / ACCUMULATION SCORE v2 — rebuilt from the research ────────
-    // v1 problems the evidence exposed:
-    //   1. It summed drawdown + oversold RSI + distance-below-200EMA. A coin
-    //      that fell 40% scores on all three — one fact counted three times.
-    //   2. It rewarded being 5-20% BELOW the 200 EMA (+18) MORE than being at
-    //      it (+12). The evidence treats the 200-day MA as a REGIME FILTER
-    //      (hold above a rising MA, stand aside below) — v1 had it backwards.
-    //   3. Rank was worth points, so a rank-90 coin could still score well.
-    //      5-year survival is ~17% overall and rises steeply with rank, so
-    //      survivorship belongs as a HARD GATE, not a few points.
-    //   4. "Discount" used 90 bars (~15 days on 4h) for a months-to-years hold.
-    // v2: hard survivability gate → ONE cheapness factor → regime multiplier.
-    var coinRank = RANK[sym] || 999;
-    var invScore = 0, invEligible = false, invReason = '';
-
-    // 1. SURVIVORSHIP GATE — even the top-25 is not safe (LUNA was top-10 and
-    //    went to zero), but below it permanent impairment is the base case.
-    invEligible = (coinRank <= 25) && (vol24usd > 20000000);   // USD-normalized
-    if(!invEligible){
-      invReason = coinRank > 25 ? 'outside top-25 — survivorship risk too high for a multi-year hold'
-                                : 'liquidity too thin for accumulation';
-    }
-
-    // long-horizon drawdown (not 90 bars) — matches the holding period
-    var hiLong = Math.max.apply(null, c.slice(-Math.min(c.length, 400)));
-    var ddLong = hiLong > 0 ? (closePx - hiLong)/hiLong*100 : 0;
-    var distE200pct = e200 > 0 ? (closePx - e200)/e200*100 : 0;
-    var e200Rising = c.length >= 15
-      ? e200 > calcEMA(c.slice(0, -10), Math.min(200, c.length-10)) : false;
-
-    if(invEligible){
-      // 2. CHEAPNESS — a SINGLE factor. Drawdown carries most of the weight and
-      //    RSI is a light confirmation, instead of three correlated bonuses.
-      var cheapDD  = Math.max(0, Math.min(1, -ddLong / 60));      // -60% = fully cheap
-      var cheapRSI = Math.max(0, Math.min(1, (55 - rsi) / 30));   // RSI 25 = fully cheap
-      var cheapness = cheapDD * 0.75 + cheapRSI * 0.25;
-
-      // 3. REGIME MULTIPLIER — the corrected 200 EMA logic. Cheap AND trend
-      //    intact is the prize; cheap below a FALLING 200 EMA is a falling knife.
-      var regime;
-      if(closePx > e200 && e200Rising)      regime = 1.00;   // discount inside an intact uptrend
-      else if(closePx > e200)               regime = 0.75;   // above, but MA flat/rolling
-      else if(e200Rising)                 regime = 0.45;   // dip beneath a still-rising MA
-      else                                regime = 0.12;   // below a falling MA — was +18 in v1
-      // 4. Rank credit — top-10 has materially better survival odds than 11-25
-      var rankMult = coinRank <= 10 ? 1.0 : 0.75;
-      // 5. Still crashing? wait for it to stop.
-      var falling5 = c.length>=6 ? (closePx-c[c.length-6])/c[c.length-6]*100 : 0;
-      var freefall = falling5 < -15 ? 0.6 : 1.0;
-
-      invScore = Math.round(100 * cheapness * regime * rankMult * freefall);
-      invReason = (cheapness < 0.15) ? 'no meaningful discount yet'
-                : (regime <= 0.12)   ? 'discounted, but below a falling 200 EMA — knife risk'
-                : (regime >= 1.0)    ? 'discounted while the long-term trend is still intact'
-                : 'discounted, trend weakening — size accordingly';
-    }
-    invScore = Math.max(0, Math.min(100, Math.round(invScore)));
-    var ddHigh = ddLong;
+    // Investing is independently loaded from closed daily/weekly history.
+    // Never substitute the active trading timeframe when investment data is absent.
+    var coinRank=RANK[sym]||999,invScore=null,invEligible=coinRank<=25&&vol24usd>20000000;
+    var invReason='Daily/weekly investment data not loaded',ddHigh=null,distE200pct=null,e200Rising=null;
 
     return {
       sym:sym, pair:pair, price:price, signalPrice:closePx, chg:chg, vol24:vol24, vol24usd:vol24usd,
@@ -3443,7 +3390,7 @@ function processSymbol(ticker, btcClosesOverride) {
       // last CLOSED candle + the one before it — needed for close-based watchers
       closePx: closePx, prevClose: (c.length > 1 ? c[c.length-2] : null),
       catalystMarket: _catMarketSnapshot(klines, catalystTF, c.length),
-      invScore:invScore, ddHigh:Math.round(ddHigh), distE200:Math.round(distE200pct),
+      invScore:invScore, ddHigh:ddHigh, distE200:distE200pct,
       invEligible:invEligible, invReason:invReason, e200Rising:e200Rising, coinRank:coinRank,
       struct:st, liq:liq, sup:sr.sup, res:sr.res, sDist:sr.sDist, rDist:sr.rDist,
       // Preserve the actual closed sweep candle, never the live ticker price.
@@ -4549,7 +4496,9 @@ function loadAll() {
     allData.forEach(function(d){ d.opportunity = calcOpportunity(d); });
 
     // TURNOVER — usage-vs-price proxy, then fold it into the investing score
-    try { applyTurnover(allData); applyTurnoverToInvScore(allData); } catch(e){}
+    try { applyTurnover(allData); } catch(e){} // activity is context, not an unvalidated investment-score bonus
+    applyInvestmentSnapshots();
+    if(_investMode)refreshInvestmentData();
     try { applyUnlocks(allData); checkUnlockAlerts(allData); } catch(e){}
 
     // EARLY WATCH — cross-sectional base/expansion ranking
@@ -4692,6 +4641,158 @@ var _advancedView = false;
 // Trading = short-term setups (momentum, BTC gating, quick TP). Downturns = quiet.
 // Investing = accumulate quality coins at a discount for a long hold. Downturns = good.
 var _investMode = false;
+var investmentCache={},investmentBusy=false,investmentJournalError='';
+function investEsc(v){return String(v==null?'—':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function investmentAnalysis(bars,sym,now){
+  var snapshot=chartSnapshot(bars||[],sym,'1d',now),closed=(bars||[]).slice(0,-1),day=86400000;
+  if(!snapshot.usable||closed.length<400)return {ready:false,reason:!snapshot.usable?snapshot.message:'Need 400 completed daily candles',source:snapshot.source};
+  var c=closed.map(function(k){return Number(k[4]);}),h=closed.map(function(k){return Number(k[2]);}),l=closed.map(function(k){return Number(k[3]);});
+  var buckets={};closed.forEach(function(k){var t=Number(k[0]),date=new Date(t),monday=Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),date.getUTCDate())-((date.getUTCDay()+6)%7)*day;(buckets[monday]||(buckets[monday]=[])).push(k);});
+  var weekly=Object.keys(buckets).map(Number).sort(function(a,b){return a-b;}).filter(function(t){return t+7*day<=now&&buckets[t].length===7&&buckets[t].every(function(k,i){return Number(k[0])===t+i*day;});}).map(function(t){return Number(buckets[t][6][4]);});
+  if(weekly.length<52)return {ready:false,reason:'Need 52 complete UTC weeks',source:snapshot.source};
+  var price=c[c.length-1],e200=calcEMA(c,200),e50=calcEMA(c,50),rising=e200>calcEMA(c.slice(0,-10),200),rsi=calcRSI(c);
+  var high=Math.max.apply(null,c.slice(-365)),dd=(price/high-1)*100,w20=calcEMA(weekly,20),w50=calcEMA(weekly,50),wlast=weekly[weekly.length-1];
+  var weeklyUp=wlast>w20&&w20>w50,regime=price>e200?(rising?1:.75):(rising?.45:.12);
+  var discount=.75*Math.max(0,Math.min(1,-dd/60))+.25*Math.max(0,Math.min(1,(55-rsi)/30));
+  return {ready:true,source:snapshot.source,closedAt:snapshot.lastClosedTime,price:price,e200:e200,e50:e50,e200Rising:rising,
+    weeklyUp:weeklyUp,weeklyClose:wlast,weeklyEMA20:w20,weeklyEMA50:w50,weeklyCount:weekly.length,
+    dd:dd,dist200:(price/e200-1)*100,rsi:rsi,atrPct:calcATR(h,l,c,14)/price*100,
+    score:Math.round(100*discount*regime*(weeklyUp?1:.65)),bars:bars,
+    reason:price<e200&&!rising?'Below falling daily EMA200 — downtrend risk':!weeklyUp?'Weekly trend not aligned':'Daily and weekly trend aligned; review risks'};
+}
+function investmentBenchmark(a,b,days){
+  if(!a||!a.ready||!b||!b.ready)return null;
+  var t=a.closedAt-86400000,first=t-days*86400000;
+  var ac=a.bars.find(function(k){return Number(k[0])===t;}),bc=b.bars.find(function(k){return Number(k[0])===t;}),ap=a.bars.find(function(k){return Number(k[0])===first;}),bp=b.bars.find(function(k){return Number(k[0])===first;});
+  if(!ac||!bc||!ap||!bp||b.closedAt<a.closedAt)return null;
+  return {coin:(Number(ac[4])/Number(ap[4])-1)*100,btc:(Number(bc[4])/Number(bp[4])-1)*100};
+}
+function investmentCurrent(sym){
+  var a=investmentCache[sym];
+  if(!a||!a.ready||Date.now()-a.closedAt>=86400000)return null;
+  return a;
+}
+function applyInvestmentSnapshots(){
+  (allData||[]).forEach(function(d){
+    var rank=RANK[d.sym]||999,a=investmentCurrent(d.sym);
+    d.invEligible=rank<=25&&Number.isFinite(d.vol24usd)&&d.vol24usd>20000000;
+    d.invScore=d.invEligible&&!d._stale&&a?a.score:null;
+    d.invReason=!d.invEligible?'Outside rank/liquidity screen':d._stale?'Scan data stale':a?a.reason:(investmentCache[d.sym]||{}).reason||'Daily/weekly data not loaded';
+    d.ddHigh=a?a.dd:null;d.distE200=a?a.dist200:null;d.e200Rising=a?a.e200Rising:null;
+  });
+}
+async function refreshInvestmentData(force){
+  if(investmentBusy)return;
+  investmentBusy=true;
+  try{
+    var saved=loadInvestmentJournal()||[],syms=(allData||[]).filter(function(d){return (RANK[d.sym]||999)<=25&&d.vol24usd>20000000;}).map(function(d){return d.sym;});
+    saved.forEach(function(r){if(syms.indexOf(r.sym)<0)syms.push(r.sym);});
+    syms.slice().forEach(function(s){var btc=/JPY$/.test(s)?'BTCJPY':'BTCUSDT';if(syms.indexOf(btc)<0)syms.push(btc);});
+    var jobs=syms.filter(function(sym){var a=investmentCache[sym];return force||!a||Date.now()-(a.fetchedAt||0)>300000;}),ix=0;
+    async function worker(){while(ix<jobs.length){var sym=jobs[ix++];try{
+      var bars=await bybitKlines(sym,'1d',500),a=investmentAnalysis(bars,sym,Date.now());a.fetchedAt=Date.now();investmentCache[sym]=a;
+    }catch(e){investmentCache[sym]={ready:false,reason:'Daily feed unavailable — retry later',fetchedAt:Date.now()};}}}
+    await Promise.all([worker(),worker(),worker()]);
+  }finally{
+    investmentBusy=false;applyInvestmentSnapshots();
+    if(_investMode){render();var active=document.activeElement;if(!active||!active.closest||!active.closest('#mode-banner'))renderModeBanner();}
+    if(_journalTab==='invest'&&document.getElementById('journal-ov').classList.contains('show'))refreshInvestmentSummary();
+  }
+}
+function investmentPanelHTML(){
+  var rows=(allData||[]).filter(function(d){return d.invEligible;}).sort(function(a,b){return (b.invScore==null?-1:b.invScore)-(a.invScore==null?-1:a.invScore);});
+  function rel(d,n){var a=investmentCurrent(d.sym),b=investmentCurrent(/JPY$/.test(d.sym)?'BTCJPY':'BTCUSDT'),r=investmentBenchmark(a,b,n);return r?((r.coin-r.btc)>=0?'+':'')+(r.coin-r.btc).toFixed(1)+' pp':'Unknown';}
+  return '<strong>💎 Investing · independent daily + weekly watchlist</strong> <button class="btn" onclick="refreshInvestmentData(true)">↻ Refresh daily data</button> <button class="btn" onclick="openJournal();setJournalTab(\'invest\')">Investing journal</button>'+
+    '<p>Technical score, not fair value or a buy instruction. Top-25 rank and &gt;20M USD reported 24h volume are screening rules—not proof of asset quality or executable liquidity. Trading filters are ignored here except search and category. Other screener columns still describe the selected trading timeframe.</p>'+
+    '<p>Daily EMA200 + 52 complete UTC weeks; at least 400 closed daily bars. 365-day discount is measured from the highest daily close, not an all-time high. BTC differences use the same dates (pp = percentage points). '+(investmentBusy?'Loading daily history…':'')+'</p>'+
+    '<div style="overflow:auto"><table style="font-size:11px;width:100%;text-align:left"><thead><tr><th>Coin</th><th>Daily score</th><th>Daily / Weekly</th><th>vs BTC 90d / 365d</th><th>Data / risk review</th></tr></thead><tbody>'+
+    rows.map(function(d){var a=investmentCurrent(d.sym);return '<tr><td>'+investEsc(d.pair)+'</td><td>'+(d.invScore==null?'Unavailable':d.invScore+'/100')+'</td><td>'+(a?(a.price>a.e200?'Above':'Below')+' daily EMA200 / '+(a.weeklyUp?'Aligned':'Not aligned'):'Unknown')+'</td><td>'+rel(d,90)+' / '+rel(d,365)+'</td><td>'+investEsc(d.invReason)+(a?' · '+investEsc(a.source)+' · '+new Date(a.closedAt).toISOString().slice(0,10):'')+'<br><button class="btn" data-sym="'+investEsc(d.sym)+'" onclick="openInvestmentReview(this.dataset.sym)">Risk review / journal</button></td></tr>';}).join('')+'</tbody></table></div>'+
+    '<details><summary>How the score works / limitations</summary><p>75% drawdown factor (60% decline saturates it) + 25% daily RSI factor (55 to 25). Multiplied by daily EMA200 regime (1, .75, .45, .12) and weekly alignment (1 or .65). Fixed heuristic; no established predictive edge. Missing or stale data never becomes a zero score. It does not measure revenue, token value capture, dilution or custody safety. Volume/cap turnover no longer boosts the score.</p></details>';
+}
+function loadInvestmentJournal(){
+  try{var r=JSON.parse(localStorage.getItem('investment_journal_v1')||'[]');if(!Array.isArray(r)||r.some(function(x){return !x||typeof x.id!=='string'||!/^[A-Z0-9]+(USDT|JPY)$/.test(x.sym)||!['planned','filled'].includes(x.status)||![x.at,x.cash,x.fee,x.price].every(Number.isFinite)||x.at<=0||x.cash<=0||x.fee<0||x.fee>=x.cash||x.price<=0||x.btcPrice!=null&&(!Number.isFinite(x.btcPrice)||x.btcPrice<=0);}))throw Error();return r;}
+  catch(e){investmentJournalError='Cannot read investing journal; existing storage has not been overwritten.';return null;}
+}
+function saveInvestmentJournal(rows){try{localStorage.setItem('investment_journal_v1',JSON.stringify(rows));investmentJournalError='';return true;}catch(e){investmentJournalError='Saving failed: storage full or unavailable.';return false;}}
+function investmentLedger(rows,sym,coinPrice,btcPrice,markAt){
+  var fills=rows.filter(function(r){return r.sym===sym&&r.status==='filled';}),cash=0,fees=0,units=0,btcUnits=0,complete=true;
+  fills.forEach(function(r){cash+=r.cash;fees+=r.fee;units+=(r.cash-r.fee)/r.price;var reference=/^BTC(USDT|JPY)$/.test(sym)?r.price:r.btcPrice;if(reference>0)btcUnits+=(r.cash-r.fee)/reference;else complete=false;});
+  var markOK=coinPrice>0&&btcPrice>0&&fills.every(function(r){return r.at<=markAt;});
+  return {fills:fills.length,cash:cash,fees:fees,units:units,avg:units?cash/units:null,
+    value:markOK?units*coinPrice:null,btcValue:markOK&&complete?btcUnits*btcPrice:null,
+    benchmarkComplete:complete,markOK:markOK};
+}
+function investmentAssetDrawdown(rows,a){
+  if(!rows.length||!a)return null;var start=Math.min.apply(null,rows.map(function(r){return r.at;})),day=86400000;
+  if(Number(a.bars[0][0])>Math.floor(start/day)*day)return null;
+  var marks=a.bars.slice(0,-1).filter(function(k){return Number(k[0])+day>=start;}),peak=0,dd=0;
+  marks.forEach(function(k){var p=Number(k[4]);peak=Math.max(peak,p);dd=Math.min(dd,p/peak-1);});return marks.length?dd*100:null;
+}
+function openInvestmentReview(sym){openJournal();setJournalTab('invest');var el=document.getElementById('ij-sym');if(el){el.value=sym;refreshInvestmentSummary();renderInvestmentRisks();}}
+function investmentRiskHTML(sym){
+  var d=(allData||[]).find(function(x){return x.sym===sym;}),u=d&&d.unlock,review={};
+  try{review=JSON.parse(localStorage.getItem('investment_risks_v1')||'{}')[sym]||{};}catch(e){}
+  return '<h4>Asset risk checklist · '+investEsc(sym)+'</h4><p>Rank/volume are screening proxies only. No automatic fundamental approval. Verify source dates; blank fields mean Unknown. These are your notes, not independently verified facts.</p>'+
+    '<p>Scanner unlock context: '+(u?investEsc(JSON.stringify(u)):'Unknown — no verified schedule attached')+'</p>'+
+    '<form onsubmit="saveInvestmentRisks(event)"><input type="hidden" name="sym" value="'+investEsc(sym)+'">'+[
+      ['supply','Supply dilution / unlock schedule'],['concentration','Holder concentration / control'],['liquidity','Order-book depth / exit liquidity'],['project','Project usage / token value capture / security'],['custody','Custody and thesis-invalidation risks'],['sources','Sources and publication dates']
+    ].map(function(x){return '<label style="display:block;margin:6px 0">'+x[1]+'<input name="'+x[0]+'" value="'+investEsc(review[x[0]]||'')+'" placeholder="Unknown — add verified findings" style="width:100%"></label>';}).join('')+
+    '<small>Last saved: '+(review.at?investEsc(new Date(review.at).toISOString()):'Never')+'</small> <button class="btn" type="submit">Save risk notes</button></form><p id="ij-risk-status" role="status"></p>';
+}
+function saveInvestmentRisks(e){
+  e.preventDefault();var f=new FormData(e.target),sym=f.get('sym');
+  try{var all=JSON.parse(localStorage.getItem('investment_risks_v1')||'{}');if(!all||typeof all!=='object'||Array.isArray(all))throw Error();var r={at:Date.now()};['supply','concentration','liquidity','project','custody','sources'].forEach(function(k){r[k]=String(f.get(k)||'').slice(0,2000);});all[sym]=r;localStorage.setItem('investment_risks_v1',JSON.stringify(all));document.getElementById('ij-risk-status').textContent='Risk notes saved locally.';}catch(err){document.getElementById('ij-risk-status').textContent='Could not save risk notes; existing data preserved.';}
+}
+function renderInvestmentJournal(){
+  investmentEditingPlan=null;
+  var body=document.getElementById('journal-body'),rows=loadInvestmentJournal()||[],syms=Array.from(new Set((allData||[]).map(function(d){return d.sym;}).concat(rows.map(function(r){return r.sym;}))));
+  if(!syms.length)syms=['BTCUSDT'];
+  body.innerHTML='<style>#investment-entry-form{padding:12px;background:var(--card2);border:1px solid var(--bd);border-radius:10px;margin:12px 0}#investment-entry-form label{display:block;font-size:11px;font-weight:600;line-height:1.5}#investment-entry-form input,#investment-entry-form select,#ij-risks input{display:block;width:100%;min-width:0;padding:8px;border:1px solid var(--bd);border-radius:6px;background:var(--card);color:var(--text);font:inherit}#ij-summary{padding:12px;margin:12px 0;background:var(--card2);border-radius:10px;line-height:1.6}#ij-rows td,#ij-rows th{padding:8px;border-bottom:1px solid var(--bd)}#ij-status{padding:8px 0;line-height:1.5}#ij-risks{padding:12px;line-height:1.6}</style><h3>💎 Investing journal · planned vs filled purchases</h3><p style="margin-top:8px;line-height:1.5">Manual accumulation ledger, not order execution. Buys only: sale/withdrawal tracking is not supported. Do not use this as a complete portfolio ledger after disposing of holdings. Plans never count as holdings.</p>'+
+    '<form id="investment-entry-form" onsubmit="saveInvestmentEntry(event)" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">'+
+    '<label>Coin<select id="ij-sym" name="sym" onchange="refreshInvestmentSummary();renderInvestmentRisks()">'+syms.map(function(s){return '<option>'+investEsc(s)+'</option>';}).join('')+'</select></label>'+
+    '<label>Status<select name="status"><option value="planned">Planned — not purchased</option><option value="filled">Filled — actual purchase</option></select></label>'+
+    '<label>Date and time (UTC)<input name="at" type="datetime-local" required value="'+new Date().toISOString().slice(0,16)+'"></label>'+
+    '<label>Total cash paid (quote currency)<input name="cash" type="number" min="0.00000001" step="any" required></label>'+
+    '<label>Fee included in cash (quote currency)<input name="fee" type="number" min="0" step="any" value="0" required></label>'+
+    '<label>Coin price at fill / planned price<input name="price" type="number" min="0.000000000001" step="any" required></label>'+
+    '<label>BTC price at SAME fill time (optional)<input name="btcPrice" type="number" min="0.00000001" step="any"></label>'+
+    '<label>Notes / BTC price source<input name="note" maxlength="1000"></label><div><button class="btn" type="submit">Save purchase</button> <button class="btn" type="button" onclick="renderInvestmentJournal()">Cancel / new</button></div></form>'+
+    '<p>USDT pairs use USDT cash and BTC/USDT prices; JPY pairs use JPY and BTC/JPY. Enter gross cash including fees; fees paid in another token must first be converted to quote currency. BTC benchmark uses the same cash, timestamp and proportional fee as each fill, with your supplied BTC price. No future daily price is substituted for a missing fill-time reference.</p>'+
+    '<p id="ij-status" role="status">'+investEsc(investmentJournalError||'Saved locally in this browser; export for backup.')+'</p><button class="btn" onclick="refreshInvestmentData(true)">Refresh daily marks</button> <button class="btn" onclick="exportInvestmentJournal()">Export journal + risk notes</button><div id="ij-summary"></div><div id="ij-rows"></div><details><summary>Asset risk review</summary><div id="ij-risks"></div></details>';
+  refreshInvestmentSummary();renderInvestmentRisks();refreshInvestmentData();
+}
+function renderInvestmentRisks(){var el=document.getElementById('ij-risks'),s=document.getElementById('ij-sym');if(el&&s)el.innerHTML=investmentRiskHTML(s.value);}
+function refreshInvestmentSummary(){
+  var el=document.getElementById('ij-summary'),select=document.getElementById('ij-sym');if(!el||!select)return;
+  var sym=select.value,rows=loadInvestmentJournal()||[],a=investmentCurrent(sym),btc=investmentCurrent(/JPY$/.test(sym)?'BTCJPY':'BTCUSDT'),at=a&&btc&&a.closedAt===btc.closedAt?a.closedAt:0;
+  var x=investmentLedger(rows,sym,a&&a.price,btc&&btc.price,at),quote=/JPY$/.test(sym)?'JPY':'USDT';
+  function n(v){return v==null?'Unavailable':Number(v).toLocaleString(undefined,{maximumFractionDigits:8});}
+  var fills=rows.filter(function(r){return r.sym===sym&&r.status==='filled';}),dd=investmentAssetDrawdown(fills,a);
+  el.innerHTML='<h4>'+investEsc(sym)+' · '+x.fills+' filled purchases</h4><p>Paid: '+n(x.cash)+' '+quote+' · Fees: '+n(x.fees)+' · Units: '+n(x.units)+' · Average cost incl. fees: '+n(x.avg)+'</p><p>Holdings value: '+n(x.value)+' '+quote+' · Unrealized P/L: '+n(x.value==null?null:x.value-x.cash)+' '+quote+'<br>Same-cash-flow BTC value: '+n(x.btcValue)+' '+quote+' · Coin minus BTC: '+n(x.value==null||x.btcValue==null?null:x.value-x.btcValue)+' '+quote+'</p><p>'+(!x.benchmarkComplete?'BTC comparison unavailable: at least one filled purchase lacks its fill-time BTC price. ':!x.markOK?'Waiting for matching daily coin/BTC marks after every filled purchase. ':'Marked at '+new Date(at).toISOString()+' using '+investEsc(a.source)+' / '+investEsc(btc.source)+'. ')+'Exit fees and taxes are not included. These are daily marks, not live liquidation quotes.</p><p>Asset-price maximum drawdown since first fill: '+(dd==null?'Unavailable':dd.toFixed(2)+'%')+' — daily closing prices only, NOT cash-flow-adjusted portfolio drawdown; full history required.</p>';
+  document.getElementById('ij-rows').innerHTML='<div style="overflow:auto"><table style="width:100%;font-size:11px;text-align:left"><tr><th>UTC time</th><th>Status</th><th>Cash / fee</th><th>Coin price / BTC reference</th><th>Notes</th><th>Action</th></tr>'+rows.filter(function(r){return r.sym===sym;}).slice().reverse().map(function(r){return '<tr><td>'+new Date(r.at).toISOString().slice(0,16)+'</td><td>'+investEsc(r.status)+'</td><td>'+n(r.cash)+' / '+n(r.fee)+'</td><td>'+n(r.price)+' / '+n(r.btcPrice)+'</td><td>'+investEsc(r.note)+'</td><td>'+(r.status==='planned'?'<button class="btn" data-id="'+investEsc(r.id)+'" onclick="fillInvestmentPlan(this.dataset.id)">Fill / revise plan</button>':'<button class="btn" data-id="'+investEsc(r.id)+'" onclick="editInvestmentEntry(this.dataset.id,false)">Edit entry</button>')+'</td></tr>';}).join('')+'</table></div>';
+}
+var investmentEditingPlan=null,investmentEditingVersion=null;
+function fillInvestmentPlan(id){
+  editInvestmentEntry(id,true);
+}
+function editInvestmentEntry(id,fill){
+  var r=(loadInvestmentJournal()||[]).find(function(r){return r.id===id;});if(!r)return;
+  var f=document.getElementById('investment-entry-form');['sym','cash','fee','price','note'].forEach(function(k){f.elements[k].value=r[k]||'';});f.elements.fee.value=r.fee;f.elements.btcPrice.value=r.btcPrice||'';f.elements.status.value=fill?'filled':r.status;f.elements.at.value=new Date(fill?Date.now():r.at).toISOString().slice(0,16);investmentEditingPlan=id;investmentEditingVersion=r.savedAt;
+  document.getElementById('ij-status').textContent='Editing saved entry. Verify UTC time, cash, fee and prices, then Save. Prior values remain in exported revision history.';
+}
+function saveInvestmentEntry(e){
+  e.preventDefault();var f=new FormData(e.target),sym=String(f.get('sym')),at=Date.parse(String(f.get('at'))+'Z'),cash=Number(f.get('cash')),fee=Number(f.get('fee')),price=Number(f.get('price')),ref=String(f.get('btcPrice')||'').trim(),btcPrice=ref?Number(ref):null,status=f.get('status');
+  var message=document.getElementById('ij-status');
+  if(!/^[A-Z0-9]+(USDT|JPY)$/.test(sym)||!['planned','filled'].includes(status)||!Number.isFinite(at)||at<=0||status==='filled'&&at>Date.now()||![cash,fee,price].every(Number.isFinite)||cash<=0||fee<0||fee>=cash||price<=0||btcPrice!=null&&(!Number.isFinite(btcPrice)||btcPrice<=0)){message.textContent='Check symbol, UTC time, cash, fee and positive prices. Filled purchases cannot be in the future.';return;}
+  var rows=loadInvestmentJournal();if(!rows){message.textContent=investmentJournalError;return;}
+  var id=investmentEditingPlan||('invest-'+Date.now()+'-'+Math.random().toString(36).slice(2,8)),r={id:id,sym:sym,at:at,status:status,cash:cash,fee:fee,price:price,btcPrice:btcPrice,note:String(f.get('note')||'').slice(0,1000),savedAt:Date.now()};
+  var ix=rows.findIndex(function(x){return x.id===id;});if(ix>=0){var old=rows[ix];if(old.savedAt!==investmentEditingVersion){message.textContent='This entry changed elsewhere. Reopen it before editing.';return;}var prior=Object.assign({},old);delete prior.revisions;r.revisions=(old.revisions||[]).concat([prior]);if(old.originalPlan||old.status==='planned')r.originalPlan=old.originalPlan||prior;rows[ix]=r;}else rows.push(r);
+  if(saveInvestmentJournal(rows)){investmentEditingPlan=null;message.textContent='Saved '+status+' purchase. No order was placed.';e.target.elements.cash.value='';refreshInvestmentSummary();refreshInvestmentData();}else message.textContent=investmentJournalError;
+}
+function exportInvestmentJournal(){
+  var rows=loadInvestmentJournal();if(!rows)return;var risks={};try{risks=JSON.parse(localStorage.getItem('investment_risks_v1')||'{}');}catch(e){}
+  var url=URL.createObjectURL(new Blob([JSON.stringify({version:1,purchases:rows,riskNotes:risks},null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='investing-journal-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(function(){URL.revokeObjectURL(url);},1000);
+}
 function toggleTradeMode(){
   _investMode = !_investMode;
   applyTradeMode();
@@ -4722,18 +4823,19 @@ function applyTradeMode(){
   var mHint = document.getElementById('m-mode-hint');
   if(mHint){
     mHint.innerHTML = _investMode
-      ? '💎 Ranking top-25 coins by <strong>discount inside an intact long-term trend</strong>. Cheap below a falling 200 EMA now scores near zero — that is knife risk, not value. Tap a coin → 🧬 DNA tab for its DCA ladder'
-      : '🎯 Short-term setups needing momentum + supportive BTC. Quiet in downturns (that\'s correct — switch to 💎 Investing to accumulate the dip).';
+      ? '💎 Independent daily/weekly technical watchlist. Unknown data stays unknown. Tap a coin → DNA for a closed-daily DCA study.'
+      : '🎯 Short-term setups needing momentum and supportive BTC. Investing uses a separate daily/weekly analysis.';
   }
   document.body.classList.toggle('invest-mode', _investMode);
   var oppLbl = document.getElementById('opp-col-label');
-  if(oppLbl) oppLbl.textContent = _investMode ? '💎 Value' : '⭐ Opp';
+  if(oppLbl) oppLbl.textContent = _investMode ? '💎 Daily score' : '⭐ Opp';
   // Mobile sort bar: swap the primary sort label
   var mSortFirst = document.querySelector('#m-sort-bar .m-sort-btn');
-  if(mSortFirst) mSortFirst.textContent = _investMode ? '💎 Value' : '⭐ Opportunity';
+  if(mSortFirst) mSortFirst.textContent = _investMode ? '💎 Daily score' : '⭐ Opportunity';
   if(_investMode){ sortS.col='invScore'; sortS.dir=-1; mSortCol='invScore'; }
   else { sortS.col='opportunity'; sortS.dir=-1; mSortCol='opportunity'; }
   renderModeBanner();
+  if(_investMode)refreshInvestmentData();
   if(allData.length) render();
 }
 
@@ -4745,12 +4847,10 @@ function renderModeBanner(){
   banner.id=id;
   if(_investMode){
     banner.style.cssText='background:rgba(124,77,255,.08);border:.5px solid rgba(124,77,255,.3);border-radius:var(--rad);padding:8px 14px;margin:0 0 8px;font-size:12px;color:#7c4dff;line-height:1.5';
-    var bz = (typeof detectMarketBuyZone==='function') ? detectMarketBuyZone() : null;
-    var bzNote = bz ? ' Market buy-zone score: <strong>'+bz.score+'/100</strong> ('+bz.verdict.replace(/[🟢🟡⚪🔴]/g,'').trim()+').' : '';
-    banner.innerHTML='💎 <strong>Investing mode</strong> — top-25 coins only (5-year survival is ~17% overall and rises steeply with rank), scored on a single discount factor with the 200 EMA used as a <em>trend filter</em> rather than a value bonus.'+bzNote+' <span style="color:var(--am)">⚠️ Benchmark: only 10-20% of top-150 tokens beat BTC in any 365-day window since 2021, and alts have lost to BTC four calendar years running. DCA-ing into BTC is the bar any selection here must clear.</span>';
+    banner.innerHTML=investmentPanelHTML();
   } else {
     banner.style.cssText='background:rgba(38,166,154,.07);border:.5px solid rgba(38,166,154,.25);border-radius:var(--rad);padding:8px 14px;margin:0 0 8px;font-size:12px;color:var(--g);line-height:1.5';
-    banner.innerHTML='🎯 <strong>Trading mode</strong> — short-term setups needing momentum + BTC stable/bullish + good R:R. In a downturn this correctly goes quiet (few signals = not a good time to trade). Switch to 💎 Investing to accumulate the dip instead.';
+    banner.innerHTML='🎯 <strong>Trading mode</strong> — short-term setups. Investing mode uses separate daily/weekly data; a price decline alone is not a reason to buy.';
   }
   var table=document.querySelector('.tbl-wrap')||document.querySelector('table');
   if(table&&table.parentNode) table.parentNode.insertBefore(banner, table);
@@ -4782,6 +4882,7 @@ function sc2(label, val, col){
 }
 
 function render() {
+  applyInvestmentSnapshots();
   var sf=document.getElementById('f-sig').value;
   var cf=document.getElementById('f-cat').value;
   var rf=document.getElementById('f-rsi').value;
@@ -4791,19 +4892,20 @@ function render() {
   var msc=parseFloat(document.getElementById('f-sc').value);
 
   var rows=allData.filter(function(d){
+    if(_investMode&&!d.invEligible)return false;
     if(searchQ&&d.sym.indexOf(searchQ)===-1&&d.pair.toUpperCase().indexOf(searchQ)===-1) return false;
-    if(sf!=='all'&&d.signal!==sf) return false;
+    if(!_investMode&&sf!=='all'&&d.signal!==sf) return false;
     if(cf!=='all'&&d.cat!==cf) return false;
-    if(rf==='os'&&d.rsi>=30) return false;
-    if(rf==='ob'&&d.rsi<=70) return false;
-    if(rf==='mid'&&(d.rsi<30||d.rsi>70)) return false;
-    if(ef!=='all'&&d.trend!==ef) return false;
-    if(vf&&parseFloat(vf)>0&&d.volR<parseFloat(vf)) return false;
-    if(bf==='strong'&&!d.strongBuy) return false;
-    if(bf==='buy'&&(!d.buySignal||d.strongBuy)) return false;
-    if(bf==='any'&&!d.buySignal&&!d.strongBuy) return false;
-    if(bf==='sweep_buy'&&d.liq!=='buy_sweep') return false;
-    if(d.score<msc) return false;
+    if(!_investMode&&rf==='os'&&d.rsi>=30) return false;
+    if(!_investMode&&rf==='ob'&&d.rsi<=70) return false;
+    if(!_investMode&&rf==='mid'&&(d.rsi<30||d.rsi>70)) return false;
+    if(!_investMode&&ef!=='all'&&d.trend!==ef) return false;
+    if(!_investMode&&vf&&parseFloat(vf)>0&&d.volR<parseFloat(vf)) return false;
+    if(!_investMode&&bf==='strong'&&!d.strongBuy) return false;
+    if(!_investMode&&bf==='buy'&&(!d.buySignal||d.strongBuy)) return false;
+    if(!_investMode&&bf==='any'&&!d.buySignal&&!d.strongBuy) return false;
+    if(!_investMode&&bf==='sweep_buy'&&d.liq!=='buy_sweep') return false;
+    if(!_investMode&&d.score<msc) return false;
     return true;
   });
 
@@ -4895,7 +4997,7 @@ function render() {
       '<td class="adv-col"><span class="pill '+(LCLS[d.liq]||'pgr')+'">'+LTXT[d.liq]+'</span></td>'+
       '<td class="adv-col"><span style="color:var(--g);font-weight:700">'+fE(d.sup)+'</span><br><span style="color:var(--t3);font-size:10px">-'+d.sDist+'%</span></td>'+
       '<td class="adv-col"><span style="color:var(--r);font-weight:700">'+fE(d.res)+'</span><br><span style="color:var(--t3);font-size:10px">+'+d.rDist+'%</span></td>'+
-      (function(){ var mv = _investMode ? (d.invScore||0) : (d.opportunity||0); var mc = mv>=70?'#7c4dff':mv>=50?'var(--am)':'var(--t3)'; var mtc = mv>=70?'#7c4dff':mv>=50?'var(--am)':'var(--t2)'; return '<td style="background:rgba(124,77,255,.05)"><div style="display:flex;align-items:center;gap:5px"><div style="flex:1;height:5px;background:var(--card3);border-radius:3px;overflow:hidden"><div style="width:'+mv+'%;height:100%;background:'+mc+';border-radius:3px"></div></div><span style="font-weight:800;font-size:12px;color:'+mtc+'">'+mv+'</span></div></td>'; })()+
+      (function(){ if(_investMode&&d.invScore==null)return '<td title="'+investEsc(d.invReason)+'">Unavailable</td>'; var mv = _investMode ? d.invScore : (d.opportunity||0); var mc = mv>=70?'#7c4dff':mv>=50?'var(--am)':'var(--t3)'; var mtc = mv>=70?'#7c4dff':mv>=50?'var(--am)':'var(--t2)'; return '<td style="background:rgba(124,77,255,.05)"><div style="display:flex;align-items:center;gap:5px"><div style="flex:1;height:5px;background:var(--card3);border-radius:3px;overflow:hidden"><div style="width:'+mv+'%;height:100%;background:'+mc+';border-radius:3px"></div></div><span style="font-weight:800;font-size:12px;color:'+mtc+'">'+mv+'</span></div></td>'; })()+
       '<td class="adv-col" style="text-align:center"><span style="font-weight:800;font-size:12px;color:'+(d.rsRank>=70?'var(--g)':d.rsRank>=40?'var(--am)':'var(--r)')+'">'+(d.rsRank!=null?d.rsRank:'—')+'</span><br><span style="font-size:9px;color:var(--t3)">'+(d.rsRank>=70?'strong':d.rsRank>=40?'neutral':'weak')+'</span></td>'+
       '<td class="adv-col" style="text-align:center"><span style="font-weight:700;font-size:12px;color:'+((d.trendQ||0)>=60?'var(--g)':(d.trendQ||0)>=45?'var(--am)':'var(--t3)')+'">'+(d.trendQ||0)+'</span><br><span style="font-size:9px;color:var(--t3)">'+(d.trendQDir==='up'?'↑ ':d.trendQDir==='down'?'↓ ':'')+(d.trendQLabel||'')+'</span></td>'+
       '<td class="adv-col" style="text-align:center"><span style="font-weight:700;font-size:11px;color:'+(d.accum>=60?'var(--g)':d.accum>=40?'var(--am)':'var(--t3)')+'">'+rowMetricText(d.accum)+'</span>'+(rowMetricText(d.accum)>=60?'<br><span style="font-size:9px;color:var(--g)">Base candidate</span>':'')+'</td>'+
@@ -4956,8 +5058,8 @@ function renderMobileCards(rows) {
     var rsCol = d.rsRank>=70?'var(--g)':d.rsRank>=40?'var(--am)':'var(--r)';
     // Investing-mode: the primary metric becomes Value score, with accumulation context
     var invCol = (d.invScore||0)>=70?'#7c4dff':(d.invScore||0)>=50?'var(--am)':'var(--t2)';
-    var primaryLabel = _investMode ? '💎 Value' : '⭐ Opp';
-    var primaryVal = _investMode ? (d.invScore||0) : (d.opportunity||0);
+    var primaryLabel = _investMode ? '💎 Daily score' : '⭐ Opp';
+    var primaryVal = _investMode ? (d.invScore==null?'Unknown':d.invScore) : (d.opportunity||0);
     var primaryCol = _investMode ? invCol : oppCol;
 
     return '<div class="m-card" onclick="openModal(\''+d.sym+'\')"'+(d.rowDataReady!==false&&d.highConviction?' style="border-color:rgba(124,77,255,.5);box-shadow:inset 3px 0 0 #7c4dff"':'')+'>' +
@@ -4975,8 +5077,8 @@ function renderMobileCards(rows) {
         '<div class="m-metric"><div class="m-metric-l">'+primaryLabel+'</div><div class="m-metric-v" style="color:'+primaryCol+'">'+primaryVal+'</div></div>' +
         '<div class="m-metric"><div class="m-metric-l">RSI</div><div class="m-metric-v">'+d.rsi.toFixed(0)+'</div></div>' +
         (_investMode
-          ? '<div class="m-metric"><div class="m-metric-l">Discount</div><div class="m-metric-v" style="font-size:11px;color:'+((d.ddHigh||0)<=-20?'var(--g)':'var(--t2)')+'">'+(d.ddHigh!=null?d.ddHigh+'%':'—')+'</div></div>' +
-            '<div class="m-metric"><div class="m-metric-l">vs 200EMA</div><div class="m-metric-v" style="font-size:11px;color:'+((d.distE200||0)<0?'var(--g)':'var(--t2)')+'">'+(d.distE200!=null?(d.distE200>0?'+':'')+d.distE200+'%':'—')+'</div></div>'
+          ? '<div class="m-metric"><div class="m-metric-l">365d discount</div><div class="m-metric-v" style="font-size:11px;color:'+((d.ddHigh||0)<=-20?'var(--g)':'var(--t2)')+'">'+(d.ddHigh!=null?d.ddHigh.toFixed(1)+'%':'—')+'</div></div>' +
+            '<div class="m-metric"><div class="m-metric-l">vs daily EMA200</div><div class="m-metric-v" style="font-size:11px;color:'+'var(--t2)'+'">'+(d.distE200!=null?(d.distE200>0?'+':'')+d.distE200.toFixed(1)+'%':'—')+'</div></div>'
           : '<div class="m-metric"><div class="m-metric-l">Vol</div><div class="m-metric-v" style="font-size:12px">'+rowVolumeText(d.volR,1)+'</div></div>' +
             '<div class="m-metric"><div class="m-metric-l">Trend</div><div class="m-metric-v" style="font-size:11px">'+(d.trend==='up'?'↑':d.trend==='down'?'↓':'⇄')+'</div></div>'
         ) +
@@ -12520,10 +12622,16 @@ function setJournalTab(t){
   if(co) co.classList.toggle('active', t==='coach');
   if(tr) tr.classList.toggle('active', t==='trades');
   if(ps) ps.classList.toggle('active', t==='psych');
+  var inv=document.getElementById('jtab-invest');if(inv)inv.classList.toggle('active',t==='invest');
   renderJournal();
 }
 
 function renderJournal(){
+  if(_journalTab==='invest'){
+    // Background memo/outcome refreshes must not erase an in-progress purchase form.
+    if(document.getElementById('investment-entry-form'))return refreshInvestmentSummary();
+    return renderInvestmentJournal();
+  }
   if(_journalTab==='signals') return renderSignalLog();
   if(_journalTab==='coach') return renderCoach();
   if(_journalTab==='psych') return renderPsychologyJournal();
@@ -13305,14 +13413,16 @@ function analyzeCoinDNA(klines, btcKlines) {
 // TP levels at resistance + a HARD invalidation. Honest about the risk.
 // ═══════════════════════════════════════════════════════════════════════════
 function buildDCALadder(d, klines) {
-  if (!klines || klines.length < 50) return null;
-  var c = klines.map(function(k){return parseFloat(k[4]);});
-  var h = klines.map(function(k){return parseFloat(k[2]);});
-  var l = klines.map(function(k){return parseFloat(k[3]);});
-  var price = d.price;
-  var e200 = d.ema200 || calcEMA(c, Math.min(200,c.length));
-  var e50 = d.ema50 || calcEMA(c, 50);
-  var atrPct = d.atrPct || 3;
+  var daily=investmentAnalysis(klines,d.sym,Date.now());
+  if(!daily.ready)return null;
+  var closed=klines.slice(0,-1);
+  var c = closed.map(function(k){return Number(k[4]);});
+  var h = closed.map(function(k){return Number(k[2]);});
+  var l = closed.map(function(k){return Number(k[3]);});
+  var price = daily.price;
+  var e200 = daily.e200;
+  var e50 = daily.e50;
+  var atrPct = daily.atrPct;
 
   // ── HEALTH CHECK — is this a dip worth buying, or a falling knife? ──────────
   var aboveE200 = price > e200;
@@ -13323,8 +13433,8 @@ function buildDCALadder(d, klines) {
 
   var health, hcolor, hwarn;
   if (trendUp && aboveE200 && ddFromHigh > -20) {
-    health = '🟢 Healthy pullback — DCA reasonable'; hcolor='var(--g)';
-    hwarn = 'Coin is in an uptrend (50>200 EMA) and above its 200 EMA — this looks like a dip in an uptrend, the situation DCA is built for.';
+    health = 'Daily trend aligned — technical context only'; hcolor='var(--g)';
+    hwarn = 'Closed daily price is above daily EMA200, with EMA50 above EMA200. This does not establish fundamental value or approve an investment.';
   } else if (aboveE200 || (trendUp && ddFromHigh > -35)) {
     health = '🟡 Caution — partial weakness'; hcolor='var(--am)';
     hwarn = 'Mixed signals. Some trend support but also weakness. DCA only with smaller size and respect the invalidation strictly.';
@@ -13349,7 +13459,7 @@ function buildDCALadder(d, klines) {
   });
   // Build 3 DCA entries: nearest support, mid, deep. If not enough real supports,
   // fall back to volatility-scaled steps below price.
-  var step = Math.max(atrPct*1.5, 4); // % between levels, min 4%
+  var step = Math.min(20,Math.max(atrPct*1.5, 4)); // illustrative steps, bounded to stay positive
   var dca = [];
   var l1 = levels[0] || price*(1-step/100);
   var l2 = levels[1] || price*(1-step*2/100);
@@ -13357,16 +13467,16 @@ function buildDCALadder(d, klines) {
   // ensure descending and below price
   l1 = Math.min(l1, price*0.995); l2 = Math.min(l2, l1*0.985); l3 = Math.min(l3, l2*0.985);
   dca = [
-    {label:'Entry 1 (nearest support)', price:l1, fromNow:(l1-price)/price*100, real:!!levels[0]},
-    {label:'Entry 2 (deeper support)',  price:l2, fromNow:(l2-price)/price*100, real:!!levels[1]},
-    {label:'Entry 3 (major support)',   price:l3, fromNow:(l3-price)/price*100, real:!!levels[2]}
+    {label:'Study entry 1', price:l1, fromNow:(l1-price)/price*100, real:l1===levels[0]},
+    {label:'Study entry 2', price:l2, fromNow:(l2-price)/price*100, real:l2===levels[1]},
+    {label:'Study entry 3', price:l3, fromNow:(l3-price)/price*100, real:l3===levels[2]}
   ];
 
   // Two weighting schemes (user decides per-trade)
   var equalW = [33, 33, 34];
   var weightedW = [20, 30, 50]; // more at deeper/stronger levels
   // Average entry for each scheme
-  function avgEntry(w){ return (dca[0].price*w[0]+dca[1].price*w[1]+dca[2].price*w[2])/100; }
+  function avgEntry(w){return 100/(w[0]/dca[0].price+w[1]/dca[1].price+w[2]/dca[2].price);}
   var avgEqual = avgEntry(equalW);
   var avgWeighted = avgEntry(weightedW);
 
@@ -13378,11 +13488,7 @@ function buildDCALadder(d, klines) {
   resistances = resistances.sort(function(a,b){return a-b;});
   var rlevels = [];
   resistances.forEach(function(r){ if(!rlevels.some(function(x){return Math.abs(x-r)/x<0.015;})) rlevels.push(r); });
-  var tp = [
-    {label:'TP1 (first resistance)', price: rlevels[0] || price*1.08, sell:'40%'},
-    {label:'TP2 (next resistance)',  price: rlevels[1] || price*1.18, sell:'40%'},
-    {label:'TP3 (prior high / runner)', price: Math.max(recentHigh, rlevels[2]||price*1.30), sell:'20% — trail'}
-  ];
+  var tp = rlevels.slice(0,3).map(function(p,i){return {label:'Observed daily resistance '+(i+1),price:p,sell:['40%','40%','20%'][i]+' illustrative'};});
 
   // ── INVALIDATION — where the dip-buy thesis is wrong ────────────────────────
   // Below the deepest DCA level by a buffer, or below 200 EMA if trend breaks.
@@ -13392,20 +13498,8 @@ function buildDCALadder(d, klines) {
   // ── INVESTMENT EXIT PLAN — horizon-based scale-out (short / mid / long) ──────
   // Different from trading TP: these are TIME-HORIZON targets for a long hold,
   // each at a real structural level, with a sell % so you scale out over the cycle.
-  var allTimeHigh = Math.max.apply(null, h);           // highest high in the data window
-  var rangeHigh = rlevels.length ? rlevels[rlevels.length-1] : price*1.3;
-  // Short (weeks): first recovery / nearest resistance — a modest trim
-  var shortTP = rlevels[0] || price*1.10;
-  // Mid (months): a meaningful recovery — prior range high, or 50% retrace of the drawdown
-  var midRetrace = price + (allTimeHigh - price)*0.5;  // halfway back to the high
-  var midTP = Math.max(rangeHigh, midRetrace);
-  // Long (cycle, 1-2yr): the big target — prior all-time-high (aspirational)
-  var longTP = Math.max(allTimeHigh, midTP*1.15);
-  var investTP = [
-    {horizon:'Short — weeks', label:'First recovery / resistance', price:shortTP, gain:(shortTP-price)/price*100, sell:'15-20%', reliability:'more reliable'},
-    {horizon:'Mid — months',  label:'Range high / 50% retrace',    price:midTP,   gain:(midTP-price)/price*100,   sell:'30-40%', reliability:'moderate'},
-    {horizon:'Long — cycle',  label:'Prior all-time-high (aspirational)', price:longTP, gain:(longTP-price)/price*100, sell:'remainder — trail', reliability:'aspirational, not a prediction'}
-  ];
+  var windowHigh = Math.max.apply(null, h);
+  var investTP = tp.map(function(t,i){return {horizon:'Study level '+(i+1),label:t.label,price:t.price,gain:(t.price-price)/price*100,sell:t.sell,reliability:'observed level, no arrival-time or success prediction'};});
   // Structural invalidation for investing: the deep level where the LONG-TERM thesis
   // breaks — not a trading stop. Below the macro structure (well under 200 EMA / major low).
   var macroLow = Math.min.apply(null, l.slice(-Math.min(180, l.length)));
@@ -13416,6 +13510,7 @@ function buildDCALadder(d, klines) {
   var structInvalidFrom = (structInvalidation-price)/price*100;
 
   return {
+    source:daily.source,closedAt:daily.closedAt,referencePrice:price,windowHigh:windowHigh,
     health:health, hcolor:hcolor, hwarn:hwarn,
     dca:dca, tp:tp,
     equalW:equalW, weightedW:weightedW, avgEqual:avgEqual, avgWeighted:avgWeighted,
@@ -13433,7 +13528,7 @@ function buildDNATab(d) {
   // Fetch the coin's daily history. Try 180 bars; the coin's own data is required.
   // BTC data is optional (only used for beta/correlation) — never let it block DNA.
   function fetchCoin(attempt){
-    return bybitKlines(sym, '1d', 180).then(function(kl){
+    return bybitKlines(sym, '1d', 500).then(function(kl){
       if (!kl || kl.length < 60) {
         // retry once with fewer bars (newer coins have less history)
         if (attempt < 2) return bybitKlines(sym, '1d', 120).then(function(k2){ return k2; });
@@ -13451,7 +13546,7 @@ function buildDNATab(d) {
     // BTC for beta — optional, fetched separately so its failure can't break DNA
     var btcPromise = (sym === 'BTCUSDT' || sym === 'BTCJPY')
       ? Promise.resolve(null)
-      : bybitKlines('BTCUSDT', '1d', 180).catch(function(){ return null; });
+      : bybitKlines(/JPY$/.test(sym)?'BTCJPY':'BTCUSDT', '1d', 500).catch(function(){ return null; });
     btcPromise.then(function(btcKlines){
       var dna = analyzeCoinDNA(klines, btcKlines);
       if (!dna) { sec.innerHTML = '<div style="padding:2rem;text-align:center;color:var(--t3)">Could not compute DNA from the available data.</div>'; return; }
@@ -13659,16 +13754,18 @@ function renderDNA(d, dna, dnaKlines) {
 
   // ══ DCA LADDER — dip-buying plan ════════════════════════════════════════════
   var ladder = dnaKlines ? buildDCALadder(d, dnaKlines) : null;
+  if(!ladder)h+='<div style="padding:1rem;border:1px solid var(--bd);margin-top:1rem">Investing DCA study unavailable: '+investEsc(investmentAnalysis(dnaKlines||[],d.sym,Date.now()).reason)+'. No trading-timeframe fallback is used.</div>';
   if (ladder) {
     h += '<div style="background:var(--card2);border-radius:var(--rad-lg);padding:1rem;margin:1rem 0;border:.5px solid '+ladder.hcolor+'44">';
-    h += '<div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:.5rem">📉➡️📈 DCA Ladder — dip-buying plan</div>';
+    h += '<div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:.5rem">DCA study — closed daily data only</div>';
+    h += '<p style="font-size:11px">Reference close '+fE(ladder.referencePrice)+' · '+new Date(ladder.closedAt).toISOString()+' · '+investEsc(ladder.source)+'. Loaded-window high '+fE(ladder.windowHigh)+' — NOT an all-time high. Entries and invalidation are hypothetical study levels, not orders.</p>';
     h += '<div style="background:'+(ladder.hcolor==='var(--g)'?'rgba(38,166,154,.1)':ladder.hcolor==='var(--r)'?'rgba(239,83,80,.1)':'rgba(245,158,11,.1)')+';border-radius:var(--rad);padding:.7rem;margin-bottom:.875rem">';
     h += '<div style="font-size:13px;font-weight:800;color:'+ladder.hcolor+';margin-bottom:3px">'+ladder.health+'</div>';
     h += '<div style="font-size:11px;color:var(--t2);line-height:1.5">'+ladder.hwarn+'</div></div>';
     h += '<div style="font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;margin-bottom:.4rem">Buy levels (DCA in)</div>';
     h += ladder.dca.map(function(e){
       return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:.5px solid var(--bd);font-size:12px">' +
-        '<span style="flex:0 0 145px;color:var(--t2)">'+e.label+(e.real?'':' <span style="font-size:9px;color:var(--t3)">(est)</span>')+'</span>' +
+        '<span style="flex:0 0 145px;color:var(--t2)">'+e.label+(e.real?' (observed support)':' (estimated step)')+'</span>' +
         '<span style="flex:0 0 auto;font-weight:800;color:var(--g)">'+fE(e.price)+'</span>' +
         '<span style="margin-left:auto;font-size:11px;color:var(--r)">'+e.fromNow.toFixed(1)+'%</span></div>';
     }).join('');
@@ -13680,8 +13777,9 @@ function renderDNA(d, dna, dnaKlines) {
       '<div style="font-size:11px;color:var(--t2)">'+ladder.weightedW.join('% / ')+'%</div>' +
       '<div style="font-size:10px;color:var(--t3);margin-top:3px">Avg entry: <strong style="color:var(--text)">'+fE(ladder.avgWeighted)+'</strong></div></div>';
     h += '</div>';
-    h += '<div style="font-size:10px;color:var(--t3);margin-top:.4rem">Equal = simpler. Weighted = buy more at deeper/stronger support for a lower average — but commits more capital if it keeps falling. Pick per-trade based on conviction.</div>';
+    h += '<div style="font-size:10px;color:var(--t3);margin-top:.4rem">Percentages are cash allocations, not coin quantities. Average = total cash / total units, assuming all three levels fill, before fees. Illustrative allocations only. Record actual purchases in the Investing journal.</div>';
     h += '<div style="font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;margin:.875rem 0 .4rem">Take-profit levels (sell into strength)</div>';
+    if(!ladder.tp.length)h+='<p>No observed daily resistance above the reference close. Targets unavailable; no percentage fallback is fabricated.</p>';
     h += ladder.tp.map(function(t){
       return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:.5px solid var(--bd);font-size:12px">' +
         '<span style="flex:0 0 145px;color:var(--t2)">'+t.label+'</span>' +
@@ -13690,15 +13788,15 @@ function renderDNA(d, dna, dnaKlines) {
     }).join('');
     h += '<div style="background:rgba(239,83,80,.1);border:.5px solid rgba(239,83,80,.3);border-radius:var(--rad);padding:.7rem;margin-top:.875rem">';
     h += '<div style="font-size:12px;font-weight:800;color:var(--r);margin-bottom:2px">🛑 Invalidation: '+fE(ladder.invalidation)+' ('+ladder.invalidFrom.toFixed(1)+'%)</div>';
-    h += '<div style="font-size:11px;color:var(--t2);line-height:1.5">If price closes below this, the dip-buy thesis is <strong>wrong</strong> — stop adding and reassess. This is the line that separates DCA from catching a falling knife.</div></div>';
+    h += '<p style="font-size:11px">Illustrative daily price-review threshold. It is not a guaranteed loss limit. Define fundamental invalidation separately in your risk notes.</p></div>';
     h += '<div style="font-size:10px;color:var(--t3);margin-top:.75rem;line-height:1.5">⚠️ Levels built from this coin\'s real support/resistance + volatility. DCA <strong>assumes you\'re right about direction</strong> — if it\'s in a genuine downtrend, every level is just a worse entry. The health check + invalidation are your honesty guards. Planning tool, not a buy signal.</div>';
     h += '</div>';
 
     // ══ INVESTMENT EXIT PLAN — horizon-based scale-out (for long holds) ══════════
     if (ladder.investTP) {
       h += '<div style="background:var(--card2);border-radius:var(--rad-lg);padding:1rem;margin:1rem 0;border:.5px solid rgba(124,77,255,.3)">';
-      h += '<div style="font-size:13px;font-weight:800;color:#7c4dff;margin-bottom:.3rem">💎 Investment Exit Plan — scale out by horizon</div>';
-      h += '<div style="font-size:10px;color:var(--t3);margin-bottom:.75rem;line-height:1.5">For a long-term hold (not a trade). Sell portions as each time-horizon target is reached, so you bank gains through the cycle instead of all-or-nothing. The further out, the less reliable the level.</div>';
+      h += '<div style="font-size:13px;font-weight:800;color:#7c4dff;margin-bottom:.3rem">Investment exit study — observed resistance</div>';
+      h += '<div style="font-size:10px;color:var(--t3);margin-bottom:.75rem;line-height:1.5">No predicted arrival date or recovery guarantee. Portions are illustrative, not a personalized investment plan.</div>';
       h += ladder.investTP.map(function(t){
         var hc = t.horizon.indexOf('Short')===0?'var(--g)':t.horizon.indexOf('Mid')===0?'var(--am)':'#7c4dff';
         return '<div style="padding:7px 0;border-bottom:.5px solid var(--bd)">' +
@@ -13715,9 +13813,9 @@ function renderDNA(d, dna, dnaKlines) {
       // Structural invalidation (NOT a trading stop)
       h += '<div style="background:rgba(239,83,80,.08);border:.5px solid rgba(239,83,80,.3);border-radius:var(--rad);padding:.7rem;margin-top:.875rem">';
       h += '<div style="font-size:12px;font-weight:800;color:var(--r);margin-bottom:2px">🛑 Structural invalidation: '+fE(ladder.structInvalidation)+' ('+ladder.structInvalidFrom.toFixed(0)+'%)</div>';
-      h += '<div style="font-size:11px;color:var(--t2);line-height:1.5">This is <strong>not a trading stop</strong> — it sits deep below the macro structure, where normal volatility won\'t reach. If price closes below it, the long-term thesis is genuinely broken (the trend structure has failed), and that\'s the level to exit the investment entirely. <strong>For a long hold, your main risk control is position sizing and buying quality — not a tight stop.</strong> A long-term investment should be sized so you can stomach the drawdowns down to this level without panic-selling.</div></div>';
+      h += '<p style="font-size:11px">Illustrative buffered daily level, not a guaranteed loss limit or fundamental thesis test. Normal volatility can cross it. Record asset-specific risks and your maximum cash exposure separately.</p></div>';
 
-      h += '<div style="font-size:10px;color:var(--t3);margin-top:.75rem;line-height:1.5">⚠️ <strong>Long-term targets are aspirational, not predictions.</strong> Many coins never reclaim their prior highs — that\'s why even the long target says "sell the remainder and trail," not "hold forever expecting the ATH." This plan only makes sense for <strong>quality coins you believe will survive a cycle</strong>; on a weak low-cap, the cycle target is fantasy. Always pair with your own research on the project\'s fundamentals.</div>';
+      h += '<p style="font-size:11px">Observed resistance does not imply recovery. No all-time-high claim is made from limited history. Fundamental review remains separate from chart analysis.</p>';
       h += '</div>';
     }
   }
@@ -13813,6 +13911,7 @@ function askClaude(sym){
   var d = allData.find(function(x){return x.sym===sym;});
   var out = document.getElementById('claude-answer');
   if(!d || !out) return;
+  if(_investMode&&!investmentCurrent(sym)){out.textContent='Investing analysis unavailable: load valid daily/weekly history first. No trading-timeframe fallback will be sent.';refreshInvestmentData();return;}
   out.innerHTML = '<div style="font-size:11px;color:var(--t3)">🧠 Claude is reading the setup…</div>';
 
   var st = signalLogStats();
@@ -13847,8 +13946,9 @@ function askClaude(sym){
              : d.tlBounceUp ? ('bounce off a validated uptrend line ('+(d.tlUpTouches||0)+' touches)')
              : d.tlBreakDown ? 'UPTREND LINE BROKEN on a close — structure failed'
              : 'no validated trendline event',
-    drawdownFromHigh: d.ddHigh!=null?d.ddHigh+'%':null,
+    drawdownFromHigh: d.ddHigh!=null?d.ddHigh.toFixed(1)+'%':null,
     mode: _investMode ? 'INVESTING (long-term accumulation)' : 'TRADING (short-term spot)',
+    investingData:_investMode?(function(){var a=investmentCurrent(sym);return {source:a.source,closedAt:a.closedAt,referenceClose:a.price,dailyEMA50:a.e50,dailyEMA200:a.e200,dailyEMA200Rising:a.e200Rising,dailyRSI:a.rsi,dailyATRpct:a.atrPct,weeklyClose:a.weeklyClose,weeklyEMA20:a.weeklyEMA20,weeklyEMA50:a.weeklyEMA50,weeklyAligned:a.weeklyUp,discountFrom365DayHighestClose:a.dd,technicalScore:a.score,study:buildDCALadder(d,a.bars),fundamentals:'Unknown; rank and price indicators do not verify asset quality'};})():null,
     myLogTrackRecord: (function(){
       if(!st.resolved) return 'no resolved trades yet — do NOT cite any win rate';
       // The ruleset has been materially rebuilt (setups removed, lateness guard,
@@ -13872,6 +13972,7 @@ function askClaude(sym){
   }
 
   sys += '\nFIB LIFECYCLE RULE: autoFib.usable=false or EXTENSION COMPLETE means the old Fib is historical only. Ignore its anchor prices and all dashed P/PROVISIONAL levels in a chart image for entries, stops, targets, and signal confirmation. Wait for a new confirmed pivot. A target marked PASSED is not a future target or proof of an order fill. Never invent a replacement target just because the prior target was passed.';
+  if(_investMode)sys+='\nINVESTING DATA BOUNDARY: use investingData exclusively for investment trend, RSI, volatility and DCA levels. Other metrics, chart images and recentCandles describe a separate trading timeframe and must not replace daily/weekly measures. technicalScore is not valuation or a probability. The study uses cash-weighted allocations and hypothetical levels; no arrival dates or fabricated all-time highs. Unknown fundamentals stay unknown. Do not turn investment review into a short-term order or assume a plan is filled.';
   sys += '\nCHART TRENDLINE RULE: chartTrendlines is the canonical active-chart timeframe result. Do not substitute scanner trendline flags from scannerTrendlineTimeframe when timeframes differ. Two-anchor CANDIDATE is not validated support/resistance. A closed break alone is not a BUY. Distinguish closed break, held retest, and failed break. Manual lines and Fib anchor connectors are not evidence. Pattern-match scores are heuristic scores, not probabilities.';
   var key = (localStorage.getItem('ai_api_key') || localStorage.getItem('anthropic_api_key') || '').trim();
   // Anthropic keys reliably start with sk-ant. ANYTHING ELSE routes to Gemini —
