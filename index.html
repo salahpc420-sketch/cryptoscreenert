@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="chart-build" content="2026.09.21-market-native-r7">
+<meta name="scanner-build" content="2026.09.22-sweep-v2">
 <meta name="agent-build" content="2026.09.07-keyless-r2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -2471,83 +2472,97 @@ function detectTrendlines(h,l,c,context) {
   return {up:book.up,down:book.down,history:history,closedOnly:true,lookback:lookback,pivotBars:strength,rebuilt:rebuilt,settingsVersion:3};
 }
 
-// Liquidity sweep detection
-function calcLiq(h, l, c, sup, res, atr, poolLevels) {
-  if (c.length < 20) return 'none';
-  var n = c.length, lc = c[n-1], pc = c[n-2];
-  var hi = h[n-1], lo = l[n-1], op = c[n-2];        // current candle geometry
-  var rng = hi - lo;
-  var recL  = Math.min.apply(null, l.slice(-5)),  recH  = Math.max.apply(null, h.slice(-5));
-  var prevL = Math.min.apply(null, l.slice(-20,-5)), prevH = Math.max.apply(null, h.slice(-20,-5));
-
-  // ITEM 1: ATR-NORMALIZED threshold (was a fixed 0.1% — noise on volatile coins).
-  // A genuine sweep overshoots a level by a small-but-real amount, not a tie and
-  // not a full break. Min ~0.05 ATR, treat >0.6 ATR beyond as a real break.
-  var A = (atr && atr > 0) ? atr : lc * 0.005;
-  var minPen = 0.05 * A, maxPen = 0.6 * A;
-
-  // ITEM 3: sweep the REAL liquidity pools where stops cluster (PDH/PDL/PWH/PWL/
-  // equal highs-lows), not only calcSR support/resistance. Research ranks these
-  // as the most reliable liquidity. Fall back to sup/res when pools absent.
-  var lowLevels = [sup], highLevels = [res];
-  if (poolLevels && poolLevels.length){
-    poolLevels.forEach(function(p){
-      if (p == null || !isFinite(p)) return;
-      if (p < lc) lowLevels.push(p); else highLevels.push(p);
-    });
-  }
-  // nearest level just below / above current price (the one price would hunt)
-  var supL = Math.max.apply(null, lowLevels.filter(function(x){ return x < lc; }).concat([-Infinity]));
-  var resL = Math.min.apply(null, highLevels.filter(function(x){ return x > lc; }).concat([Infinity]));
-
-  // ITEM 2: WICK DOMINANCE — the rejection wick must be >=50% of the candle range.
-  function wickOk(lower){
-    if (rng <= 0) return false;
-    var wick = lower ? (Math.min(op, lc) - lo) : (hi - Math.max(op, lc));
-    return wick / rng >= 0.5;
-  }
-
-  // BULLISH sweep: wick below a real level, close back above, controlled overshoot, dominant wick
-  if (isFinite(supL) && supL > 0){
-    var penDn = supL - lo;
-    if (lo < supL && lc > supL && lc > pc && penDn >= minPen && penDn <= maxPen && wickOk(true))
-      return 'buy_sweep';
-  }
-  // BEARISH sweep: wick above a real level, close back below
-  if (isFinite(resL) && resL < Infinity){
-    var penUp = hi - resL;
-    if (hi > resL && lc < resL && lc < pc && penUp >= minPen && penUp <= maxPen && wickOk(false))
-      return 'sell_sweep';
-  }
-  // Structure tags only (no fallback buy_sweep — the ATR+wick+reclaim rules
-  // above are the sole path to a sweep now, so a tie or drift never qualifies).
-  if (lc > res) return 'above_res';
-  if (lc < sup) return 'below_sup';
-  return 'none';
+// Price-action sweep evidence, not measured stop orders or an automatic entry.
+// Thresholds are unchanged heuristics: 0.05–0.60 ATR penetration, >=50% wick.
+function calcLiqEvidence(h, l, c, sup, res, atr, poolLevels, actualOpen) {
+  var out={tag:'none',level:null,matches:[],settingsVersion:2},n=c&&c.length;
+  if(!n||n<20||!h||!l||h.length!==n||l.length!==n)return out;
+  var lc=c[n-1],pc=c[n-2],hi=h[n-1],lo=l[n-1],op=actualOpen;
+  if(![lc,pc,hi,lo,op].every(function(x){return typeof x==='number'&&isFinite(x)&&x>0;})||hi<Math.max(op,lc)||lo>Math.min(op,lc))return out;
+  var rng=hi-lo,A=typeof atr==='number'&&isFinite(atr)&&atr>0?atr:lc*.005;
+  var candidates=[{price:sup,kind:'support',side:'low'},{price:res,kind:'resistance',side:'high'}];
+  (poolLevels||[]).forEach(function(p,i){
+    var meta=poolLevels.details&&poolLevels.details[i];
+    candidates.push(Object.assign({},meta||{kind:'period'}, {price:p,side:p<lc?'low':'high'}));
+  });
+  // Evaluate EVERY eligible level first. Only then choose the nearest match.
+  candidates.forEach(function(L){
+    var p=L.price,low=L.side==='low';
+    if(typeof p!=='number'||!isFinite(p)||p<=0||rng<=0)return;
+    var pen=low?p-lo:hi-p,wick=low?Math.min(op,lc)-lo:hi-Math.max(op,lc);
+    if((low?lc>p&&lc>pc:lc<p&&lc<pc)&&pen>=.05*A&&pen<=.60*A&&wick/rng>=.5){
+      out.matches.push(Object.assign({},L,{tag:low?'buy_sweep':'sell_sweep',penetrationATR:pen/A,wickRatio:wick/rng}));
+    }
+  });
+  out.matches.sort(function(a,b){return Math.abs(a.price-lc)-Math.abs(b.price-lc);});
+  if(out.matches.length){out.tag=out.matches[0].tag;out.level=out.matches[0].price;out.selected=out.matches[0];}
+  else if(typeof res==='number'&&isFinite(res)&&res>0&&lc>res)out.tag='above_res';
+  else if(typeof sup==='number'&&isFinite(sup)&&sup>0&&lc<sup)out.tag='below_sup';
+  return out;
+}
+function calcLiq(h, l, c, sup, res, atr, poolLevels, actualOpen) {
+  return calcLiqEvidence(h,l,c,sup,res,atr,poolLevels,actualOpen).tag;
 }
 
-// Compute previous-day / previous-week high-low pools from the scan candles,
-// using real UTC boundaries. Cheap, no extra fetch — feeds calcLiq item 3.
-function calcPeriodPools(klines){
-  if (!klines || klines.length < 10) return [];
-  function bound(ms, kind){ var d = new Date(ms);
-    if (kind==='d') return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-    // week: back up to Monday
-    var day = (d.getUTCDay()+6)%7;
-    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - day*86400000;
+// Reference is the candidate candle OPEN, never the next forming candle.
+// Return numeric prices for compatibility, plus provenance and coverage status.
+// Missing/partial periods are unavailable; they are never silently approximated.
+function calcPeriodPools(klines, candidateTime, interval){
+  var out=[];out.details=[];out.unavailable=[];
+  if(!Array.isArray(klines)||typeof candidateTime!=='number'||!isFinite(candidateTime)||typeof interval!=='number'||!isFinite(interval)||interval<=0){
+    out.unavailable=['PDH/PDL: invalid reference','PWH/PWL: invalid reference'];return out;
   }
-  var last = parseInt(klines[klines.length-1][0]);
-  var curD = bound(last,'d'), curW = bound(last,'w');
-  var pdh=-Infinity,pdl=Infinity,pwh=-Infinity,pwl=Infinity, hasD=false,hasW=false;
-  klines.forEach(function(k){
-    var t = parseInt(k[0]), hi = parseFloat(k[2]), lo = parseFloat(k[3]);
-    if (bound(t,'d') === curD-86400000){ hasD=true; if(hi>pdh)pdh=hi; if(lo<pdl)pdl=lo; }
-    if (bound(t,'w') === curW-7*86400000){ hasW=true; if(hi>pwh)pwh=hi; if(lo<pwl)pwl=lo; }
+  var d=new Date(candidateTime),day=Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate());
+  var week=day-((d.getUTCDay()+6)%7)*86400000;
+  [{end:day,size:86400000,names:['PDH','PDL']},{end:week,size:7*86400000,names:['PWH','PWL']}].forEach(function(period){
+    var start=period.end-period.size,count=period.size/interval;
+    var rows=klines.filter(function(k){return k&&Number(k[0])>=start&&Number(k[0])<period.end;});
+    var valid=Number.isInteger(count)&&count>=1&&rows.length===count;
+    if(valid)valid=rows.every(function(k,i){
+      var t=Number(k[0]),o=Number(k[1]),h=Number(k[2]),l=Number(k[3]),c=Number(k[4]);
+      return t===start+i*interval&&t+interval<=period.end&&t+interval<=candidateTime&&
+        [o,h,l,c].every(function(x){return isFinite(x)&&x>0;})&&h>=Math.max(o,c)&&l<=Math.min(o,c);
+    });
+    if(!valid){out.unavailable.push(period.names.join('/')+': complete UTC period unavailable');return;}
+    var high=Math.max.apply(null,rows.map(function(k){return Number(k[2]);}));
+    var low=Math.min.apply(null,rows.map(function(k){return Number(k[3]);}));
+    [high,low].forEach(function(price,i){out.push(price);out.details.push({price:price,kind:period.names[i],periodStart:start,availableAt:period.end});});
   });
-  var out = [];
-  if (hasD){ out.push(pdh); out.push(pdl); }
-  if (hasW){ out.push(pwh); out.push(pwl); }
-  return out.filter(function(x){ return isFinite(x); });
+  return out;
+}
+
+// Shared by the main scan, candle-close watcher and historical replay.
+// candidateIndex is explicit: live callers drop the forming bar; replay uses i.
+function calcScannerLiquidity(klines, candidateIndex, tf){
+  var empty={tag:'none',level:null,matches:[],settingsVersion:2,unavailablePools:[],valid:false};
+  var interval={'15m':900000,'1h':3600000,'4h':14400000,'1d':86400000,'1w':604800000}[tf];
+  if(!Array.isArray(klines)||!Number.isInteger(candidateIndex)||candidateIndex<20||candidateIndex>=klines.length||!interval)return empty;
+  var bars=klines.slice(Math.max(0,candidateIndex-298),candidateIndex+1);
+  if(bars.some(function(k,i){
+    if(!Array.isArray(k))return true;
+    var t=Number(k[0]),o=Number(k[1]),h=Number(k[2]),l=Number(k[3]),c=Number(k[4]);
+    return !Number.isSafeInteger(t)||t<0||![o,h,l,c].every(function(x){return isFinite(x)&&x>0;})||
+      h<Math.max(o,c)||l>Math.min(o,c)||(i&&t-Number(bars[i-1][0])!==interval);
+  }))return empty;
+  var h=bars.map(function(k){return Number(k[2]);}),l=bars.map(function(k){return Number(k[3]);}),c=bars.map(function(k){return Number(k[4]);});
+  var candidate=bars[bars.length-1],at=Number(candidate[0]);
+  // Support/resistance must already exist before the candidate starts.
+  var sr=calcSR(h.slice(0,-1),l.slice(0,-1),c.slice(0,-1));
+  var pools=calcPeriodPools(bars,at,interval);
+  var evidence=calcLiqEvidence(h,l,c,sr.sup,sr.res,calcATR(h,l,c,14),pools,Number(candidate[1]));
+  evidence.valid=true;evidence.openTime=at;evidence.closeTime=at+interval;evidence.timeframe=tf;
+  evidence.source=klines.dataSource||'Unknown';evidence.unavailablePools=pools.unavailable;
+  evidence.poolDetails=pools.details;evidence.support=sr.sup;evidence.resistance=sr.res;
+  if(evidence.selected&&!evidence.selected.availableAt)evidence.selected.availableAt=at;
+  return evidence;
+}
+
+function scannerSweepNote(d){
+  var e=d&&d.liqEvidence;
+  if(!e)return 'Price-action sweep proxy; not measured stop orders or an automatic buy.';
+  return (e.valid?'Closed-candle sweep rules v2. ':'Sweep unavailable: invalid candle history. ')+
+    (e.selected?'Matched '+e.selected.kind+' at '+e.level+'. ':'')+
+    (e.unavailablePools||[]).join(' · ')+'. Price-action proxy; not measured stop orders or an automatic buy.';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3037,8 +3052,8 @@ function processSymbol(ticker, btcReferenceOverride) {
       tlBounceUp = l[_li] <= _lv + _tl.up.touchTolerance && h[_li] >= _lv - _tl.up.touchTolerance && c[_li] > _lv && c[_li] > c[_li - 1];
     }
     var tlBreakDown = !!(_tl.up && _tl.up.brokeDownNow);
-    var _pools = calcPeriodPools(klines);
-    var liq = calcLiq(h, l, c, sr.sup, sr.res, atr, _pools);
+    var liqEvidence = calcScannerLiquidity(klines, klines.length-2, catalystTF);
+    var liq = liqEvidence.tag;
 
 
     // ── HORIZONTAL LEVEL FLIP — broken resistance now holding as support ──────
@@ -3464,12 +3479,13 @@ function processSymbol(ticker, btcReferenceOverride) {
       catalystMarket: _catMarketSnapshot(klines, catalystTF, c.length),
       invScore:invScore, ddHigh:ddHigh, distE200:distE200pct,
       invEligible:invEligible, invReason:invReason, e200Rising:e200Rising, coinRank:coinRank,
-      struct:st, liq:liq, sup:sr.sup, res:sr.res, sDist:sr.sDist, rDist:sr.rDist,
+      struct:st, liq:liq, liqEvidence:liqEvidence, sup:sr.sup, res:sr.res, sDist:sr.sDist, rDist:sr.rDist,
       // Preserve the actual closed sweep candle, never the live ticker price.
       sweepCandle:liq==='buy_sweep'&&klines.length>1?{
         openTime:Number(klines[klines.length-2][0]),closeTime:analysisSnapshot.lastClosedTime,
         open:Number(klines[klines.length-2][1]),high:h[h.length-1],low:l[l.length-1],close:closePx,
-        level:Math.max.apply(null,[sr.sup].concat(_pools||[]).filter(function(p){return isFinite(p)&&p>0&&p<closePx;}))
+        level:liqEvidence.level,levelKind:liqEvidence.selected.kind,
+        levelAvailableAt:liqEvidence.selected.availableAt,settingsVersion:liqEvidence.settingsVersion
       }:null,
       score:sc, bp:bp, pp:pp,
       buySignal:signalBuyActive, strongBuy:signalStrongActive, highConviction:highConviction,
@@ -5108,7 +5124,7 @@ function render() {
         rowVolumeText(d.volR,2)+'' +
         '<br><span style="font-size:9px;font-weight:400;color:var(--t3)">'+(!rowMetricKnown(d.volR)?'Unknown':d.volR>=2?'🟢 High':d.volR>=1.5?'🟡 Above':d.volR>=0.7?'⚪ Avg':'🔴 Low')+'</span></td>' +
       '<td><span class="pill '+(SCLS[d.struct]||'pgr')+'">'+d.struct+'</span></td>'+
-      '<td class="adv-col"><span class="pill '+(LCLS[d.liq]||'pgr')+'">'+LTXT[d.liq]+'</span></td>'+
+      '<td class="adv-col"><span title="'+scannerSweepNote(d).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'" class="pill '+(LCLS[d.liq]||'pgr')+'">'+LTXT[d.liq]+'</span></td>'+
       '<td class="adv-col"><span style="color:var(--g);font-weight:700">'+fE(d.sup)+'</span><br><span style="color:var(--t3);font-size:10px">-'+d.sDist+'%</span></td>'+
       '<td class="adv-col"><span style="color:var(--r);font-weight:700">'+fE(d.res)+'</span><br><span style="color:var(--t3);font-size:10px">+'+d.rDist+'%</span></td>'+
       (function(){ if(_investMode&&d.invScore==null)return '<td title="'+investEsc(d.invReason)+'">Unavailable</td>'; var mv = _investMode ? d.invScore : (d.opportunity||0); var mc = mv>=70?'#7c4dff':mv>=50?'var(--am)':'var(--t3)'; var mtc = mv>=70?'#7c4dff':mv>=50?'var(--am)':'var(--t2)'; return '<td style="background:rgba(124,77,255,.05)"><div style="display:flex;align-items:center;gap:5px"><div style="flex:1;height:5px;background:var(--card3);border-radius:3px;overflow:hidden"><div style="width:'+mv+'%;height:100%;background:'+mc+';border-radius:3px"></div></div><span style="font-weight:800;font-size:12px;color:'+mtc+'">'+mv+'</span></div></td>'; })()+
@@ -8990,7 +9006,7 @@ function buildEntryTab(d){
   else if(d.struct==='consolidation'){sc+=4;factors.push({s:4,m:15,ok:false,l:'Structure',t:'Consolidation — no direction ⚠'});}
   else{factors.push({s:0,m:15,ok:false,l:'Structure',t:d.struct+' — bearish ❌'});}
   // 6. Liq Sweep (10pts)
-  if(d.liq==='buy_sweep'){sc+=10;factors.push({s:10,m:10,ok:true,l:'Liq Sweep',t:'Sweep below support — smart money entry ✅'});}
+  if(d.liq==='buy_sweep'){sc+=10;factors.push({s:10,m:10,ok:true,l:'Liq Sweep',t:'Low swept and reclaimed on a closed candle; not an automatic entry'});}
   else if(d.liq==='sell_sweep'){factors.push({s:0,m:10,ok:false,l:'Liq Sweep',t:'Sweep above resistance — bearish reversal ❌'});}
   else{sc+=3;factors.push({s:3,m:10,ok:false,l:'Liq Sweep',t:'No confirmed sweep ⚠'});}
   // 7. R:R (5pts)
@@ -9080,7 +9096,7 @@ function buildRuleTab(d){
     {ok:d.rsi>50&&d.rsi<70,t:'RSI '+d.rsi.toFixed(1)+' in bullish zone (50–70)'},
     {ok:d.volR>1.5,t:'Volume ratio '+rowVolumeText(d.volR,2)+' ≥ 1.5'},
     {ok:d.struct==='breakout'||d.struct==='HH/HL',t:'Structure: '+d.struct+' (breakout or HH/HL required)'},
-    {ok:d.liq==='buy_sweep',t:'Liquidity sweep below support (smart money buy)'},
+    {ok:d.liq==='buy_sweep',t:'Low swept and reclaimed on a closed candle'},
   ];
   var met=conds.filter(function(c){return c.ok;}).length;
   var verdict=d.strongBuy?'⚡ STRONG BUY':d.buySignal?'✅ BUY — enter':d.sellSignal?'🔴 SELL SIGNAL':'🚫 CONDITIONS NOT MET';
@@ -9546,6 +9562,7 @@ function autoLogBuySweeps(data){
     function metric(v){return typeof v==='number'&&isFinite(v)?v:null;}
     var record={id:id,kind:'buy_sweep',sym:d.sym,pair:d.pair||d.sym,tf:s.timeframe,
       closedAt:b.closeTime,observedAt:now,referenceClose:b.close,sweptLevel:b.level,
+      detectorVersion:b.settingsVersion||1,levelKind:b.levelKind||null,levelAvailableAt:b.levelAvailableAt||null,
       open:b.open,high:b.high,low:b.low,source:s.source,signature:s.signature,
       rsi:metric(d.rsi),volR:metric(d.volR),btcState:typeof btcState==='string'?btcState:'unknown',
       status:'observed',note:'Closed-candle sweep and reclaim; simulated study, not an executed trade.'};
@@ -9577,7 +9594,7 @@ function buildBuySweepLogPanel(){
     '<p style="font-size:12px;color:var(--t2);line-height:1.6"><strong>Entry = sweep close · SL = 0.1% below sweep low · TP = 2× risk (2R).</strong> Fixed study rules, not a trading recommendation. Levels never move after logging. Check up to 48 later candles on the signal timeframe; then close the study at that candle’s close.</p>'+
     '<div style="font-size:12px;padding:8px;background:var(--card);border-radius:6px"><strong>'+counts.tp+' TP hit · '+counts.sl+' SL hit · '+counts.open+' Open / data wait · '+counts.expired+' Timed out · '+counts.unclear+' Unclear</strong><br>TP hit rate: '+(resolved?(counts.tp/resolved*100).toFixed(1)+'% ('+counts.tp+'/'+resolved+' TP-or-SL outcomes)':'—')+' · excludes open, unclear and timed-out studies. Small samples do not establish an edge.</div>'+
     '<p style="font-size:11px;color:var(--t3);line-height:1.5">Hypothetical entry at the confirmed close—not an actual fill. Old observations are reconstructed from subsequent candles and are historical studies. No fees or normal slippage deducted; stop gaps use the opening price. If both levels are touched in one candle, the result is Unclear. Uses completed candles from the original exchange only; missing history is flagged, not guessed. Separate from your trade win rate and bot.</p>'+
-    '<p style="font-size:11px;color:var(--t3)">Auto refresh finds new sweeps. Outcomes recheck every minute while this page is visible, on scans, and when opening this journal. Reopening checks saved entries; history outside the last 1,000 candles may be unavailable. Saved in this browser only; latest 1,500 retained.</p>'+
+    '<p style="font-size:11px;color:var(--t3)">Auto refresh finds new sweeps. Outcomes recheck every minute while this page is visible, on scans, and when opening this journal. Reopening checks saved entries; history outside the last 1,000 candles may be unavailable. Saved in this browser only; latest 1,500 retained. Details show the detector version; legacy records are preserved, and combined statistics mix different detector versions.</p>'+
     (buySweepLogError?'<p role="alert" style="color:var(--r)">'+esc(buySweepLogError)+'</p>':'')+
     (!rows.length?'<p style="color:var(--t3)">No Buy Sweeps recorded yet. The next confirmed sweep found by the screener will appear here.</p>':
     '<div style="overflow:auto;max-height:440px"><table style="width:100%;font-size:11px;text-align:left;border-collapse:collapse"><thead><tr>'+['Coin / TF','Paper entry','Stop loss','Take profit','What happened?'].map(function(h){return '<th style="padding:8px;white-space:nowrap">'+h+'</th>';}).join('')+'</tr></thead><tbody>'+
@@ -9586,7 +9603,7 @@ function buildBuySweepLogPanel(){
       var pending=s&&s.status==='open'&&/missing|unavailable|invalid|alternate/i.test(s.dataNote||'');
       if(pending)label='⚠ Data wait — outcome unknown';
       var change=s?(s.status==='open'?(s.lastPrice/s.entry-1)*100:s.resultPct):null;
-      var detail='<details><summary>Details / evidence</summary><div style="white-space:normal;min-width:190px;line-height:1.6">Sweep closed '+esc(date(r.closedAt))+'<br>First logged '+esc(date(r.observedAt))+'<br>Swept level '+price(r.sweptLevel)+' · Low '+price(r.low)+'<br>RSI '+esc(r.rsi)+' · Volume '+esc(r.volR)+'×<br>BTC context '+esc(r.btcState)+' · '+esc(r.source)+(s?'<br>Checked '+esc(date(s.checkedAt))+'<br>'+esc(s.dataNote)+(s.exitBarAt?'<br>Outcome candle '+esc(date(s.exitBarAt))+' → '+esc(date(s.exitBarEnd)):'<br>Latest evaluated close '+esc(date(s.lastPriceAt)))+(s.gap?'<br>Level crossed at candle open.':''):'')+'</div></details>';
+      var detail='<details><summary>Details / evidence</summary><div style="white-space:normal;min-width:190px;line-height:1.6">Sweep closed '+esc(date(r.closedAt))+'<br>First logged '+esc(date(r.observedAt))+'<br>Swept level '+price(r.sweptLevel)+' · Low '+price(r.low)+'<br>Detector v'+esc(r.detectorVersion||1)+(r.levelKind?' · '+esc(r.levelKind)+' · available '+esc(date(r.levelAvailableAt)):' · legacy observation')+'<br>RSI '+esc(r.rsi)+' · Volume '+esc(r.volR)+'×<br>BTC context '+esc(r.btcState)+' · '+esc(r.source)+(s?'<br>Checked '+esc(date(s.checkedAt))+'<br>'+esc(s.dataNote)+(s.exitBarAt?'<br>Outcome candle '+esc(date(s.exitBarAt))+' → '+esc(date(s.exitBarEnd)):'<br>Latest evaluated close '+esc(date(s.lastPriceAt)))+(s.gap?'<br>Level crossed at candle open.':''):'')+'</div></details>';
       return '<tr>'+[
       '<strong>'+esc(r.pair)+'</strong><br>'+esc(r.tf),
       price(s?s.entry:r.referenceClose)+'<br><small>'+esc(date(r.closedAt))+'</small>',
@@ -15944,7 +15961,7 @@ function runProAnalysis(d) {
       price: d.sup * 1.01, saving: ((p - d.sup * 1.01) / p * 100),
       rrMain: slPct > 0 ? ((d.res * 0.998 - d.sup * 1.01) / (d.sup * 1.01) * 100) / slPct : 0,
       valid: d.liq === 'buy_sweep' || d.struct === 'HH/HL',
-      reason: 'Key support level ' + fE(d.sup) + ' — structural low. Best used after a liquidity sweep confirms smart money accumulation at this level. Tightest SL possible.',
+      reason: 'Key support level ' + fE(d.sup) + ' — structural low. A closed-candle sweep and reclaim can be observed here; it does not prove accumulation or guarantee an entry. Check stop distance and trading costs.',
       order: 'Limit order at ' + fE(d.sup * 1.01)
     },
     {
@@ -16836,7 +16853,8 @@ var candleWatcher = {
       var trend  = (closePx > e20 && e20 > e50) ? 'up' : (closePx < e20 && e20 < e50) ? 'down' : 'mixed';
       var struct = calcStruct(h, l, c);
       var sr     = calcSR(h, l, c);
-      var liq    = calcLiq(h, l, c, sr.sup, sr.res, atr, calcPeriodPools(klines));
+      var liqEvidence = calcScannerLiquidity(klines, klines.length-2, tf);
+      var liq    = liqEvidence.tag;
 
       // ── MACD approximation (EMA12 - EMA26, signal EMA9) ────────────────
       var e12 = calcEMA(c.slice(-12), 12);
@@ -16899,8 +16917,8 @@ var candleWatcher = {
       else                               { bullScore += 2;  analysis.push({ f:'Structure',   bull:null,  txt:'Consolidation — no clear directional bias' }); }
 
       // 6. Liquidity Sweep (weight: 10)
-      if (liq === 'buy_sweep')           { bullScore += 10; analysis.push({ f:'Liq Sweep',   bull:true,  txt:'Swept below support then reclaimed — smart money buy' }); }
-      else if (liq === 'sell_sweep')     { bearScore += 10; analysis.push({ f:'Liq Sweep',   bull:false, txt:'Swept above resistance then rejected — smart money sell' }); }
+      if (liq === 'buy_sweep')           { bullScore += 10; analysis.push({ f:'Liq Sweep',   bull:true,  txt:'Low swept and reclaimed on a closed candle — not an automatic buy' }); }
+      else if (liq === 'sell_sweep')     { bearScore += 10; analysis.push({ f:'Liq Sweep',   bull:false, txt:'High swept and rejected on a closed candle — spot-long caution, not a short signal' }); }
       else                               {                  analysis.push({ f:'Liq Sweep',   bull:null,  txt:'No confirmed sweep this candle' }); }
 
       // 7. MACD (weight: 5)
@@ -16964,7 +16982,7 @@ var candleWatcher = {
         price: price, chg: chg,
         rsi: Math.round(rsi * 10) / 10,
         volR: Math.round(volR * 100) / 100,
-        struct: struct, liq: liq,
+        struct: struct, liq: liq, liqEvidence: liqEvidence,
         trend: trend, e20: e20, e50: e50, e200: e200,
         sup: sr.sup, res: sr.res,
         bullScore: bullScore, bearScore: bearScore,
@@ -20944,7 +20962,7 @@ function buildSignalsTab(){
   var sigs=[
     {id:'al-strong',ico:'⚡',name:'Strong Buy',desc:'Full EMA stack + Vol>2× + RSI 55-70 + Sweep + Breakout'},
     {id:'al-buy',ico:'✅',name:'Buy Signal',desc:'EMA20>50 · Price>EMA20 · Vol>1.5× · RSI 50-70 · Structure'},
-    {id:'al-sweep',ico:'🟢',name:'Sweep Buy',desc:'Liquidity swept below support — smart money accumulation'},
+    {id:'al-sweep',ico:'🟢',name:'Sweep Buy',desc:'Low swept and reclaimed on a closed candle — price-action proxy, not an automatic buy'},
     {id:'al-sweepsell',ico:'🔴',name:'Sweep Sell',desc:'Liquidity swept above resistance — distribution'},
     {id:'al-breakout',ico:'🚀',name:'Breakout',desc:'Price closes above resistance with strong volume'},
     {id:'al-oversold',ico:'📉',name:'Oversold RSI',desc:'RSI < 30 — potential reversal / bounce zone'},
@@ -21501,7 +21519,7 @@ function renderBacktestResults(sym, tf, klines, holdBars, exitRule, bars) {
     var atrPct    = price > 0 ? atr / price * 100 : 0;
     var st        = calcStruct(h, l, c);
     var sr        = calcSR(h, l, c);
-    var liq       = calcLiq(h, l, c, sr.sup, sr.res, atr, calcPeriodPools(klines.slice(0,i+1)));
+    var liq       = calcScannerLiquidity(klines, i, tf).tag;
     var sc        = calcScore(rsi, trend, volR, st, chg24, liq, price, e20, e50, e200, atrPct);
     var hasMom    = chg24 > 0.5 || chg3 > 1.5;
 
