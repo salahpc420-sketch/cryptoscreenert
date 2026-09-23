@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="chart-build" content="2026.09.24-market-pro-r8">
+<meta name="chart-build" content="2026.09.24-market-pages-r9">
 <meta name="relationships-build" content="2026.09.24-returns-r1">
 <meta name="scanner-build" content="2026.09.22-sweep-v2">
 <meta name="agent-build" content="2026.09.07-keyless-r2">
@@ -363,7 +363,11 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 .market-rel .rel-read{min-width:240px;max-width:340px;line-height:1.5}.market-rel-note{font-size:10px;color:var(--t2);line-height:1.6;margin-top:8px}
 .market-native-toolbar select{background:#1e222d;color:#d1d4dc;border:1px solid #50596b;border-radius:4px;padding:5px;max-width:160px}
 .market-native-toolbar button:disabled{opacity:.4;cursor:not-allowed}
-#ip-charts.market-expanded{display:block;position:fixed;inset:8px;z-index:1100;overflow:auto;background:var(--card);padding:16px;border-radius:12px;box-shadow:0 0 0 12px #0009}
+#market-chart-ov{padding:0;z-index:1100;background:var(--card)}
+#market-chart-ov .market-chart-dialog{width:100%;max-width:none;height:100dvh;max-height:100dvh;border:0;border-radius:0;transform:none}
+.market-page-header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid var(--bd);flex-shrink:0}
+.market-page-header select{max-width:230px;padding:7px;background:var(--card2);color:var(--text);border:1px solid var(--bd2);border-radius:6px}
+.market-page-body{overflow:auto;overscroll-behavior:contain;padding:12px 16px;flex:1;min-height:0}
 #market-chart-summary{color:var(--t2);font-size:11px;line-height:1.6}
 #market-chart-summary .cp-muted{color:var(--t2)}
 @media (max-width: 820px){
@@ -819,19 +823,14 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
     </div>
     <div class="intel-panel" id="ip-charts">
       <div class="market-chart-tools" role="group" aria-label="Crypto market chart">
-        <button class="market-chart-btn" id="market-chart-btn-usdtd" data-market-chart="usdtd" aria-pressed="false" onclick="renderMarketChart('usdtd')">₮ USDT.D</button>
-        <button class="market-chart-btn" id="market-chart-btn-btcd" data-market-chart="btcd" aria-pressed="true" onclick="renderMarketChart('btcd')">₿ BTC.D</button>
-        <button class="market-chart-btn" id="market-chart-btn-total3" data-market-chart="total3" aria-pressed="false" onclick="renderMarketChart('total3')">TOTAL3</button>
-        <button class="market-chart-btn" id="market-chart-btn-total" data-market-chart="total" aria-pressed="false" onclick="renderMarketChart('total')">TOTAL</button>
+        <button class="market-chart-btn" id="market-chart-btn-usdtd" data-market-chart="usdtd" aria-pressed="false" onclick="openMarketChart('usdtd')">₮ USDT.D</button>
+        <button class="market-chart-btn" id="market-chart-btn-btcd" data-market-chart="btcd" aria-pressed="false" onclick="openMarketChart('btcd')">₿ BTC.D</button>
+        <button class="market-chart-btn" id="market-chart-btn-total3" data-market-chart="total3" aria-pressed="false" onclick="openMarketChart('total3')">TOTAL3</button>
+        <button class="market-chart-btn" id="market-chart-btn-total" data-market-chart="total" aria-pressed="false" onclick="openMarketChart('total')">TOTAL</button>
         <span id="market-macro-buttons" style="display:contents"></span>
         <span class="market-chart-auto" title="The screener draws confirmed trendlines, structure levels, Fib and sweep references">AUTO DRAWINGS ON</span>
-        <button class="btn" id="market-expand" aria-pressed="false" onclick="expandMarketChart()">⛶ Expand</button>
-        <button class="btn" style="margin-left:auto" onclick="renderMarketChart(_marketChartKey,true)">↻ Reload chart</button>
       </div>
-      <div class="market-chart-heading">
-        <div><h3 id="market-chart-title">BTC Dominance · BTC.D</h3><p id="market-chart-description">Bitcoin share of global crypto market capitalization.</p></div>
-        <a id="market-chart-open" href="https://www.tradingview.com/chart/?symbol=CRYPTOCAP%3ABTC.D" target="_blank" rel="noopener noreferrer">TradingView reference ↗</a>
-      </div>
+      <p class="market-chart-note" style="margin-bottom:10px">Tap a market to open its chart page. Use Back or Close to return here.</p>
       <div class="chart-macro-strip" data-chart-macro-strip aria-label="Macro tape context"></div>
       <section class="market-rel" aria-label="Crypto market relationships by timeframe">
         <div class="market-rel-heading"><strong>Market relationships · vs TOTAL</strong><button class="btn" id="market-rel-refresh" onclick="refreshMarketRelationships(true)">↻ Update relationships</button></div>
@@ -845,10 +844,23 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
           Pearson r compares percentage returns with TOTAL over its latest 60 closed intervals, using only exact timestamp matches and at least 20 paired returns.
           Positive r means moves tended to coincide; negative r means they tended to oppose. Values near zero indicate little linear relationship. This sample minimum is not a significance test.
           USDT.D can rise because TOTAL falls, even without new USDT inflows; dominance shares a denominator with TOTAL. BTC.D rising does not mean BTC price rose. TOTAL3 excludes BTC and ETH, but includes stablecoins.
-          Derived series use sampled data. Correlation is descriptive, not causation or a trading signal. Macro comparisons below separately disclose session timing.
+          Derived series use sampled data. Correlation is descriptive, not causation or a trading signal.
         </details>
       </section>
-      <section class="market-rel" data-macro-relationships aria-label="Macro Tape correlations"><strong>Macro Tape relationships · loading with market data…</strong></section>
+      <div class="ov" id="market-chart-ov" style="display:none" role="dialog" aria-modal="true" aria-labelledby="market-chart-title" onkeydown="marketChartPageKeydown(event)">
+      <div class="modal market-chart-dialog">
+      <div class="market-page-header">
+        <button class="btn" id="market-chart-back" onclick="closeOv('market-chart-ov')">← Back</button>
+        <select id="market-chart-select" aria-label="Choose market chart" onchange="openMarketChart(this.value)"></select>
+        <span class="market-chart-auto">AUTO DRAWINGS ON</span>
+        <button class="btn" style="margin-left:auto" onclick="renderMarketChart(_marketChartKey,true)">↻ Reload chart</button>
+        <button class="btn" onclick="closeOv('market-chart-ov')" aria-label="Close market chart">✕ Close</button>
+      </div>
+      <div class="market-page-body">
+      <div class="market-chart-heading">
+        <div><h3 id="market-chart-title">Market chart</h3><p id="market-chart-description"></p></div>
+        <a id="market-chart-open" href="https://www.tradingview.com/chart/" target="_blank" rel="noopener noreferrer">TradingView reference ↗</a>
+      </div>
       <div class="market-native-toolbar" aria-label="Native market chart controls">
         <span>Timeframe</span>
         <button data-market-tf="1h" aria-pressed="true" onclick="setMarketChartTF('1h')">1h</button>
@@ -878,9 +890,10 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       <div class="cp-chart-summary" id="market-chart-summary" aria-live="polite"></div>
       <div class="market-chart-frame" id="market-chart-host"><div class="market-chart-loading">Open Market Charts to load the native automatic chart.</div></div>
       <div class="market-chart-status" id="market-chart-status" aria-live="polite"></div>
-      <p class="market-chart-note">Native CoinScreener drawing engine · context only, never an automatic trade. Crypto-index requests use 7-day hourly / 30-day daily history, but the provider may return a shorter hourly series. Actual returned cadence and coverage are checked; daily/weekly charts are aggregated only from available observations and can have insufficient history. USDT.D and TOTAL3 are sampled proxies, not TradingView CRYPTOCAP candles; wick-dependent sweeps/FVG are disabled on sampled series. Macro markets may use delayed OHLC, explicitly named ETF proxies, or daily close-only fallbacks. Trading-session gaps are not filled with invented candles. Hover a tape item for its source and observation time.</p>
+      <p class="market-chart-note">Native CoinScreener drawing engine · context only, never an automatic trade. Crypto-index requests use 7-day hourly / 30-day daily history, but the provider may return a shorter hourly series. Actual returned cadence and coverage are checked; daily/weekly charts are aggregated only from available observations and can have insufficient history. USDT.D and TOTAL3 are sampled proxies, not TradingView CRYPTOCAP candles; wick-dependent sweeps/FVG are disabled on sampled series. Macro markets may use delayed OHLC, explicitly named ETF proxies, or daily close-only fallbacks. Trading-session gaps are not filled with invented candles.</p>
+      </div></div></div>
     </div>
-    <div class="intel-panel" id="ip-macrotape"><section class="market-rel" data-macro-relationships aria-label="Macro Tape correlations"></section><div id="spot-macro-body"></div></div>
+    <div class="intel-panel" id="ip-macrotape"><div id="spot-macro-body"></div></div>
     <div class="intel-panel" id="ip-spotstrategy"><div id="spot-strategy-body"></div></div>
     <!-- MACRO REGIME -->
     <div class="intel-panel" id="ip-regime">
@@ -16242,6 +16255,7 @@ function runProAnalysis(d) {
 var _ovStack = [];
 function _ovHide(id){
   if(id==='coin-ov') stopChartLive();
+  if(id==='market-chart-ov')releaseMarketChartPage();
   var o=document.getElementById(id);
   if(!o) return;
   o.classList.remove('show');
@@ -16538,7 +16552,8 @@ function _marketInstallChoices(){
     MARKET_CHARTS[t.key]={symbol:references[t.key],label:t.label,description:'Macro context · source and actual instrument are shown below.',macro:t,unit:t.key==='tnx'?'yield':'price'};
   });
   var el=document.getElementById('market-macro-buttons');
-  if(el&&!el.children.length)el.innerHTML=Object.keys(references).map(function(k){return '<button class="market-chart-btn" data-market-chart="'+k+'" aria-pressed="false" onclick="renderMarketChart(\''+k+'\')">'+_marketEsc(MARKET_CHARTS[k].label)+'</button>';}).join('');
+  if(el&&!el.children.length)el.innerHTML=Object.keys(references).map(function(k){return '<button class="market-chart-btn" data-market-chart="'+k+'" aria-pressed="false" onclick="openMarketChart(\''+k+'\')">'+_marketEsc(MARKET_CHARTS[k].label)+'</button>';}).join('');
+  var select=document.getElementById('market-chart-select');if(select&&!select.children.length)select.innerHTML=Object.keys(MARKET_CHARTS).map(function(k){return '<option value="'+k+'">'+_marketEsc(MARKET_CHARTS[k].label)+'</option>';}).join('');
 }
 function chartMacroTapeMarkup(){
   return (typeof MACRO_TICKERS==='undefined'?[]:MACRO_TICKERS).map(function(t){
@@ -16553,13 +16568,32 @@ function refreshChartMacroTape(){
   var html=chartMacroTapeMarkup();document.querySelectorAll('[data-chart-macro-strip]').forEach(function(el){if(el.innerHTML!==html)el.innerHTML=html;});
 }
 function openMacroMarketChart(key){
+  openMarketChart(key);
+}
+var _marketChartPageOpen=false,_marketChartReturnFocus=null,_marketChartBodyOverflow='';
+function openMarketChart(key){
   _marketInstallChoices();if(!MARKET_CHARTS[key])return;
-  // Do not leave a coin modal covering the requested market chart.
-  var fs=document.getElementById('chart-fullscreen-ov');if(fs)fs.classList.remove('show','cp-focus');
-  var coin=document.getElementById('coin-ov');if(coin&&coin.classList.contains('show'))closeOv('coin-ov');
-  document.body.style.overflow='';
-  _marketChartKey=key;showIntel('charts');
-  var panel=document.getElementById('ip-charts');if(panel)panel.scrollIntoView({block:'start',behavior:'smooth'});
+  var page=document.getElementById('market-chart-ov');if(!page)return;
+  _marketChartKey=key;
+  if(!_marketChartPageOpen){
+    _marketChartReturnFocus=document.activeElement;_marketChartBodyOverflow=document.body.style.overflow;
+    document.body.appendChild(page);_marketChartPageOpen=true;document.body.style.overflow='hidden';showOv('market-chart-ov');
+  }
+  var select=document.getElementById('market-chart-select');if(select)select.value=key;
+  window.requestAnimationFrame(function(){if(!_marketChartPageOpen)return;renderMarketChart(_marketChartKey);var back=document.getElementById('market-chart-back');if(back)back.focus();});
+}
+function releaseMarketChartPage(){
+  if(!_marketChartPageOpen)return;_marketChartPageOpen=false;_marketChartSerial++;
+  if(chartState.marketMode){stopChartLive();chartState.marketMode=false;chartState.loading=false;chartState.klines=null;chartState.snapshot=null;chartState.wrapId=null;chartState.canvasId=null;chartState.legendId=null;}
+  document.body.style.overflow=_marketChartBodyOverflow;
+  if(_marketChartReturnFocus&&_marketChartReturnFocus.isConnected)_marketChartReturnFocus.focus();_marketChartReturnFocus=null;
+}
+function marketChartPageKeydown(event){
+  if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeOv('market-chart-ov');return;}
+  if(event.key!=='Tab')return;
+  var page=document.getElementById('market-chart-ov'),items=Array.from(page.querySelectorAll('button:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]')).filter(function(el){return el.getClientRects().length;});
+  if(!items.length)return;var first=items[0],last=items[items.length-1];
+  if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
 }
 function _marketFetchJSON(url,force){
   if(force)delete _pendingReqs[url];
@@ -16732,12 +16766,12 @@ function marketIndexKlines(key,tf,force){
 function marketClosedRows(rows,tf,now){
   now=now==null?Date.now():now;return rows.filter(function(k){return Number(k[0])+_chartTFDuration(tf)<=now;});
 }
-var _marketRelSerial=0,_marketRelAt=0,_marketRelPromise=null,_marketRelRows={},_marketRelHistories={};
+var _marketRelSerial=0,_marketRelAt=0,_marketRelPromise=null,_marketRelRows={};
 function marketRelationshipReturns(rows,tf,now){
   var span=_chartTFDuration(tf),out={points:[],byEnd:{},source:rows&&rows.dataSource||'Unknown source',sampled:!!(rows&&rows.sampled)};
   now=now==null?Date.now():now;
   if(!Array.isArray(rows)){out.error='Source unavailable';return out;}
-  if(rows.sessionGaps&&!rows.relationshipClock){out.error='Different trading sessions; no synchronized comparison';return out;}
+  if(rows.sessionGaps){out.error='Different trading sessions; no synchronized comparison';return out;}
   if(rows.baseInterval&&rows.baseInterval!==span){out.error='Source timeframe mismatch';return out;}
   // Do not sort, fill gaps, interpolate, or join different-duration returns.
   if(rows.some(function(k,i){return !k||k.length<5||!k.slice(0,5).every(function(v){return v!==null&&v!==''&&Number.isFinite(Number(v));})||Number(k[0])%span!==0||Number(k[3])<=0||Number(k[2])<Math.max(Number(k[1]),Number(k[4]))||Number(k[3])>Math.min(Number(k[1]),Number(k[4]))||(i&&Number(k[0])<=Number(rows[i-1][0]));})){
@@ -16805,14 +16839,14 @@ function refreshMarketRelationships(force){
   if(!force&&_marketRelAt&&Date.now()-_marketRelAt<300000){renderMarketRelationships();return Promise.resolve();}
   var serial=++_marketRelSerial,asOf=Date.now(),button=document.getElementById('market-rel-refresh'),status=document.getElementById('market-rel-status');
   if(force)Object.keys(_marketMetricCache).forEach(function(k){if(k.indexOf('bc:')===0||k.indexOf('cg:tether:')===0)delete _marketMetricCache[k];});
-  _marketRelRows={};_marketRelHistories={};renderMarketRelationships();if(button)button.disabled=true;
+  _marketRelRows={};renderMarketRelationships();if(button)button.disabled=true;
   if(status)status.textContent='Loading 1h, 4h and 1D relationships. Existing provider history is reused when available.';
   // Sequential timeframes reuse hourly data; each row tolerates individual feed failures.
   var work=Promise.resolve();['1h','4h','1d'].forEach(function(tf){work=work.then(function(){
     if(serial!==_marketRelSerial)return;
     var histories={},keys=['total','btcd','total3','usdtd'];
     return Promise.all(keys.map(function(k){return Promise.resolve().then(function(){return marketIndexKlines(k,tf,false);}).then(function(rows){histories[k]=rows;},function(){histories[k]=null;});})).then(function(){
-      if(serial!==_marketRelSerial)return;_marketRelHistories[tf]=histories;_marketRelRows[tf]=marketRelationshipRow(histories,tf,asOf);renderMarketRelationships();
+      if(serial!==_marketRelSerial)return;_marketRelRows[tf]=marketRelationshipRow(histories,tf,asOf);renderMarketRelationships();
     });
   });});
   _marketRelPromise=work.then(function(){
@@ -16820,66 +16854,6 @@ function refreshMarketRelationships(force){
     if(status)status.textContent='Checked '+new Date(asOf).toLocaleString()+' · Each row uses its own last closed interval. r describes history, not the latest arrow. Short feeds may not support 1D correlation.';
   }).catch(function(){if(serial===_marketRelSerial&&status)status.textContent='Relationships could not be updated. Please retry.';}).finally(function(){if(serial===_marketRelSerial){_marketRelPromise=null;if(button)button.disabled=false;}});
   return _marketRelPromise;
-}
-var _macroRelSerial=0,_macroRelAt=0,_macroRelPromise=null,_macroRelCells={},_macroRelLoading=false;
-function marketMacroRelationshipRows(rows,tf){
-  if(!Array.isArray(rows))return null;
-  var copy=_marketCopyRows(rows);
-  if(tf==='1d'){
-    // These are calendar session labels, NOT simultaneous UTC closing prices.
-    copy.relationshipClock='session-date';return copy;
-  }
-  if(copy.baseInterval!==3600000||copy.some(function(k){return Number(k[0])%3600000!==0;})){
-    throw Error('Session hours do not align with UTC crypto candles');
-  }
-  // Exclude short/partial 4h trading-session buckets, never fill weekends.
-  copy.sessionGaps=false;copy=_marketAggregate(copy,tf,3600000);
-  copy.sessionGaps=true;copy.relationshipClock='utc-complete';return copy;
-}
-function marketMacroRelationshipCell(total,rows,tf,now){
-  var ref=marketRelationshipReturns(total,tf,now),s=marketRelationshipReturns(rows,tf,now),span=_chartTFDuration(tf),last=ref.points[ref.points.length-1];
-  var end=last?last.end:null,pairs=ref.points.filter(function(p){return end!==null&&p.end>end-60*span&&!!s.byEnd[p.end];}).map(function(p){return [s.byEnd[p.end].value,p.value];});
-  var r=marketRelationshipPearson(pairs),latest=end!==null?s.byEnd[end]:null;
-  return {latest:latest||null,r:r,n:pairs.length,source:s.source,sampled:s.sampled,error:s.error||ref.error||'',reason:r!==null?'':pairs.length<20?'Need 20 matched returns':'No return variation',
-    label:rows&&rows.instrumentLabel||'',session:tf==='1d',end:end,stale:end!==Math.floor(now/span)*span||!latest,observed:s.points.length?s.points[s.points.length-1].end:null};
-}
-function renderMacroRelationships(){
-  var html='<div class="market-rel-heading"><strong>Macro Tape correlation · vs TOTAL crypto market cap</strong><button class="btn" '+(_macroRelLoading?'disabled ':'')+'onclick="refreshMacroRelationships(true)">↻ '+(_macroRelLoading?'Loading…':'Update macro correlations')+'</button></div><div class="market-rel-scroll"><table><thead><tr><th scope="col">Timeframe</th>';
-  MACRO_TICKERS.forEach(function(t){html+='<th scope="col">'+_marketEsc(t.label)+'</th>';});html+='</tr></thead><tbody>';
-  ['1h','4h','1d'].forEach(function(tf){
-    var anchor=MACRO_TICKERS.map(function(t){return _macroRelCells[tf+':'+t.key];}).find(function(c){return c&&c.end;});
-    html+='<tr><th scope="row">'+(tf==='1d'?'1D':tf)+(tf==='1d'?'<small>Session dates</small>':'')+(anchor?'<small style="display:block">Market interval ended '+_marketEsc(new Date(anchor.end).toISOString().replace('T',' ').replace('.000Z',' UTC'))+'</small>':'')+'</th>';
-    MACRO_TICKERS.forEach(function(t){var c=_macroRelCells[tf+':'+t.key];
-      if(!c){html+='<td>Loading…</td>';return;}
-      var cell=marketRelationshipCellHTML(c,t.key,c.stale),label=c.label||t.label;
-      var timing=c.error?'':c.observed?'Last source interval: '+new Date(c.observed).toISOString().replace('T',' ').replace('.000Z',' UTC'):'No closed source returns';
-      if(c.session&&timing)timing+=' (session-date label)';
-      html+=cell.replace('</td>','<small>'+_marketEsc(label)+'</small><small>'+_marketEsc(timing)+'</small></td>');
-    });html+='</tr>';
-  });
-  html+='</tbody></table></div><div class="market-rel-note">Arrows: matched-period percentage change. r: correlation of returns with TOTAL, not a prediction. +1 = together; −1 = opposite; near 0 = little linear relationship. Up is not automatically bullish for crypto. Uses the latest 60 market intervals, minimum 20 matched returns; no gap filling. Hover cells for sources.<br>1h/4h require UTC-aligned, complete bars; mismatched session hours are unavailable. 1D matches calendar session dates, not simultaneous closes, so it is an approximate daily comparison. Weekends, holidays and missing matching closes are not forward-filled. Proxy funds are named explicitly; TLT bond prices are not US 10Y yields. Limited TOTAL history can prevent daily r.</div>';
-  if(_macroRelAt&&!_macroRelLoading)html+='<div class="market-rel-note">Checked '+_marketEsc(new Date(_macroRelAt).toLocaleString())+'</div>';
-  document.querySelectorAll('[data-macro-relationships]').forEach(function(el){el.innerHTML=html;});
-}
-function refreshMacroRelationships(force){
-  if(_macroRelPromise&&!force)return _macroRelPromise;
-  if(!force&&_macroRelAt&&Date.now()-_macroRelAt<300000){renderMacroRelationships();return Promise.resolve();}
-  var serial=++_macroRelSerial;_macroRelLoading=true;_macroRelCells={};renderMacroRelationships();_marketInstallChoices();
-  if(force)Object.keys(_marketMetricCache).forEach(function(k){if(k.indexOf('macro:')===0)delete _marketMetricCache[k];});
-  _macroRelPromise=refreshMarketRelationships(false).then(function(){
-    var now=Date.now(),refs=_marketRelHistories,jobs=[];
-    MACRO_TICKERS.forEach(function(t){['1h','1d'].forEach(function(base){jobs.push({t:t,base:base});});});
-    // Bound external requests; reuse hourly history to build the 4h comparison.
-    function worker(){
-      if(serial!==_macroRelSerial||!jobs.length)return Promise.resolve();var job=jobs.shift(),t=job.t,frames=job.base==='1h'?['1h','4h']:['1d'];
-      return Promise.resolve().then(function(){return _marketMacroHistory(MARKET_CHARTS[t.key],job.base,false);}).then(function(rows){
-        if(serial!==_macroRelSerial)return;frames.forEach(function(tf){try{_macroRelCells[tf+':'+t.key]=marketMacroRelationshipCell(refs[tf]&&refs[tf].total,marketMacroRelationshipRows(rows,tf),tf,now);}catch(e){_macroRelCells[tf+':'+t.key]={error:e.message,label:rows.instrumentLabel||t.label};}});
-      },function(){if(serial===_macroRelSerial)frames.forEach(function(tf){_macroRelCells[tf+':'+t.key]={error:'Source history unavailable',label:t.label};});}).then(function(){if(serial===_macroRelSerial)renderMacroRelationships();return worker();});
-    }
-    return Promise.all([worker(),worker(),worker()]);
-  }).catch(function(){if(serial===_macroRelSerial)MACRO_TICKERS.forEach(function(t){['1h','4h','1d'].forEach(function(tf){if(!_macroRelCells[tf+':'+t.key])_macroRelCells[tf+':'+t.key]={error:'Comparison unavailable; retry',label:t.label};});});}).finally(function(){
-    if(serial===_macroRelSerial){_macroRelLoading=false;_macroRelAt=Date.now();_macroRelPromise=null;renderMacroRelationships();}
-  });return _macroRelPromise;
 }
 function marketChartSnapshot(rows,sym,tf,now){
   now=now==null?Date.now():now;var span=_chartTFDuration(tf),closed=marketClosedRows(rows,tf,now),errors=[],hash=2166136261;
@@ -16920,11 +16894,6 @@ function marketChartOption(name,value){
 function marketChartDraw(){if(chartState.marketMode&&!chartState.loading){chartState.trendMode=_marketChartAutoTrend?'both':'manual';toggleDrawMode();}}
 function marketChartEdit(action){if(chartState.marketMode&&['lock','delete'].includes(action))editSelectedDrawing(action);}
 function marketChartFit(kind){if(chartState.marketMode&&!chartState.loading)chartFit(kind);}
-function expandMarketChart(){
-  var el=document.getElementById('ip-charts'),b=document.getElementById('market-expand');if(!el)return;
-  var on=el.classList.toggle('market-expanded');if(b){b.textContent=on?'✕ Exit expanded':'⛶ Expand';b.setAttribute('aria-pressed',String(on));}
-  if(chartState.marketMode)window.requestAnimationFrame(drawChart);
-}
 function marketChartZoom(dir){if(!chartState.marketMode||!chartState.klines)return;chartState.zoom=Math.max(5,Math.min(chartState.klines.length,chartState.zoom+(dir>0?-10:10)));chartState.offset=Math.max(0,chartState.klines.length-chartState.zoom);drawChart();}
 function marketChartReset(){if(!chartState.marketMode||!chartState.klines)return;chartState.zoom=Math.min(chartIsMobile()?42:90,chartState.klines.length);chartState.offset=Math.max(0,chartState.klines.length-chartState.zoom);chartState.crosshair=null;drawChart();}
 function renderMarketChart(key,force){
@@ -16958,7 +16927,6 @@ function renderMarketChart(key,force){
   });
 }
 function showIntel(which){
-  if(which!=='charts'){_marketChartSerial++;var expanded=document.getElementById('ip-charts');if(expanded)expanded.classList.remove('market-expanded');}
   var tabs = ['macro','charts','macrotape','spotstrategy','marketread','buyzone','regime','narr','sector','events','candle','moon','agent','beta'];
   tabs.forEach(function(t){
     var tab = document.getElementById('it-'+t);
@@ -16966,7 +16934,7 @@ function showIntel(which){
     if(tab) tab.classList.toggle('active', t===which);
     if(panel) panel.classList.toggle('active', t===which);
   });
-  if(which==='macrotape'){renderSpotMacro();refreshMacroData(false);spotRefreshCalendar(false);refreshMacroRelationships(false);}
+  if(which==='macrotape'){renderSpotMacro();refreshMacroData(false);spotRefreshCalendar(false);}
   if(which==='spotstrategy'){renderSpotStrategy();renderSpotReview();spotRefreshCalendar(false);if(!_spotReview)checkSpotStrategy();}
   if(which==='events'){renderMacroEvents();spotMountLiveCalendar(false);spotRefreshCalendar(false);spotRenderCoinCalendar();}
   if(which==='buyzone') renderBuyZone();
@@ -16985,9 +16953,8 @@ function showIntel(which){
     body.classList.remove('collapsed');
     if(btn) btn.textContent='▲';
   }
-  // The native canvas measures its parent at startup. Wait until this panel and
-  // the Intel body are visible so automatic levels use the real plot geometry.
-  if(which==='charts')window.requestAnimationFrame(function(){renderMarketChart(_marketChartKey);refreshMacroRelationships(false);});
+  // Listing only; selecting a market opens its dedicated chart page.
+  if(which==='charts'){_marketInstallChoices();refreshChartMacroTape();refreshMarketRelationships(false);}
 }
 
 function renderBuyZone(){
@@ -18120,7 +18087,7 @@ function installChartProUI(){
     '<span class="cp-context-switch" role="group" aria-label="Chart viewing range"><button onclick="chartFit(\'recent\')" title="Last 60 candles; 42 on mobile. Analysis anchors stay fixed.">Recent structure</button><button onclick="chartFit(\'all\')">Full context</button></span>'+
     '<button onclick="editChartExecution()">Execution</button><button onclick="recordChartDecision()" title="Save the current data, settings and decision for later review">Record decision</button>'+
     '<details class="cp-ind-menu"><summary>Edit lines</summary><div><button onclick="toggleDrawMode()">Draw two anchors</button><button data-chart-magnet onclick="toggleChartMagnet()">Snap to candle</button><button onclick="editSelectedDrawing(\'lock\')">Lock / unlock selected</button><button onclick="editSelectedDrawing(\'extend\')">Extend selected right</button><button onclick="editSelectedDrawing(\'delete\')">Delete selected</button><small>Click a manual line to select. Drag an unlocked anchor. Manual lines are visual only.</small></div></details>';
-    el.innerHTML+='<span class="cp-build" title="Native charts and Macro Tape">Chart 2026.09.24-market-pro-r8</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
+    el.innerHTML+='<span class="cp-build" title="Native charts and market chart pages">Chart 2026.09.24-market-pages-r9</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
     var toolsMenu=document.createElement('details');toolsMenu.className='cp-ind-menu cp-tools-menu';
     toolsMenu.innerHTML='<summary>Tools</summary><div></div>';
     Array.from(el.children).forEach(function(node){
@@ -18134,9 +18101,9 @@ function installChartProUI(){
     el.insertBefore(psychologyButton,el.querySelector('.cp-build'));
     if(suffix){var top=document.getElementById('chart-fs-bar');if(top)top.after(el);}
     else{var wrap=document.getElementById('chart-canvas-wrap');if(wrap)wrap.before(el);}
+    // Macro context belongs in Market Charts / Macro Tape, not coin charts.
     var oldTape=document.getElementById('chart-macro-tape'+suffix);if(oldTape)oldTape.remove();
-    var tape=document.createElement('div');tape.id='chart-macro-tape'+suffix;tape.className='chart-macro-strip';tape.setAttribute('data-chart-macro-strip','');tape.setAttribute('aria-label','Macro tape context');el.before(tape);
-  });installChartMobileUI();refreshChartMacroTape();
+  });installChartMobileUI();
   ['#chart-fs-bar .cp-focus-controls','#cp-mobile-header'].forEach(function(selector){
     var host=document.querySelector(selector);if(!host||host.querySelector('[data-btc-toggle]'))return;
     var button=document.createElement('button');button.type='button';button.className='cp-focus-keep';button.setAttribute('data-btc-toggle','');
