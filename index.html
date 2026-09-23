@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="chart-build" content="2026.09.21-market-native-r7">
+<meta name="chart-build" content="2026.09.24-market-pro-r8">
+<meta name="relationships-build" content="2026.09.24-returns-r1">
 <meta name="scanner-build" content="2026.09.22-sweep-v2">
 <meta name="agent-build" content="2026.09.07-keyless-r2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
@@ -351,6 +352,20 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 .market-chart-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#aab4c5;font-size:12px;text-align:center;padding:20px}
 .market-chart-note{font-size:10px;line-height:1.55;color:var(--t3);margin-top:8px}
 .market-chart-status{font-size:10px;line-height:1.45;color:var(--t3);margin:7px 2px 0}
+.chart-macro-strip{display:flex;flex:0 0 auto;box-sizing:border-box;max-width:100%;gap:6px;overflow-x:auto;padding:8px;background:#1e222d;color:#d1d4dc;border-bottom:1px solid #353b49;scrollbar-width:thin}
+.chart-macro-strip button{flex:0 0 auto;text-align:left;border:1px solid #3a4353;border-radius:6px;padding:6px 9px;background:#151a24;color:#d1d4dc;cursor:pointer;font-size:11px}
+.chart-macro-strip button strong,.chart-macro-strip button small{display:block;margin-top:3px}.chart-macro-strip button small{font-size:9px;color:#aeb9c9}
+.market-rel{margin:10px 0;padding:12px;border:1px solid var(--bd2);border-radius:9px;background:var(--card2)}
+.market-rel-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;margin-bottom:8px}
+.market-rel-scroll{overflow-x:auto}.market-rel table{width:100%;min-width:790px;border-collapse:collapse;font-size:11px;text-align:left}
+.market-rel th,.market-rel td{padding:9px 8px;border-bottom:1px solid var(--bd);vertical-align:top}.market-rel th{color:var(--t2);font-weight:600}
+.market-rel td small{display:block;color:var(--t2);font-size:10px;line-height:1.5;margin-top:4px}.market-rel .rel-up{color:#087b68}.market-rel .rel-down{color:#bd343b}
+.market-rel .rel-read{min-width:240px;max-width:340px;line-height:1.5}.market-rel-note{font-size:10px;color:var(--t2);line-height:1.6;margin-top:8px}
+.market-native-toolbar select{background:#1e222d;color:#d1d4dc;border:1px solid #50596b;border-radius:4px;padding:5px;max-width:160px}
+.market-native-toolbar button:disabled{opacity:.4;cursor:not-allowed}
+#ip-charts.market-expanded{display:block;position:fixed;inset:8px;z-index:1100;overflow:auto;background:var(--card);padding:16px;border-radius:12px;box-shadow:0 0 0 12px #0009}
+#market-chart-summary{color:var(--t2);font-size:11px;line-height:1.6}
+#market-chart-summary .cp-muted{color:var(--t2)}
 @media (max-width: 820px){
   .intel-tab{padding:9px 11px;font-size:11px}
   .market-chart-frame{min-height:430px}
@@ -808,24 +823,54 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
         <button class="market-chart-btn" id="market-chart-btn-btcd" data-market-chart="btcd" aria-pressed="true" onclick="renderMarketChart('btcd')">₿ BTC.D</button>
         <button class="market-chart-btn" id="market-chart-btn-total3" data-market-chart="total3" aria-pressed="false" onclick="renderMarketChart('total3')">TOTAL3</button>
         <button class="market-chart-btn" id="market-chart-btn-total" data-market-chart="total" aria-pressed="false" onclick="renderMarketChart('total')">TOTAL</button>
+        <span id="market-macro-buttons" style="display:contents"></span>
         <span class="market-chart-auto" title="The screener draws confirmed trendlines, structure levels, Fib and sweep references">AUTO DRAWINGS ON</span>
+        <button class="btn" id="market-expand" aria-pressed="false" onclick="expandMarketChart()">⛶ Expand</button>
         <button class="btn" style="margin-left:auto" onclick="renderMarketChart(_marketChartKey,true)">↻ Reload chart</button>
       </div>
       <div class="market-chart-heading">
         <div><h3 id="market-chart-title">BTC Dominance · BTC.D</h3><p id="market-chart-description">Bitcoin share of global crypto market capitalization.</p></div>
         <a id="market-chart-open" href="https://www.tradingview.com/chart/?symbol=CRYPTOCAP%3ABTC.D" target="_blank" rel="noopener noreferrer">TradingView reference ↗</a>
       </div>
+      <div class="chart-macro-strip" data-chart-macro-strip aria-label="Macro tape context"></div>
+      <section class="market-rel" aria-label="Crypto market relationships by timeframe">
+        <div class="market-rel-heading"><strong>Market relationships · vs TOTAL</strong><button class="btn" id="market-rel-refresh" onclick="refreshMarketRelationships(true)">↻ Update relationships</button></div>
+        <div class="market-rel-scroll"><table>
+          <thead><tr><th scope="col">Timeframe</th><th scope="col">USDT.D</th><th scope="col">BTC.D</th><th scope="col">TOTAL3 proxy</th><th scope="col">TOTAL · market</th><th scope="col">Same-period market read</th></tr></thead>
+          <tbody id="market-rel-body"><tr><td colspan="6">Open Market Charts to load closed-candle relationships.</td></tr></tbody>
+        </table></div>
+        <div class="market-rel-note" id="market-rel-status" role="status"></div>
+        <details class="market-rel-note"><summary>How to read this</summary>
+          Arrows show the last closed candle's change from the previous close—not a forecast. Dominance changes use percentage points (pp); market caps use percent.
+          Pearson r compares percentage returns with TOTAL over its latest 60 closed intervals, using only exact timestamp matches and at least 20 paired returns.
+          Positive r means moves tended to coincide; negative r means they tended to oppose. Values near zero indicate little linear relationship. This sample minimum is not a significance test.
+          USDT.D can rise because TOTAL falls, even without new USDT inflows; dominance shares a denominator with TOTAL. BTC.D rising does not mean BTC price rose. TOTAL3 excludes BTC and ETH, but includes stablecoins.
+          Derived series use sampled data. Correlation is descriptive, not causation or a trading signal. Macro comparisons below separately disclose session timing.
+        </details>
+      </section>
+      <section class="market-rel" data-macro-relationships aria-label="Macro Tape correlations"><strong>Macro Tape relationships · loading with market data…</strong></section>
       <div class="market-native-toolbar" aria-label="Native market chart controls">
         <span>Timeframe</span>
         <button data-market-tf="1h" aria-pressed="true" onclick="setMarketChartTF('1h')">1h</button>
         <button data-market-tf="4h" aria-pressed="false" onclick="setMarketChartTF('4h')">4h</button>
+        <button data-market-tf="1d" aria-pressed="false" onclick="setMarketChartTF('1d')">1D</button>
+        <button data-market-tf="1w" aria-pressed="false" onclick="setMarketChartTF('1w')">1W</button>
+        <label>View <select onchange="marketChartOption('viewMode',this.value)"><option value="analysis">Analysis</option><option value="clean">Clean</option></select></label>
         <span>Layers</span>
         <button data-market-layer="ema" aria-pressed="true" onclick="toggleMarketChartLayer('ema')">EMA</button>
+        <button data-market-layer="emaLong" aria-pressed="false" onclick="toggleMarketChartLayer('emaLong')">EMA 100/200</button>
         <button data-market-layer="sr" aria-pressed="true" onclick="toggleMarketChartLayer('sr')">S/R</button>
         <button data-market-layer="fib" aria-pressed="true" onclick="toggleMarketChartLayer('fib')">Fib</button>
         <button data-market-layer="sweeps" aria-pressed="true" onclick="toggleMarketChartLayer('sweeps')">Sweeps</button>
         <button data-market-layer="rsi" aria-pressed="true" onclick="toggleMarketChartLayer('rsi')">RSI</button>
         <button data-market-trend aria-pressed="true" onclick="toggleMarketChartTrend()">Auto lines</button>
+        <label>Fib <select onchange="marketChartOption('fibScope',this.value)"><option value="major">Major swing</option><option value="recent">Recent swing</option></select></label>
+        <label>FVG <select id="market-fvg" onchange="marketChartOption('fvgMode',this.value)"><option value="relevant">Relevant</option><option value="all">All recent</option><option value="off">Off</option></select></label>
+        <button onclick="marketChartDraw()">Draw line</button>
+        <button onclick="marketChartEdit('lock')">Lock line</button>
+        <button onclick="marketChartEdit('delete')">Delete line</button>
+        <button onclick="marketChartFit('swing')">Fit swing</button>
+        <button onclick="marketChartFit('all')">Fit all</button>
         <button onclick="marketChartZoom(1)" title="Zoom in">＋</button>
         <button onclick="marketChartZoom(-1)" title="Zoom out">－</button>
         <button onclick="marketChartReset()">Reset</button>
@@ -833,9 +878,9 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       <div class="cp-chart-summary" id="market-chart-summary" aria-live="polite"></div>
       <div class="market-chart-frame" id="market-chart-host"><div class="market-chart-loading">Open Market Charts to load the native automatic chart.</div></div>
       <div class="market-chart-status" id="market-chart-status" aria-live="polite"></div>
-      <p class="market-chart-note">This uses the CoinScreener chart engine on the available seven-day hourly macro feed: confirmed-pivot trendlines, structural support/resistance, automatic Fib, sweep references, EMA and RSI. BTC.D and TOTAL use source OHLC. USDT.D is reconstructed from sampled USDT and total-market-cap values; TOTAL3 is a derived global-cap proxy excluding BTC and ETH, so neither is identical to TradingView's proprietary CRYPTOCAP candle history. Derived levels are context only, not trade signals or predictions.</p>
+      <p class="market-chart-note">Native CoinScreener drawing engine · context only, never an automatic trade. Crypto-index requests use 7-day hourly / 30-day daily history, but the provider may return a shorter hourly series. Actual returned cadence and coverage are checked; daily/weekly charts are aggregated only from available observations and can have insufficient history. USDT.D and TOTAL3 are sampled proxies, not TradingView CRYPTOCAP candles; wick-dependent sweeps/FVG are disabled on sampled series. Macro markets may use delayed OHLC, explicitly named ETF proxies, or daily close-only fallbacks. Trading-session gaps are not filled with invented candles. Hover a tape item for its source and observation time.</p>
     </div>
-    <div class="intel-panel" id="ip-macrotape"><div id="spot-macro-body"></div></div>
+    <div class="intel-panel" id="ip-macrotape"><section class="market-rel" data-macro-relationships aria-label="Macro Tape correlations"></section><div id="spot-macro-body"></div></div>
     <div class="intel-panel" id="ip-spotstrategy"><div id="spot-strategy-body"></div></div>
     <!-- MACRO REGIME -->
     <div class="intel-panel" id="ip-regime">
@@ -16478,124 +16523,442 @@ function togglePanel(id){
 
 // ── Market Intel tabbed bar ──────────────────────────────────────────────────
 var MARKET_CHARTS={
-  usdtd:{symbol:'CRYPTOCAP:USDT.D',label:'USDT Dominance · USDT.D',description:'USDT market cap as a percentage of global crypto market cap · derived sampled series.',unit:'percent'},
-  btcd:{symbol:'CRYPTOCAP:BTC.D',label:'BTC Dominance · BTC.D',description:'Bitcoin share of global crypto market capitalization · source OHLC.',unit:'percent'},
-  total3:{symbol:'CRYPTOCAP:TOTAL3',label:'Altcoin Market Cap · TOTAL3 proxy',description:'Global crypto market cap excluding Bitcoin and Ethereum · derived composite in USD trillions.',unit:'trillions'},
-  total:{symbol:'CRYPTOCAP:TOTAL',label:'Total Crypto Market Cap · TOTAL',description:'Global cryptocurrency market capitalization · source OHLC in USD trillions.',unit:'trillions'}
+  usdtd:{symbol:'CRYPTOCAP:USDT.D',label:'USDT Dominance · USDT.D',description:'Sampled USDT cap / global crypto cap · not exchange OHLC.',unit:'percent'},
+  btcd:{symbol:'CRYPTOCAP:BTC.D',label:'BTC Dominance · BTC.D',description:'Bitcoin share of global crypto market capitalization.',unit:'percent'},
+  total3:{symbol:'CRYPTOCAP:TOTAL3',label:'Altcoin Market Cap · TOTAL3 proxy',description:'Sampled global cap excluding BTC and ETH · USD trillions.',unit:'trillions'},
+  total:{symbol:'CRYPTOCAP:TOTAL',label:'Total Crypto Market Cap · TOTAL',description:'Global crypto market capitalization · USD trillions.',unit:'trillions'}
 };
 var _marketChartKey='btcd',_marketChartTF='1h',_marketChartSerial=0,_marketMetricCache={};
 var _marketChartLayers={ema:true,ema50:true,emaLong:false,vol:false,rsi:true,sr:true,analyst:false,fib:true,wyckoff:false,profile:false,preview:false,history:false,avwap:false,sweeps:true,btc:false};
-var _marketChartAutoTrend=true;
+var _marketChartAutoTrend=true,_marketChartOptions={viewMode:'analysis',fibScope:'major',fvgMode:'relevant'};
+function _marketEsc(x){return String(x==null?'':x).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function _marketInstallChoices(){
+  var references={spx:'SP:SPX',ndx:'NASDAQ:IXIC',dxy:'TVC:DXY',vix:'CBOE:VIX',gold:'COMEX:GC1!',tnx:'TVC:US10Y',usdjpy:'FX:USDJPY'};
+  (typeof MACRO_TICKERS==='undefined'?[]:MACRO_TICKERS).forEach(function(t){
+    MARKET_CHARTS[t.key]={symbol:references[t.key],label:t.label,description:'Macro context · source and actual instrument are shown below.',macro:t,unit:t.key==='tnx'?'yield':'price'};
+  });
+  var el=document.getElementById('market-macro-buttons');
+  if(el&&!el.children.length)el.innerHTML=Object.keys(references).map(function(k){return '<button class="market-chart-btn" data-market-chart="'+k+'" aria-pressed="false" onclick="renderMarketChart(\''+k+'\')">'+_marketEsc(MARKET_CHARTS[k].label)+'</button>';}).join('');
+}
+function chartMacroTapeMarkup(){
+  return (typeof MACRO_TICKERS==='undefined'?[]:MACRO_TICKERS).map(function(t){
+    var m=typeof _macro==='undefined'?null:_macro[t.key],q=typeof spotMacroQuality==='function'?spotMacroQuality(m):{label:'Unknown'};
+    var known=m&&Number.isFinite(m.price)&&m.price>0,label=known?m.label:t.label;
+    var title=(m&&m.source||'No source observation')+' · observed '+(m&&(m.observationDate||(m.observedAt&&new Date(m.observedAt).toISOString()))||'unknown')+' · '+q.label+' · opens '+t.label+' chart (may use a different labelled provider).';
+    var val=known?m.price.toLocaleString('en-US',{maximumFractionDigits:2})+(t.key==='tnx'&&!m.proxyInstrument?'% yield':''):'—';
+    return '<button type="button" title="'+_marketEsc(title)+'" onclick="openMacroMarketChart(\''+t.key+'\')">'+_marketEsc(label)+'<strong>'+_marketEsc(val)+'</strong><small>'+_marketEsc(q.label)+'</small></button>';
+  }).join('')+'<button type="button" onclick="refreshMacroData(true)">↻ Refresh<small>Macro context</small></button>';
+}
+function refreshChartMacroTape(){
+  var html=chartMacroTapeMarkup();document.querySelectorAll('[data-chart-macro-strip]').forEach(function(el){if(el.innerHTML!==html)el.innerHTML=html;});
+}
+function openMacroMarketChart(key){
+  _marketInstallChoices();if(!MARKET_CHARTS[key])return;
+  // Do not leave a coin modal covering the requested market chart.
+  var fs=document.getElementById('chart-fullscreen-ov');if(fs)fs.classList.remove('show','cp-focus');
+  var coin=document.getElementById('coin-ov');if(coin&&coin.classList.contains('show'))closeOv('coin-ov');
+  document.body.style.overflow='';
+  _marketChartKey=key;showIntel('charts');
+  var panel=document.getElementById('ip-charts');if(panel)panel.scrollIntoView({block:'start',behavior:'smooth'});
+}
 function _marketFetchJSON(url,force){
   if(force)delete _pendingReqs[url];
   return fetchJ(url,12000).catch(function(){
-    var tries=CORS_PROXIES.map(function(_,i){return i;});
-    function next(n){if(n>=tries.length)return Promise.reject(Error('All market-data routes failed'));return fetchJ(withProxy(url,tries[n]),15000).catch(function(){return next(n+1);});}
+    function next(n){if(n>=CORS_PROXIES.length)return Promise.reject(Error('Public market-data routes unavailable'));return fetchJ(withProxy(url,n),12000).catch(function(){return next(n+1);});}
     return next(0);
   });
 }
+function _marketCopyRows(rows,source){
+  var out=rows.map(function(k){return k.slice();});
+  ['dataSource','fetchedAt','sampled','sessionGaps','instrumentLabel','referenceSymbol','note','baseInterval','timeframe'].forEach(function(k){if(rows[k]!=null)out[k]=rows[k];});
+  out.dataSource=source||rows.dataSource;return out;
+}
+function _marketBucket(t,tf){
+  if(tf==='1w'){var d=new Date(t),day=Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate());return day-((d.getUTCDay()+6)%7)*86400000;}
+  return Math.floor(t/_chartTFDuration(tf))*_chartTFDuration(tf);
+}
+function _marketAggregate(rows,tf,baseInterval){
+  var span=_chartTFDuration(tf),base=baseInterval||rows.baseInterval||3600000;
+  if(span<base)throw Error('Requested timeframe is finer than the available source. No synthetic upsampling.');
+  if(span===base){var copy=_marketCopyRows(rows);copy.timeframe=tf;return copy;}
+  var groups=[],cur=null;
+  rows.forEach(function(k){
+    var t=_marketBucket(Number(k[0]),tf);
+    if(!cur||cur.t!==t){cur={t:t,bars:[]};groups.push(cur);}cur.bars.push(k);
+  });
+  var out=[],now=Date.now();
+  groups.forEach(function(g){
+    var b=g.bars,complete=g.t+span<=now;
+    if(!rows.sessionGaps){
+      if(Number(b[0][0])!==g.t)return;
+      if(b.some(function(k,i){return Number(k[0])!==g.t+i*base;}))return;
+      if(complete&&b.length!==span/base)return;
+    }else if(tf==='4h'){
+      // Trading sessions may end with a short bucket; keep observed bars only.
+      if(b.some(function(k,i){return i&&Number(k[0])-Number(b[i-1][0])!==base;}))return;
+    }else if(g===groups[0]&&tf==='1w'&&new Date(Number(b[0][0])).getUTCDay()>2){
+      return; // leading truncated weekly history; holidays can start on Tuesday
+    }
+    out.push([g.t,Number(b[0][1]),Math.max.apply(null,b.map(function(k){return Number(k[2]);})),Math.min.apply(null,b.map(function(k){return Number(k[3]);})),Number(b[b.length-1][4]),b.reduce(function(s,k){return s+(Number(k[5])||0);},0),g.t+span-1]);
+  });
+  var meta=_marketCopyRows(rows);['dataSource','fetchedAt','sampled','sessionGaps','instrumentLabel','referenceSymbol','note'].forEach(function(k){if(meta[k]!=null)out[k]=meta[k];});
+  out.baseInterval=span;out.timeframe=tf;return out;
+}
 function _marketBitcompare(metric,period,force){
-  var key='bc:'+metric+':'+period,c=_marketMetricCache[key];
-  if(!force&&c&&Date.now()-c.at<300000)return Promise.resolve(c.rows);
-  var url='https://api.bitcompare.net/api/v1/global-stats/metrics/ohlc/'+metric+'?period='+period;
-  return _marketFetchJSON(url,force).then(function(j){
-    var raw=j&&j.data&&j.data.ohlc;if(!Array.isArray(raw)||raw.length<20)throw Error('Market OHLC feed returned too little history');
-    var rows=raw.map(function(x){var t=Number(x.timestamp);if(t<1e12)t*=1000;return [t,Number(x.open),Number(x.high),Number(x.low),Number(x.close),0];})
-      .filter(function(k){return k.slice(0,5).every(isFinite)&&k[1]>0&&k[2]>=Math.max(k[1],k[4])&&k[3]<=Math.min(k[1],k[4]);})
-      .sort(function(a,b){return a[0]-b[0];});
-    if(rows.length<20)throw Error('Market OHLC validation failed');rows.dataSource='Bitcompare (CoinGecko global metrics)';rows.fetchedAt=Date.now();
+  var key='bc:'+metric+':'+period,c=_marketMetricCache[key];if(!force&&c&&Date.now()-c.at<300000)return Promise.resolve(c.rows);
+  return _marketFetchJSON('https://api.bitcompare.net/api/v1/global-stats/metrics/ohlc/'+metric+'?period='+period,force).then(function(j){
+    var raw=j&&j.data&&j.data.ohlc;if(!Array.isArray(raw))throw Error('Market OHLC feed unavailable');
+    var rows=raw.map(function(x){var t=Number(x.timestamp);if(t<1e12)t*=1000;return [t,Number(x.open),Number(x.high),Number(x.low),Number(x.close),0];}).sort(function(a,b){return a[0]-b[0];});
+    if(rows.length<2||rows.some(function(k,i){return !k.slice(0,5).every(Number.isFinite)||k[3]<=0||k[2]<Math.max(k[1],k[4])||k[3]>Math.min(k[1],k[4])||(i&&k[0]<=rows[i-1][0]);}))throw Error('Market OHLC validation failed');
+    // The live provider can ignore period=30d and return hourly / 7d.
+    // Read actual cadence; never relabel hourly data as daily candles.
+    var cadence=Math.min.apply(null,rows.slice(1).map(function(k,i){return k[0]-rows[i][0];}));
+    if(cadence!==3600000&&cadence!==86400000)throw Error('Unsupported source cadence; cannot label this timeframe safely');
+    rows.baseInterval=cadence;rows.dataSource='Bitcompare / CoinGecko global metrics';rows.fetchedAt=Date.now();
+    if(metric==='btc_dominance'||metric==='eth_dominance'){
+      var ratio=rows.every(function(k){return k.slice(1,5).every(function(v){return v<=1;});});
+      if(ratio)rows.forEach(function(k){for(var i=1;i<=4;i++)k[i]*=100;});
+      if(rows.some(function(k){return k.slice(1,5).some(function(v){return v>100;});}))throw Error('Invalid dominance units');
+    }
+    if(j.data.period!==period)rows.note='Provider returned '+j.data.period+' / '+j.data.granularity+' despite '+period+' request; only observed history is used.';
     _marketMetricCache[key]={at:Date.now(),rows:rows};return rows;
   });
 }
 function _marketTetherCaps(days,force){
-  var key='cg:tether:'+days,c=_marketMetricCache[key];
-  if(!force&&c&&Date.now()-c.at<300000)return Promise.resolve(c.points);
-  var url='https://api.coingecko.com/api/v3/coins/tether/market_chart?vs_currency=usd&days='+days+'&interval=hourly';
-  return _marketFetchJSON(url,force).then(function(j){
-    var pts=(j&&j.market_caps||[]).map(function(x){return [Number(x[0]),Number(x[1])];}).filter(function(x){return isFinite(x[0])&&x[0]>0&&isFinite(x[1])&&x[1]>0;}).sort(function(a,b){return a[0]-b[0];});
-    if(pts.length<20)throw Error('USDT market-cap history is unavailable');_marketMetricCache[key]={at:Date.now(),points:pts};return pts;
+  var key='cg:tether:'+days,c=_marketMetricCache[key];if(!force&&c&&Date.now()-c.at<300000)return Promise.resolve(c.points);
+  // Auto granularity works on the public endpoint; hourly is not forced.
+  return _marketFetchJSON('https://api.coingecko.com/api/v3/coins/tether/market_chart?vs_currency=usd&days='+days,force).then(function(j){
+    var pts=(j&&j.market_caps||[]).map(function(x){return [Number(x[0]),Number(x[1])];}).filter(function(x){return x.every(Number.isFinite)&&x[1]>0;}).sort(function(a,b){return a[0]-b[0];});
+    if(pts.length<2)throw Error('USDT market-cap samples unavailable');_marketMetricCache[key]={at:Date.now(),points:pts};return pts;
   });
-}
-function _marketCopyRows(rows,source){
-  var out=rows.map(function(k){return k.slice();});out.dataSource=source||rows.dataSource;out.fetchedAt=rows.fetchedAt||Date.now();return out;
-}
-function _marketAggregate(rows,tf){
-  if(tf!=='4h')return _marketCopyRows(rows);
-  var span=14400000,groups=[],cur=null;
-  rows.forEach(function(k){var t=Math.floor(Number(k[0])/span)*span;if(!cur||cur[0]!==t){cur=[t,Number(k[1]),Number(k[2]),Number(k[3]),Number(k[4]),0];groups.push(cur);}else{cur[2]=Math.max(cur[2],Number(k[2]));cur[3]=Math.min(cur[3],Number(k[3]));cur[4]=Number(k[4]);}});
-  groups.dataSource=rows.dataSource;groups.fetchedAt=rows.fetchedAt;return groups;
 }
 function _marketAlign(rows){var m={};rows.forEach(function(k){m[Number(k[0])]=k;});return m;}
 function _marketDerivedTOTAL3(total,btc,eth){
+  if(total.baseInterval!==btc.baseInterval||total.baseInterval!==eth.baseInterval)throw Error('Composite components have different source intervals');
   var bm=_marketAlign(btc),em=_marketAlign(eth),out=[];
   total.forEach(function(t){var b=bm[t[0]],e=em[t[0]];if(!b||!e)return;
-    var o=t[1]*(1-b[1]/100-e[1]/100),c=t[4]*(1-b[4]/100-e[4]/100);
-    var h=t[2]*(1-b[3]/100-e[3]/100),l=t[3]*(1-b[2]/100-e[2]/100);
-    h=Math.max(h,o,c);l=Math.min(l,o,c);if(l>0&&[o,h,l,c].every(isFinite))out.push([t[0],o/1e12,h/1e12,l/1e12,c/1e12,0]);
+    var o=t[1]*(1-b[1]/100-e[1]/100)/1e12,c=t[4]*(1-b[4]/100-e[4]/100)/1e12;
+    // Independent extrema are NOT simultaneous prices. Do not invent wicks.
+    if(o>0&&c>0&&isFinite(o)&&isFinite(c))out.push([t[0],o,Math.max(o,c),Math.min(o,c),c,0]);
   });
-  out.dataSource='Derived: Bitcompare total minus BTC and ETH dominance';out.fetchedAt=Date.now();return out;
+  out.dataSource='Derived sampled TOTAL3 · Bitcompare components';out.sampled=true;out.baseInterval=total.baseInterval;out.note=total.note;out.fetchedAt=Date.now();return out;
 }
 function _marketNearestPoint(points,t,maxGap){
-  var lo=0,hi=points.length-1;while(lo<hi){var mid=Math.floor((lo+hi)/2);if(points[mid][0]<t)lo=mid+1;else hi=mid;}
-  var a=points[lo],b=points[Math.max(0,lo-1)],pick=!b||a&&Math.abs(a[0]-t)<Math.abs(b[0]-t)?a:b;
-  return pick&&Math.abs(pick[0]-t)<=maxGap?pick[1]:null;
+  // As-of sample only: never borrow a future point to reconstruct an earlier close.
+  var lo=0,hi=points.length-1,pick=null;
+  while(lo<=hi){var mid=Math.floor((lo+hi)/2);if(points[mid][0]<=t){pick=points[mid];lo=mid+1;}else hi=mid-1;}
+  return pick&&t-pick[0]<=maxGap?pick[1]:null;
 }
 function _marketDerivedUSDTD(total,points,tf){
   var interval=_chartTFDuration(tf),out=[];
-  total.forEach(function(t){var prev=_marketNearestPoint(points,t[0],interval*1.5),now=_marketNearestPoint(points,t[0]+interval,interval*1.5);if(!(prev>0&&now>0))return;
-    var o=prev/t[1]*100,c=now/t[4]*100,h=Math.max(o,c),l=Math.min(o,c);out.push([t[0],o,h,l,c,0]);
+  total.forEach(function(t){var prev=_marketNearestPoint(points,t[0],interval*1.5),last=_marketNearestPoint(points,Math.min(Date.now(),t[0]+interval),interval*1.5);if(!(prev>0&&last>0))return;
+    var o=prev/t[1]*100,c=last/t[4]*100;if(o>0&&c>0)out.push([t[0],o,Math.max(o,c),Math.min(o,c),c,0]);
   });
-  out.dataSource='Derived: CoinGecko USDT cap ÷ Bitcompare total cap';out.fetchedAt=Date.now();return out;
+  out.dataSource='Derived sampled USDT.D · CoinGecko / Bitcompare';out.sampled=true;out.baseInterval=interval;out.note=total.note;out.fetchedAt=Date.now();return out;
+}
+function _marketParseYahoo(j,t,tf){
+  var r=j&&j.chart&&j.chart.result&&j.chart.result[0],q=r&&r.indicators&&r.indicators.quote&&r.indicators.quote[0];
+  if(!r||!q||!Array.isArray(r.timestamp))throw Error('Macro OHLC feed unavailable');
+  var base=tf==='1h'||tf==='4h'?3600000:86400000,out=[];
+  r.timestamp.forEach(function(ts,i){
+    var vals=[q.open&&q.open[i],q.high&&q.high[i],q.low&&q.low[i],q.close&&q.close[i]];
+    if(vals.some(function(v){return v==null||v===''||!isFinite(Number(v));}))return;
+    var at=Number(ts)*1000;if(base===86400000)at=_marketBucket(at,'1d');
+    out.push([at,Number(vals[0]),Number(vals[1]),Number(vals[2]),Number(vals[3]),Number(q.volume&&q.volume[i])||0]);
+  });
+  out.sort(function(a,b){return a[0]-b[0];});
+  out.dataSource='Yahoo Finance · delayed/session OHLC';out.instrumentLabel=t.key==='gold'?'Gold futures · GC':t.key==='ndx'?'Nasdaq Composite':t.key==='tnx'?'US 10Y yield (%)':t.label;
+  out.note='Yahoo source instrument: '+t.sym+'. Session bars are aggregated into UTC chart buckets.';out.sessionGaps=true;out.baseInterval=base;out.fetchedAt=Date.now();
+  return _marketAggregate(out,tf,base);
+}
+function _marketParseFred(text,t,tf){
+  if(tf!=='1d'&&tf!=='1w')throw Error('Daily source cannot provide intraday candles');
+  var out=[];String(text||'').trim().split(/\r?\n/).slice(1).forEach(function(line){
+    var p=line.split(','),date=String(p[0]||'').replace(/"/g,''),raw=String(p[1]||'').replace(/"/g,'');
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!raw||raw==='.')return;
+    var v=Number(raw);if(isFinite(v)&&v>0)out.push([Date.parse(date+'T00:00:00Z'),v,v,v,v,0]);
+  });
+  out.dataSource='FRED · daily close samples (not OHLC)';out.instrumentLabel=t.fredLabel||t.label;out.sampled=true;out.sessionGaps=true;out.baseInterval=86400000;out.fetchedAt=Date.now();
+  out.referenceSymbol='FRED:'+t.fred;
+  out.note=t.key==='dxy'?'Broad trade-weighted USD index, NOT DXY.':'Daily closing observations, not intraday wicks.';
+  return _marketAggregate(out,tf,86400000);
+}
+function _marketParseTwelve(j,t,tf){
+  if(!j||j.status==='error'||!Array.isArray(j.values))throw Error('Configured macro history provider unavailable');
+  var base=tf==='1w'?86400000:_chartTFDuration(tf),out=j.values.map(function(v){
+    // Daily dates are exchange session labels, normalized to UTC calendar dates.
+    var raw=String(v.datetime||''),at=Date.parse(raw.length===10?raw+'T00:00:00Z':raw.replace(' ','T')+'Z');
+    return [at,Number(v.open),Number(v.high),Number(v.low),Number(v.close),Number(v.volume)||0];
+  }).sort(function(a,b){return a[0]-b[0];});
+  out.dataSource='Twelve Data · '+t.twelve;out.instrumentLabel=t.twelveLabel||t.label;out.sessionGaps=true;out.baseInterval=base;out.fetchedAt=Date.now();
+  out.referenceSymbol=t.key==='usdjpy'?'FX:USDJPY':t.twelve;
+  out.note=t.key==='usdjpy'?'USD/JPY source OHLC.':t.twelve!==t.sym?'Actual instrument: '+t.twelve+'; proxy fund prices are not the underlying index or yield.':'';
+  return _marketAggregate(out,tf,base);
+}
+function _marketMacroHistory(cfg,tf,force){
+  var t=cfg.macro,key='macro:'+t.key+':'+tf+':'+(_macroApiKey()?'configured':'public'),cached=_marketMetricCache[key];
+  if(!force&&cached&&Date.now()-cached.at<300000)return Promise.resolve(cached.rows);
+  function fred(){
+    if(!t.fred||!['1d','1w'].includes(tf))throw Error('Intraday/OHLC provider unavailable. Try 1D/1W or configure a macro provider in Macro Tape.');
+    var start=new Date(Date.now()-6*365*86400000).toISOString().slice(0,10);
+    return _pfetchText('https://fred.stlouisfed.org/graph/fredgraph.csv?id='+encodeURIComponent(t.fred)+'&cosd='+start,12000).then(function(txt){return _marketParseFred(txt,t,tf);});
+  }
+  function yahoo(n){
+    if(n>1)return Promise.resolve().then(fred);
+    var range=tf==='1h'||tf==='4h'?'1mo':tf==='1w'?'5y':'2y',interval=tf==='1h'||tf==='4h'?'1h':'1d';
+    return _marketFetchJSON('https://query'+(n+1)+'.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(t.sym)+'?range='+range+'&interval='+interval,force)
+      .then(function(j){return _marketParseYahoo(j,t,tf);}).catch(function(){return yahoo(n+1);});
+  }
+  var apiKey=_macroApiKey(),request;
+  if(apiKey){
+    var interval={'1h':'1h','4h':'4h','1d':'1day','1w':'1day'}[tf];
+    var url='https://api.twelvedata.com/time_series?symbol='+encodeURIComponent(t.twelve)+'&interval='+interval+'&outputsize=500&timezone=UTC&apikey='+encodeURIComponent(apiKey);
+    // Authenticated requests NEVER go through the public CORS proxies.
+    request=_ffAuthRequest('macro-chart:'+_ffKeyTag(apiKey)+':'+t.key+':'+tf,url,12000).then(function(j){return _marketParseTwelve(j,t,tf);}).catch(function(){return yahoo(0);});
+  }else request=yahoo(0);
+  return request.then(function(rows){if(rows.length<2)throw Error('Insufficient macro chart history');_marketMetricCache[key]={at:Date.now(),rows:rows};return rows;});
 }
 function marketIndexKlines(key,tf,force){
-  var period=tf==='1d'?'30d':'7d',days=tf==='1d'?30:7;
-  if(key==='total')return _marketBitcompare('total_market_cap',period,force).then(function(rows){var out=_marketCopyRows(rows,'Bitcompare total market-cap OHLC');out.forEach(function(k){for(var i=1;i<=4;i++)k[i]/=1e12;});return _marketAggregate(out,tf);});
+  if(!['1h','4h','1d','1w'].includes(tf)||!MARKET_CHARTS[key])return Promise.reject(Error('Unsupported market/timeframe'));
+  if(MARKET_CHARTS[key].macro)return _marketMacroHistory(MARKET_CHARTS[key],tf,force);
+  var daily=tf==='1d'||tf==='1w',period=daily?'30d':'7d',baseTF=daily?'1d':'1h';
+  if(key==='total')return _marketBitcompare('total_market_cap',period,force).then(function(rows){var out=_marketCopyRows(rows);out.forEach(function(k){for(var i=1;i<=4;i++)k[i]/=1e12;});return _marketAggregate(out,tf);});
   if(key==='btcd')return _marketBitcompare('btc_dominance',period,force).then(function(rows){return _marketAggregate(rows,tf);});
   if(key==='total3')return Promise.all([_marketBitcompare('total_market_cap',period,force),_marketBitcompare('btc_dominance',period,force),_marketBitcompare('eth_dominance',period,force)])
     .then(function(r){return _marketAggregate(_marketDerivedTOTAL3(r[0],r[1],r[2]),tf);});
-  return Promise.all([_marketBitcompare('total_market_cap',period,force),_marketTetherCaps(days,force)]).then(function(r){var base=tf==='4h'?_marketAggregate(r[0],tf):r[0];return _marketDerivedUSDTD(base,r[1],tf);});
+  return Promise.all([_marketBitcompare('total_market_cap',period,force),_marketTetherCaps(daily?31:8,force)])
+    .then(function(r){return _marketAggregate(_marketDerivedUSDTD(r[0],r[1],r[0].baseInterval===86400000?'1d':'1h'),tf);});
 }
-function _marketDatum(key,rows){
-  var cfg=MARKET_CHARTS[key],closed=rows.slice(0,-1),last=closed[closed.length-1]||rows[rows.length-1],look=closed.slice(-Math.min(24,closed.length));
-  var h=closed.map(function(k){return Number(k[2]);}),l=closed.map(function(k){return Number(k[3]);}),c=closed.map(function(k){return Number(k[4]);});
-  var price=Number(last[4]),base=look.length?Number(look[0][1]):price,sr=calcSR(h,l,c),atr=calcATR(h,l,c,14);
-  return {isMarketIndex:true,sym:'MARKET_'+key.toUpperCase(),pair:cfg.label,price:price,chg:base>0?(price/base-1)*100:0,score:0,rsi:calcRSI(c),ema20:calcEMA(c,20),ema50:calcEMA(c,50),ema200:calcEMA(c,200),volR:null,struct:calcStruct(h,l,c),liq:'none',sup:sr.sup,res:sr.res,trend:price>calcEMA(c,20)&&calcEMA(c,20)>calcEMA(c,50)?'up':price<calcEMA(c,20)&&calcEMA(c,20)<calcEMA(c,50)?'down':'mixed',atrPct:price>0?atr/price*100:0,signal:'context',buySignal:false,sellSignal:false,strongBuy:false,analysisSnapshot:null};
+function marketClosedRows(rows,tf,now){
+  now=now==null?Date.now():now;return rows.filter(function(k){return Number(k[0])+_chartTFDuration(tf)<=now;});
+}
+var _marketRelSerial=0,_marketRelAt=0,_marketRelPromise=null,_marketRelRows={},_marketRelHistories={};
+function marketRelationshipReturns(rows,tf,now){
+  var span=_chartTFDuration(tf),out={points:[],byEnd:{},source:rows&&rows.dataSource||'Unknown source',sampled:!!(rows&&rows.sampled)};
+  now=now==null?Date.now():now;
+  if(!Array.isArray(rows)){out.error='Source unavailable';return out;}
+  if(rows.sessionGaps&&!rows.relationshipClock){out.error='Different trading sessions; no synchronized comparison';return out;}
+  if(rows.baseInterval&&rows.baseInterval!==span){out.error='Source timeframe mismatch';return out;}
+  // Do not sort, fill gaps, interpolate, or join different-duration returns.
+  if(rows.some(function(k,i){return !k||k.length<5||!k.slice(0,5).every(function(v){return v!==null&&v!==''&&Number.isFinite(Number(v));})||Number(k[0])%span!==0||Number(k[3])<=0||Number(k[2])<Math.max(Number(k[1]),Number(k[4]))||Number(k[3])>Math.min(Number(k[1]),Number(k[4]))||(i&&Number(k[0])<=Number(rows[i-1][0]));})){
+    out.error='Invalid or duplicated source candles';return out;
+  }
+  var closed=marketClosedRows(rows,tf,now);
+  closed.forEach(function(k,i){
+    if(!i||Number(k[0])-Number(closed[i-1][0])!==span)return;
+    var prev=Number(closed[i-1][4]),close=Number(k[4]),p={end:Number(k[0])+span,value:(close/prev-1)*100,delta:close-prev};
+    if(!Number.isFinite(p.value))return;out.points.push(p);out.byEnd[p.end]=p;
+  });
+  return out;
+}
+function marketRelationshipPearson(pairs){
+  if(pairs.length<20)return null;
+  var ax=0,ay=0; pairs.forEach(function(p){ax+=p[0];ay+=p[1];});ax/=pairs.length;ay/=pairs.length;
+  var xx=0,yy=0,xy=0;pairs.forEach(function(p){var x=p[0]-ax,y=p[1]-ay;xx+=x*x;yy+=y*y;xy+=x*y;});
+  // A constant-return series has undefined correlation, not zero correlation.
+  if(xx/pairs.length<1e-16||yy/pairs.length<1e-16)return null;
+  return Math.max(-1,Math.min(1,xy/Math.sqrt(xx*yy)));
+}
+function marketRelationshipRow(histories,tf,now){
+  now=now==null?Date.now():now;var span=_chartTFDuration(tf),keys=['usdtd','btcd','total3','total'],series={};
+  keys.forEach(function(k){series[k]=marketRelationshipReturns(histories[k],tf,now);});
+  var ref=series.total,last=ref.points[ref.points.length-1],end=last?last.end:null,expected=Math.floor(now/span)*span;
+  var result={tf:tf,end:end,stale:end!==expected,cells:{},read:'Market read unavailable: no matching closed market candle.'};
+  // Window uses calendar intervals, not the last 60 available points across gaps.
+  var windowPoints=ref.points.filter(function(p){return end!==null&&p.end>end-60*span&&p.end<=end;});
+  keys.forEach(function(k){
+    var s=series[k],pairs=windowPoints.filter(function(p){return !!s.byEnd[p.end];}).map(function(p){return [s.byEnd[p.end].value,p.value];});
+    var r=marketRelationshipPearson(pairs),latest=end!==null?s.byEnd[end]:null;
+    result.cells[k]={latest:latest||null,r:r,n:pairs.length,source:s.source,sampled:s.sampled,error:s.error||ref.error||'',reason:r!==null?'':pairs.length<20?'Need 20 matched returns':'No return variation'};
+  });
+  if(!last)return result;
+  if(result.stale){result.read='Historical data only: latest expected candle is missing. No current market read.';return result;}
+  var u=result.cells.usdtd.latest,b=result.cells.btcd.latest,a=result.cells.total3.latest,m=last.value;
+  var dir=function(v){return v>1e-8?1:v< -1e-8?-1:0;},md=dir(m),ud=u?dir(u.value):null;
+  if(md<0&&ud>0)result.read='Market cap fell; USDT share rose. Consistent with market weakness—not proof of USDT inflows.';
+  else if(md>0&&ud<0)result.read='Market cap rose; USDT share fell. Market expansion this candle, not a buy signal.';
+  else if(md>0&&ud>0)result.read='Market cap and USDT share both rose. Mixed relationship; USDT.D is not a simple sell signal.';
+  else if(md<0&&ud<0)result.read='Market cap and USDT share both fell. Falling USDT.D did not mean a rising market.';
+  else result.read='Market cap '+(md>0?'rose':md<0?'fell':'was flat')+'; USDT share '+(ud===null?'unavailable for this candle':ud===0?'was flat':'moved '+(ud>0?'up':'down'))+'.';
+  if(b&&a)result.read+=' '+(dir(b.value)>0?'BTC share rose':dir(b.value)<0?'BTC share fell':'BTC share was flat')+'; ex-BTC/ETH cap '+(dir(a.value)>0?'rose':dir(a.value)<0?'fell':'was flat')+'.';
+  return result;
+}
+function marketRelationshipCellHTML(cell,key,stale){
+  if(cell.error)return '<td><span>Unavailable</span><small>'+_marketEsc(cell.error)+'</small></td>';
+  var p=cell.latest,dominance=key==='usdtd'||key==='btcd',value=p?(dominance?p.delta:p.value):null;
+  // Round before assigning arrows so an effectively flat move never says up 0.00.
+  var rounded=value===null?null:Number(value.toFixed(dominance?3:2));
+  var move=rounded===null?'No matching close':(rounded>0?'↑ +':rounded<0?'↓ ':'→ ')+rounded.toFixed(dominance?3:2)+(dominance?' pp':'%');
+  var correlation=key==='total'?'Market reference':cell.r===null?'r unavailable · '+cell.reason+' (n='+cell.n+')':'r '+(cell.r>=0?'+':'')+cell.r.toFixed(2)+' · n='+cell.n;
+  return '<td title="'+_marketEsc(cell.source)+'"><strong class="'+(rounded>0?'rel-up':rounded<0?'rel-down':'')+'">'+move+'</strong><small>'+_marketEsc(correlation)+(stale?' · historical':'')+(cell.sampled?' · sampled':'')+'</small></td>';
+}
+function renderMarketRelationships(){
+  var body=document.getElementById('market-rel-body');if(!body)return;
+  body.innerHTML=['1h','4h','1d'].map(function(tf){
+    var row=_marketRelRows[tf],label=tf==='1d'?'1D':tf;
+    if(!row)return '<tr><th scope="row">'+label+'</th><td colspan="5">Loading closed candles…</td></tr>';
+    return '<tr><th scope="row">'+label+'</th>'+['usdtd','btcd','total3','total'].map(function(k){return marketRelationshipCellHTML(row.cells[k],k,row.stale);}).join('')+'<td class="rel-read">'+_marketEsc(row.read)+'<small>'+(row.end?'Candle ended '+new Date(row.end).toISOString().replace('T',' ').replace('.000Z',' UTC'):'No closed comparison')+'</small></td></tr>';
+  }).join('');
+}
+function refreshMarketRelationships(force){
+  if(_marketRelPromise&&!force)return _marketRelPromise;
+  if(!force&&_marketRelAt&&Date.now()-_marketRelAt<300000){renderMarketRelationships();return Promise.resolve();}
+  var serial=++_marketRelSerial,asOf=Date.now(),button=document.getElementById('market-rel-refresh'),status=document.getElementById('market-rel-status');
+  if(force)Object.keys(_marketMetricCache).forEach(function(k){if(k.indexOf('bc:')===0||k.indexOf('cg:tether:')===0)delete _marketMetricCache[k];});
+  _marketRelRows={};_marketRelHistories={};renderMarketRelationships();if(button)button.disabled=true;
+  if(status)status.textContent='Loading 1h, 4h and 1D relationships. Existing provider history is reused when available.';
+  // Sequential timeframes reuse hourly data; each row tolerates individual feed failures.
+  var work=Promise.resolve();['1h','4h','1d'].forEach(function(tf){work=work.then(function(){
+    if(serial!==_marketRelSerial)return;
+    var histories={},keys=['total','btcd','total3','usdtd'];
+    return Promise.all(keys.map(function(k){return Promise.resolve().then(function(){return marketIndexKlines(k,tf,false);}).then(function(rows){histories[k]=rows;},function(){histories[k]=null;});})).then(function(){
+      if(serial!==_marketRelSerial)return;_marketRelHistories[tf]=histories;_marketRelRows[tf]=marketRelationshipRow(histories,tf,asOf);renderMarketRelationships();
+    });
+  });});
+  _marketRelPromise=work.then(function(){
+    if(serial!==_marketRelSerial)return;_marketRelAt=Date.now();
+    if(status)status.textContent='Checked '+new Date(asOf).toLocaleString()+' · Each row uses its own last closed interval. r describes history, not the latest arrow. Short feeds may not support 1D correlation.';
+  }).catch(function(){if(serial===_marketRelSerial&&status)status.textContent='Relationships could not be updated. Please retry.';}).finally(function(){if(serial===_marketRelSerial){_marketRelPromise=null;if(button)button.disabled=false;}});
+  return _marketRelPromise;
+}
+var _macroRelSerial=0,_macroRelAt=0,_macroRelPromise=null,_macroRelCells={},_macroRelLoading=false;
+function marketMacroRelationshipRows(rows,tf){
+  if(!Array.isArray(rows))return null;
+  var copy=_marketCopyRows(rows);
+  if(tf==='1d'){
+    // These are calendar session labels, NOT simultaneous UTC closing prices.
+    copy.relationshipClock='session-date';return copy;
+  }
+  if(copy.baseInterval!==3600000||copy.some(function(k){return Number(k[0])%3600000!==0;})){
+    throw Error('Session hours do not align with UTC crypto candles');
+  }
+  // Exclude short/partial 4h trading-session buckets, never fill weekends.
+  copy.sessionGaps=false;copy=_marketAggregate(copy,tf,3600000);
+  copy.sessionGaps=true;copy.relationshipClock='utc-complete';return copy;
+}
+function marketMacroRelationshipCell(total,rows,tf,now){
+  var ref=marketRelationshipReturns(total,tf,now),s=marketRelationshipReturns(rows,tf,now),span=_chartTFDuration(tf),last=ref.points[ref.points.length-1];
+  var end=last?last.end:null,pairs=ref.points.filter(function(p){return end!==null&&p.end>end-60*span&&!!s.byEnd[p.end];}).map(function(p){return [s.byEnd[p.end].value,p.value];});
+  var r=marketRelationshipPearson(pairs),latest=end!==null?s.byEnd[end]:null;
+  return {latest:latest||null,r:r,n:pairs.length,source:s.source,sampled:s.sampled,error:s.error||ref.error||'',reason:r!==null?'':pairs.length<20?'Need 20 matched returns':'No return variation',
+    label:rows&&rows.instrumentLabel||'',session:tf==='1d',end:end,stale:end!==Math.floor(now/span)*span||!latest,observed:s.points.length?s.points[s.points.length-1].end:null};
+}
+function renderMacroRelationships(){
+  var html='<div class="market-rel-heading"><strong>Macro Tape correlation · vs TOTAL crypto market cap</strong><button class="btn" '+(_macroRelLoading?'disabled ':'')+'onclick="refreshMacroRelationships(true)">↻ '+(_macroRelLoading?'Loading…':'Update macro correlations')+'</button></div><div class="market-rel-scroll"><table><thead><tr><th scope="col">Timeframe</th>';
+  MACRO_TICKERS.forEach(function(t){html+='<th scope="col">'+_marketEsc(t.label)+'</th>';});html+='</tr></thead><tbody>';
+  ['1h','4h','1d'].forEach(function(tf){
+    var anchor=MACRO_TICKERS.map(function(t){return _macroRelCells[tf+':'+t.key];}).find(function(c){return c&&c.end;});
+    html+='<tr><th scope="row">'+(tf==='1d'?'1D':tf)+(tf==='1d'?'<small>Session dates</small>':'')+(anchor?'<small style="display:block">Market interval ended '+_marketEsc(new Date(anchor.end).toISOString().replace('T',' ').replace('.000Z',' UTC'))+'</small>':'')+'</th>';
+    MACRO_TICKERS.forEach(function(t){var c=_macroRelCells[tf+':'+t.key];
+      if(!c){html+='<td>Loading…</td>';return;}
+      var cell=marketRelationshipCellHTML(c,t.key,c.stale),label=c.label||t.label;
+      var timing=c.error?'':c.observed?'Last source interval: '+new Date(c.observed).toISOString().replace('T',' ').replace('.000Z',' UTC'):'No closed source returns';
+      if(c.session&&timing)timing+=' (session-date label)';
+      html+=cell.replace('</td>','<small>'+_marketEsc(label)+'</small><small>'+_marketEsc(timing)+'</small></td>');
+    });html+='</tr>';
+  });
+  html+='</tbody></table></div><div class="market-rel-note">Arrows: matched-period percentage change. r: correlation of returns with TOTAL, not a prediction. +1 = together; −1 = opposite; near 0 = little linear relationship. Up is not automatically bullish for crypto. Uses the latest 60 market intervals, minimum 20 matched returns; no gap filling. Hover cells for sources.<br>1h/4h require UTC-aligned, complete bars; mismatched session hours are unavailable. 1D matches calendar session dates, not simultaneous closes, so it is an approximate daily comparison. Weekends, holidays and missing matching closes are not forward-filled. Proxy funds are named explicitly; TLT bond prices are not US 10Y yields. Limited TOTAL history can prevent daily r.</div>';
+  if(_macroRelAt&&!_macroRelLoading)html+='<div class="market-rel-note">Checked '+_marketEsc(new Date(_macroRelAt).toLocaleString())+'</div>';
+  document.querySelectorAll('[data-macro-relationships]').forEach(function(el){el.innerHTML=html;});
+}
+function refreshMacroRelationships(force){
+  if(_macroRelPromise&&!force)return _macroRelPromise;
+  if(!force&&_macroRelAt&&Date.now()-_macroRelAt<300000){renderMacroRelationships();return Promise.resolve();}
+  var serial=++_macroRelSerial;_macroRelLoading=true;_macroRelCells={};renderMacroRelationships();_marketInstallChoices();
+  if(force)Object.keys(_marketMetricCache).forEach(function(k){if(k.indexOf('macro:')===0)delete _marketMetricCache[k];});
+  _macroRelPromise=refreshMarketRelationships(false).then(function(){
+    var now=Date.now(),refs=_marketRelHistories,jobs=[];
+    MACRO_TICKERS.forEach(function(t){['1h','1d'].forEach(function(base){jobs.push({t:t,base:base});});});
+    // Bound external requests; reuse hourly history to build the 4h comparison.
+    function worker(){
+      if(serial!==_macroRelSerial||!jobs.length)return Promise.resolve();var job=jobs.shift(),t=job.t,frames=job.base==='1h'?['1h','4h']:['1d'];
+      return Promise.resolve().then(function(){return _marketMacroHistory(MARKET_CHARTS[t.key],job.base,false);}).then(function(rows){
+        if(serial!==_macroRelSerial)return;frames.forEach(function(tf){try{_macroRelCells[tf+':'+t.key]=marketMacroRelationshipCell(refs[tf]&&refs[tf].total,marketMacroRelationshipRows(rows,tf),tf,now);}catch(e){_macroRelCells[tf+':'+t.key]={error:e.message,label:rows.instrumentLabel||t.label};}});
+      },function(){if(serial===_macroRelSerial)frames.forEach(function(tf){_macroRelCells[tf+':'+t.key]={error:'Source history unavailable',label:t.label};});}).then(function(){if(serial===_macroRelSerial)renderMacroRelationships();return worker();});
+    }
+    return Promise.all([worker(),worker(),worker()]);
+  }).catch(function(){if(serial===_macroRelSerial)MACRO_TICKERS.forEach(function(t){['1h','4h','1d'].forEach(function(tf){if(!_macroRelCells[tf+':'+t.key])_macroRelCells[tf+':'+t.key]={error:'Comparison unavailable; retry',label:t.label};});});}).finally(function(){
+    if(serial===_macroRelSerial){_macroRelLoading=false;_macroRelAt=Date.now();_macroRelPromise=null;renderMacroRelationships();}
+  });return _macroRelPromise;
+}
+function marketChartSnapshot(rows,sym,tf,now){
+  now=now==null?Date.now():now;var span=_chartTFDuration(tf),closed=marketClosedRows(rows,tf,now),errors=[],hash=2166136261;
+  var valid=rows.length>=2&&rows.every(function(k,i){var v=k.slice(0,5).map(Number);return v.every(Number.isFinite)&&v[3]>0&&v[2]>=Math.max(v[1],v[4])&&v[3]<=Math.min(v[1],v[4])&&v[0]<=now&&(!i||(v[0]>Number(rows[i-1][0])&&(rows.sessionGaps||v[0]-Number(rows[i-1][0])===span)));});
+  if(!valid)errors.push('Invalid, duplicated or missing source candles');
+  if(closed.length<20){errors.push('Limited history: '+closed.length+' closed candles; automatic structure needs 20');valid=false;}
+  var content=closed.map(function(k){return k.join(',');}).join('|');for(var i=0;i<content.length;i++)hash=Math.imul(hash^content.charCodeAt(i),16777619);
+  var latest=rows[rows.length-1],stale=!latest||now-Number(latest[0])>span+(rows.sessionGaps?4*86400000:span);
+  if(stale)errors.push('Historical/stale source; not a live quote');
+  if(rows.sampled)errors.push('Sampled series: no measured wicks, sweep or FVG evidence');
+  errors.push('Market context only; no trade confirmation');
+  return {source:rows.dataSource||'Unknown',symbol:sym,timeframe:tf,key:(rows.dataSource||'Unknown')+':'+sym+':'+tf,signature:(rows.dataSource||'Unknown')+':'+sym+':'+tf+':'+(hash>>>0),times:closed.map(function(k){return Number(k[0]);}),valid:valid,usable:false,volumeValid:false,wickReliable:!rows.sampled,lastClosedTime:closed.length?Number(closed[closed.length-1][0])+span:null,message:errors.join(' · '),settingsVersion:3};
+}
+function _marketDatum(key,rows,tf){
+  var cfg=MARKET_CHARTS[key],closed=marketClosedRows(rows,tf),last=closed[closed.length-1]||rows[rows.length-1];
+  var h=closed.map(function(k){return Number(k[2]);}),l=closed.map(function(k){return Number(k[3]);}),c=closed.map(function(k){return Number(k[4]);}),price=Number(last[4]);
+  var sr=closed.length?calcSR(h,l,c):{sup:price,res:price},atr=calcATR(h,l,c,14),e20=calcEMA(c,20),e50=calcEMA(c,50);
+  return {isMarketIndex:true,sym:'MARKET_'+key.toUpperCase(),pair:rows.instrumentLabel||cfg.label,price:price,chg:0,score:0,rsi:calcRSI(c),ema20:e20,ema50:e50,ema200:calcEMA(c,200),volR:null,struct:closed.length>=20?calcStruct(h,l,c):'insufficient history',liq:'none',sup:sr.sup,res:sr.res,trend:price>e20&&e20>e50?'up':price<e20&&e20<e50?'down':'mixed',atrPct:price>0?atr/price*100:0,signal:'context',buySignal:false,sellSignal:false,strongBuy:false,analysisSnapshot:null};
 }
 function _syncMarketChartControls(){
   document.querySelectorAll('[data-market-tf]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.marketTf===_marketChartTF));});
-  document.querySelectorAll('[data-market-layer]').forEach(function(b){b.setAttribute('aria-pressed',String(!!_marketChartLayers[b.dataset.marketLayer]));});
+  var sampled=chartState.marketMode&&chartState.klines&&chartState.klines.sampled;
+  var count=chartState.marketMode&&chartState.klines?marketClosedRows(chartState.klines,chartState.tf).length:0;
+  document.querySelectorAll('[data-market-layer]').forEach(function(b){var name=b.dataset.marketLayer,min=name==='emaLong'?200:name==='rsi'?15:20;
+    b.disabled=(!!sampled&&name==='sweeps')||count<min;b.setAttribute('aria-pressed',String(!b.disabled&&!!_marketChartLayers[name]));
+    b.title=b.disabled?(sampled&&name==='sweeps'?'No measured wicks in sampled data':'Needs '+min+' closed bars; '+count+' available'):'';
+  });
+  var fvg=document.getElementById('market-fvg');if(fvg)fvg.disabled=!!sampled;
   var trend=document.querySelector('[data-market-trend]');if(trend)trend.setAttribute('aria-pressed',String(_marketChartAutoTrend));
 }
-function setMarketChartTF(tf){if(['1h','4h'].indexOf(tf)<0)return;_marketChartTF=tf;renderMarketChart(_marketChartKey);}
-function toggleMarketChartLayer(name){if(typeof _marketChartLayers[name]!=='boolean')return;_marketChartLayers[name]=!_marketChartLayers[name];if(chartState.marketMode){chartState.indicators=Object.assign({},_marketChartLayers);_syncMarketChartControls();drawChart();}}
-function toggleMarketChartTrend(){_marketChartAutoTrend=!_marketChartAutoTrend;if(chartState.marketMode){chartState.trendMode=_marketChartAutoTrend?'auto':'off';_syncMarketChartControls();drawChart();}}
-function marketChartZoom(dir){if(!chartState.marketMode)return;chartState.zoom=Math.max(20,Math.min(200,chartState.zoom+(dir>0?-10:10)));chartState.offset=Math.max(0,chartState.klines.length-chartState.zoom);drawChart();}
-function marketChartReset(){if(!chartState.marketMode)return;chartState.zoom=Math.min(chartIsMobile()?42:90,chartState.klines.length);chartState.offset=Math.max(0,chartState.klines.length-chartState.zoom);chartState.crosshair=null;drawChart();}
+function setMarketChartTF(tf){if(!['1h','4h','1d','1w'].includes(tf))return;_marketChartTF=tf;renderMarketChart(_marketChartKey);}
+function toggleMarketChartLayer(name){if(typeof _marketChartLayers[name]!=='boolean')return;_marketChartLayers[name]=!_marketChartLayers[name];if(name==='ema')_marketChartLayers.ema50=_marketChartLayers.ema;if(chartState.marketMode){chartState.indicators=Object.assign({},_marketChartLayers);_syncMarketChartControls();drawChart();}}
+function toggleMarketChartTrend(){_marketChartAutoTrend=!_marketChartAutoTrend;if(chartState.marketMode){chartState.trendMode=_marketChartAutoTrend?'both':'manual';_syncMarketChartControls();drawChart();}}
+function marketChartOption(name,value){
+  var valid={viewMode:['clean','analysis'],fibScope:['major','recent'],fvgMode:['off','relevant','all']};if(!valid[name]||!valid[name].includes(value))return;
+  _marketChartOptions[name]=value;if(chartState.marketMode){chartState[name]=value;drawChart();}
+}
+function marketChartDraw(){if(chartState.marketMode&&!chartState.loading){chartState.trendMode=_marketChartAutoTrend?'both':'manual';toggleDrawMode();}}
+function marketChartEdit(action){if(chartState.marketMode&&['lock','delete'].includes(action))editSelectedDrawing(action);}
+function marketChartFit(kind){if(chartState.marketMode&&!chartState.loading)chartFit(kind);}
+function expandMarketChart(){
+  var el=document.getElementById('ip-charts'),b=document.getElementById('market-expand');if(!el)return;
+  var on=el.classList.toggle('market-expanded');if(b){b.textContent=on?'✕ Exit expanded':'⛶ Expand';b.setAttribute('aria-pressed',String(on));}
+  if(chartState.marketMode)window.requestAnimationFrame(drawChart);
+}
+function marketChartZoom(dir){if(!chartState.marketMode||!chartState.klines)return;chartState.zoom=Math.max(5,Math.min(chartState.klines.length,chartState.zoom+(dir>0?-10:10)));chartState.offset=Math.max(0,chartState.klines.length-chartState.zoom);drawChart();}
+function marketChartReset(){if(!chartState.marketMode||!chartState.klines)return;chartState.zoom=Math.min(chartIsMobile()?42:90,chartState.klines.length);chartState.offset=Math.max(0,chartState.klines.length-chartState.zoom);chartState.crosshair=null;drawChart();}
 function renderMarketChart(key,force){
-  key=MARKET_CHARTS[key]?key:_marketChartKey;_marketChartKey=key;var cfg=MARKET_CHARTS[key],host=document.getElementById('market-chart-host');if(!host)return;
-  document.querySelectorAll('[data-market-chart]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.marketChart===key));});_syncMarketChartControls();
+  _marketInstallChoices();key=MARKET_CHARTS[key]?key:_marketChartKey;_marketChartKey=key;var cfg=MARKET_CHARTS[key],tf=_marketChartTF,host=document.getElementById('market-chart-host');if(!host)return;
+  document.querySelectorAll('[data-market-chart]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.marketChart===key));});
   var title=document.getElementById('market-chart-title'),description=document.getElementById('market-chart-description'),open=document.getElementById('market-chart-open'),status=document.getElementById('market-chart-status');
-  if(title)title.textContent=cfg.label;if(description)description.textContent=cfg.description;
-  if(open){open.href='https://www.tradingview.com/chart/?symbol='+encodeURIComponent(cfg.symbol);open.setAttribute('aria-label','Open '+cfg.label+' reference on TradingView');}
-  var serial=++_marketChartSerial;host.dataset.marketChart=key;host.innerHTML='<div class="market-chart-loading"><div><div class="sp" style="margin:0 auto 9px"></div>Loading '+cfg.label+' into the CoinScreener chart engine…</div></div>';
-  if(status)status.textContent='Loading verified source history…';stopChartLive();
-  marketIndexKlines(key,_marketChartTF,!!force).then(function(rows){
-    if(serial!==_marketChartSerial)return;if(!rows||rows.length<20)throw Error('Not enough market history to draw this chart');
-    host.innerHTML='<canvas id="market-chart-canvas" aria-label="'+cfg.label+' automatic technical chart"></canvas><div id="market-chart-legend" style="position:absolute;top:6px;left:8px;z-index:3;font-size:11px;color:#aab4c5;pointer-events:none;line-height:1.7;font-family:-apple-system,sans-serif"></div>';
-    chartState.marketMode=true;chartState.wrapId='market-chart-host';chartState.canvasId='market-chart-canvas';chartState.legendId='market-chart-legend';chartState.fullscreen=false;chartState.btcFocus=false;
-    chartState.sym='MARKET_'+key.toUpperCase();chartState.tf=_marketChartTF;chartState.d=_marketDatum(key,rows);chartState.klines=rows;chartState.btcKlines=null;chartState.btcComparison=null;chartState.btcCompareStatus='disabled';
-    chartState.indicators=Object.assign({},_marketChartLayers);chartState.trendMode=_marketChartAutoTrend?'auto':'off';chartState.viewMode='analysis';chartState.fvgMode='relevant';chartState.fvgMinAtr=.1;chartState.fibScope='major';chartState.fibRetirement='extension';chartState.fibConnector=false;chartState.magnet=true;
-    chartState.zoom=Math.min(chartIsMobile()?42:90,rows.length);chartState.offset=Math.max(0,rows.length-chartState.zoom);chartState.loading=false;chartState.livePrice=null;chartState.liveChange=0;chartState.lastPriceAt=0;chartState.quoteSource=null;chartState.crosshair=null;chartState.drawMode=false;chartState.drawPending=null;chartState.manualDrag=null;chartState.selectedDrawing=null;chartState._map=null;chartState.autoFib=null;chartState.fibLadder=null;chartState.wyckoff=null;chartState.trendlines=null;chartState.metrics=null;chartState._trendKey=null;chartState._fvgKey=null;chartState.snapshot=null;chartState.sourceNotice=null;chartState.loadError=null;chartState.loadRequestId=(chartState.loadRequestId||0)+1;
-    initChartEvents();drawChart();
-    var latest=rows[rows.length-1],kind=(key==='usdtd'||key==='total3')?'Derived series · ':'Source OHLC · ';
-    if(status)status.textContent=kind+rows.length+' '+_marketChartTF+' candles · '+rows.dataSource+' · latest bar '+new Date(Number(latest[0])).toLocaleString()+' · drag to pan, wheel/pinch to zoom.';
+  if(title)title.textContent=cfg.label;if(description)description.textContent=cfg.description;if(open)open.href='https://www.tradingview.com/chart/?symbol='+encodeURIComponent(cfg.symbol);
+  var serial=++_marketChartSerial;stopChartLive();chartState.marketMode=true;chartState.loading=true;chartState.klines=null;chartState.loadRequestId=(chartState.loadRequestId||0)+1;
+  host.innerHTML='<div class="market-chart-loading"><div><div class="sp" style="margin:0 auto 9px"></div>Loading '+_marketEsc(cfg.label)+' · '+tf+'…</div></div>';
+  if(status)status.textContent='Loading source history. Provider failures are shown; no synthetic candles are substituted.';
+  var summary=document.getElementById('market-chart-summary');if(summary)summary.textContent='';
+  refreshChartMacroTape();_syncMarketChartControls();
+  return marketIndexKlines(key,tf,!!force).then(function(rows){
+    if(serial!==_marketChartSerial||!chartState.marketMode)return;
+    if(!rows||rows.length<2)throw Error('Not enough source history for '+tf+'. The provider returned fewer than two usable bars; try a shorter timeframe.');
+    var check=marketChartSnapshot(rows,'MARKET_'+key.toUpperCase(),tf);
+    if(check.message.indexOf('Invalid,')===0)throw Error(check.message);
+    host.innerHTML='<canvas id="market-chart-canvas" aria-label="'+_marketEsc(cfg.label)+' technical chart"></canvas><div id="market-chart-legend" style="position:absolute;top:6px;left:8px;z-index:3;font-size:11px;color:#d1d4dc;pointer-events:none;line-height:1.7;font-family:-apple-system,sans-serif"></div>';
+    chartState.wrapId='market-chart-host';chartState.canvasId='market-chart-canvas';chartState.legendId='market-chart-legend';chartState.fullscreen=false;chartState.btcFocus=false;
+    chartState.sym='MARKET_'+key.toUpperCase();chartState.tf=tf;chartState.d=_marketDatum(key,rows,tf);chartState.klines=rows;chartState.btcKlines=null;chartState.btcComparison=null;chartState.btcCompareStatus='disabled';
+    chartState.indicators=Object.assign({},_marketChartLayers);chartState.trendMode=_marketChartAutoTrend?'both':'manual';chartState.viewMode=_marketChartOptions.viewMode;chartState.fvgMode=_marketChartOptions.fvgMode;chartState.fvgMinAtr=.1;chartState.fibScope=_marketChartOptions.fibScope;chartState.fibRetirement='extension';chartState.fibConnector=false;chartState.magnet=true;
+    chartState.zoom=Math.min(chartIsMobile()?42:90,rows.length);chartState.offset=Math.max(0,rows.length-chartState.zoom);chartState.loading=false;chartState.livePrice=null;chartState.liveChange=0;chartState.lastPriceAt=0;chartState.quoteSource=null;chartState.crosshair=null;chartState.drawMode=false;chartState.drawPending=null;chartState.manualDrag=null;chartState.selectedDrawing=null;chartState._map=null;chartState.autoFib=null;chartState.fibLadder=null;chartState.wyckoff=null;chartState.trendlines=null;chartState.metrics=null;chartState._trendKey=null;chartState._fvgKey=null;chartState.snapshot=null;chartState.sourceNotice=null;chartState.loadError=null;
+    _syncMarketChartControls();initChartEvents();drawChart();
+    if(title)title.textContent=rows.instrumentLabel||cfg.label;if(description)description.textContent=cfg.description+' '+(rows.note||'');
+    if(open)open.href='https://www.tradingview.com/chart/?symbol='+encodeURIComponent(rows.referenceSymbol||cfg.symbol)+'&interval='+({'1h':'60','4h':'240','1d':'D','1w':'W'}[tf]);
+    var latest=rows[rows.length-1];if(status)status.textContent=rows.length+' '+tf+' bars · '+rows.dataSource+' · last observation '+new Date(Number(latest[0])).toLocaleString()+' · '+check.message+' · drag to pan, wheel/pinch to zoom; select a manual line to edit.';
   }).catch(function(err){
-    if(serial!==_marketChartSerial)return;chartState.marketMode=false;host.innerHTML='<div class="market-chart-loading" style="color:#ef9a9a"><div>Could not load native market history.<br><button class="btn" style="margin-top:10px" onclick="renderMarketChart(\''+key+'\',true)">Retry</button></div></div>';
-    if(status)status.textContent=(err&&err.message)||'Market history unavailable';
+    if(serial!==_marketChartSerial||!chartState.marketMode)return;chartState.loading=false;chartState.klines=null;chartState.snapshot=null;
+    host.innerHTML='<div class="market-chart-loading" style="color:#ef9a9a"><div>Source history unavailable for '+_marketEsc(cfg.label)+' · '+tf+'.<br><button class="btn" style="margin-top:10px" onclick="renderMarketChart(\''+key+'\',true)">Retry</button> <button class="btn" onclick="setMarketChartTF(\'1d\')">Try daily</button></div></div>';
+    if(status)status.textContent=err&&err.message||'Market history unavailable';
   });
 }
-
 function showIntel(which){
+  if(which!=='charts'){_marketChartSerial++;var expanded=document.getElementById('ip-charts');if(expanded)expanded.classList.remove('market-expanded');}
   var tabs = ['macro','charts','macrotape','spotstrategy','marketread','buyzone','regime','narr','sector','events','candle','moon','agent','beta'];
   tabs.forEach(function(t){
     var tab = document.getElementById('it-'+t);
@@ -16603,7 +16966,7 @@ function showIntel(which){
     if(tab) tab.classList.toggle('active', t===which);
     if(panel) panel.classList.toggle('active', t===which);
   });
-  if(which==='macrotape'){renderSpotMacro();refreshMacroData(false);spotRefreshCalendar(false);}
+  if(which==='macrotape'){renderSpotMacro();refreshMacroData(false);spotRefreshCalendar(false);refreshMacroRelationships(false);}
   if(which==='spotstrategy'){renderSpotStrategy();renderSpotReview();spotRefreshCalendar(false);if(!_spotReview)checkSpotStrategy();}
   if(which==='events'){renderMacroEvents();spotMountLiveCalendar(false);spotRefreshCalendar(false);spotRenderCoinCalendar();}
   if(which==='buyzone') renderBuyZone();
@@ -16624,7 +16987,7 @@ function showIntel(which){
   }
   // The native canvas measures its parent at startup. Wait until this panel and
   // the Intel body are visible so automatic levels use the real plot geometry.
-  if(which==='charts')window.requestAnimationFrame(function(){renderMarketChart(_marketChartKey);});
+  if(which==='charts')window.requestAnimationFrame(function(){renderMarketChart(_marketChartKey);refreshMacroRelationships(false);});
 }
 
 function renderBuyZone(){
@@ -17534,6 +17897,7 @@ var CHART_VIEWS={
   plan:{ema:false,ema50:false,emaLong:false,vol:true,rsi:false,sr:false,analyst:true,fib:false,wyckoff:false,profile:false,preview:false,history:false,avwap:false,sweeps:false,btc:true}
 };
 function saveChartPreferences(){
+  if(chartState.marketMode)return; // market controls must not overwrite coin preferences
   try{localStorage.setItem(chartState.preferenceLayout==='mobile'?'chart_mobile_preferences_v1':'chart_pro_preferences_v1',JSON.stringify({readabilityVersion:1,view:chartState.viewMode,
     trend:chartState.trendMode,indicators:chartState.indicators,magnet:chartState.magnet,
     fvgMode:chartState.fvgMode||'relevant',fvgMinAtr:chartState.fvgMinAtr==null?.1:chartState.fvgMinAtr,fibConnector:!!chartState.fibConnector,fibScope:chartState.fibScope||'major',fibRetirement:chartState.fibRetirement||'extension',tab:chartState.sideTab}));}catch(e){}
@@ -17756,7 +18120,7 @@ function installChartProUI(){
     '<span class="cp-context-switch" role="group" aria-label="Chart viewing range"><button onclick="chartFit(\'recent\')" title="Last 60 candles; 42 on mobile. Analysis anchors stay fixed.">Recent structure</button><button onclick="chartFit(\'all\')">Full context</button></span>'+
     '<button onclick="editChartExecution()">Execution</button><button onclick="recordChartDecision()" title="Save the current data, settings and decision for later review">Record decision</button>'+
     '<details class="cp-ind-menu"><summary>Edit lines</summary><div><button onclick="toggleDrawMode()">Draw two anchors</button><button data-chart-magnet onclick="toggleChartMagnet()">Snap to candle</button><button onclick="editSelectedDrawing(\'lock\')">Lock / unlock selected</button><button onclick="editSelectedDrawing(\'extend\')">Extend selected right</button><button onclick="editSelectedDrawing(\'delete\')">Delete selected</button><small>Click a manual line to select. Drag an unlocked anchor. Manual lines are visual only.</small></div></details>';
-    el.innerHTML+='<span class="cp-build" title="Market Charts · native automatic drawings">Chart 2026.09.21-market-native-r7</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
+    el.innerHTML+='<span class="cp-build" title="Native charts and Macro Tape">Chart 2026.09.24-market-pro-r8</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
     var toolsMenu=document.createElement('details');toolsMenu.className='cp-ind-menu cp-tools-menu';
     toolsMenu.innerHTML='<summary>Tools</summary><div></div>';
     Array.from(el.children).forEach(function(node){
@@ -17770,7 +18134,9 @@ function installChartProUI(){
     el.insertBefore(psychologyButton,el.querySelector('.cp-build'));
     if(suffix){var top=document.getElementById('chart-fs-bar');if(top)top.after(el);}
     else{var wrap=document.getElementById('chart-canvas-wrap');if(wrap)wrap.before(el);}
-  });installChartMobileUI();
+    var oldTape=document.getElementById('chart-macro-tape'+suffix);if(oldTape)oldTape.remove();
+    var tape=document.createElement('div');tape.id='chart-macro-tape'+suffix;tape.className='chart-macro-strip';tape.setAttribute('data-chart-macro-strip','');tape.setAttribute('aria-label','Macro tape context');el.before(tape);
+  });installChartMobileUI();refreshChartMacroTape();
   ['#chart-fs-bar .cp-focus-controls','#cp-mobile-header'].forEach(function(selector){
     var host=document.querySelector(selector);if(!host||host.querySelector('[data-btc-toggle]'))return;
     var button=document.createElement('button');button.type='button';button.className='cp-focus-keep';button.setAttribute('data-btc-toggle','');
@@ -17908,6 +18274,7 @@ function fetchLivePrice() {
 
 function buildChartTab(d) {
   stopChartLive();
+  _marketChartSerial++;
   chartState.marketMode=false;chartState.wrapId=null;
   var sec = document.getElementById('msec');
 
@@ -19391,6 +19758,12 @@ function _drawChartNow() {
   var klines = chartState.klines;
   var d = chartState.d;
   var ind = chartState.indicators;
+  if(chartState.marketMode){
+    ind=Object.assign({},ind);var marketCount=marketClosedRows(klines,chartState.tf).length;
+    if(marketCount<200)ind.emaLong=false;if(marketCount<50)ind.ema50=false;
+    if(marketCount<20){ind.ema=false;ind.sr=false;ind.fib=false;ind.sweeps=false;}
+    if(marketCount<15)ind.rsi=false;
+  }
   if(chartState.btcFocus){
     updateBTCFocusSummary();
     ind=Object.assign({},ind);Object.keys(ind).forEach(function(k){ind[k]=k==='btc'||k==='vol';});
@@ -19433,7 +19806,7 @@ function _drawChartNow() {
   var mobilePlot=W<=820;
   var RIGHT_PAD = mobilePlot ? 72 : 126;
   var LEFT_PAD  = 0;    // no left pad — candles go edge to edge
-  var TOP_PAD   = mobilePlot ? 68 : 4; // reserve OHLC and EMA rows above candles
+  var TOP_PAD   = mobilePlot ? 68 : chartState.marketMode ? 56 : 4; // readable market OHLC/EMA legend
   if(chartState.btcFocus)TOP_PAD=mobilePlot?96:62;
   var BOTTOM_PAD = 28;  // time labels
   var CANDLE_H  = Math.max(300, Math.min(520, W * 0.62));   // (overridden in fullscreen, below)
@@ -19531,7 +19904,7 @@ function _drawChartNow() {
   var ema200s = calcEMAArr(closes, 200);
   // Wyckoff uses CLOSED candles only. The live/forming bar is visual context,
   // never allowed to create or erase a phase/event label intrabar.
-  var wxK = klines.length>1 ? klines.slice(0,-1) : klines.slice();
+  var wxK = chartState.marketMode ? marketClosedRows(klines,chartState.tf) : klines.length>1 ? klines.slice(0,-1) : klines.slice();
   var wxH = wxK.map(function(k){return parseFloat(k[2]);});
   var wxL = wxK.map(function(k){return parseFloat(k[3]);});
   var wxC = wxK.map(function(k){return parseFloat(k[4]);});
@@ -19543,7 +19916,7 @@ function _drawChartNow() {
   var wxE20=calcEMA(wxC,20), wxE50=calcEMA(wxC,50);
   var wxTrend=wxC.length?(wxC[wxC.length-1]>wxE20&&wxE20>wxE50?'up':wxC[wxC.length-1]<wxE20&&wxE20<wxE50?'down':'mixed'):'mixed';
   var priorSnapshot=chartState.snapshot;
-  var snapshot=chartSnapshot(klines,chartState.sym,chartState.tf);
+  var snapshot=chartState.marketMode?marketChartSnapshot(klines,chartState.sym,chartState.tf):chartSnapshot(klines,chartState.sym,chartState.tf);
   if(priorSnapshot&&priorSnapshot.symbol===snapshot.symbol&&priorSnapshot.timeframe===snapshot.timeframe&&priorSnapshot.source!==snapshot.source)
     chartState.sourceNotice='Candle source changed: '+priorSnapshot.source+' → '+snapshot.source+'. Analysis history is source-specific.';
   chartState.snapshot=snapshot;
@@ -19553,7 +19926,7 @@ function _drawChartNow() {
   chartState.wyckoff = wx;
   var trendKey=snapshot.signature;
   if(chartState._trendKey!==trendKey){
-    chartState.sweepLevels=snapshot.valid?calcChartSweeps(wxK):[];
+    chartState.sweepLevels=snapshot.valid&&snapshot.wickReliable!==false?calcChartSweeps(wxK):[];
     chartState.trendlines=snapshot.valid?detectTrendlines(wxH,wxL,wxC,analysisContext):{up:null,down:null};chartState._trendKey=trendKey;
     if(d&&wxC.length>20){
       var localSR=calcSR(wxH,wxL,wxC),localTL=chartState.trendlines;
@@ -19569,7 +19942,7 @@ function _drawChartNow() {
   }
   var fvgKey=snapshot.signature+'|'+chartState.fvgMinAtr;
   if(chartState._fvgKey!==fvgKey){
-    chartState.fvgZones=snapshot.valid?calcChartFVG(wxK,chartState.fvgMinAtr,_chartTFDuration(chartState.tf)):[];chartState._fvgKey=fvgKey;
+    chartState.fvgZones=snapshot.valid&&snapshot.wickReliable!==false?calcChartFVG(wxK,chartState.fvgMinAtr,_chartTFDuration(chartState.tf)):[];chartState._fvgKey=fvgKey;
   }
   d=chartMetrics(d);
   var fib = resolveChartFib(wxH,wxL,wxC,wxAtr,wxTrend);
@@ -24555,6 +24928,7 @@ function spotMacroCards(now){
   });return h+'</div>';
 }
 function renderSpotMacro(){
+  refreshChartMacroTape();
   var el=document.getElementById('spot-macro-body');if(!el)return;
   if(document.activeElement&&el.contains&&el.contains(document.activeElement)&&document.activeElement.tagName==='INPUT')return;
   var r=spotMacroReading();
