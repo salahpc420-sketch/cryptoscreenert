@@ -790,6 +790,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
   </div>
   <button id="mobile-filter-toggle" onclick="document.body.classList.toggle('show-filters');this.textContent=document.body.classList.contains('show-filters')?'▲ Hide filters':'▼ Filters';" style="display:none;width:100%;margin-top:8px;padding:11px;border-radius:10px;border:.5px solid var(--bd);background:var(--card2);color:var(--t2);font-weight:700;font-size:13px;font-family:inherit;cursor:pointer">▼ Filters</button>
   <div class="filters">
+    <div class="fg"><label>Market-cap rank</label><select id="f-cap" onchange="marketCapFilterChanged()"><option value="all">All scanned coins</option><option value="200">Top 200 · ranks 1–200</option><option value="100">Top 100</option><option value="50">Top 50</option><option value="101-200">Ranks 101–200</option></select><small id="cap-rank-status" role="status">Loading global ranks…</small><button type="button" onclick="fetchDynamicRanks(true)">Refresh ranks</button></div>
     <div class="fg"><label>Signal</label>
       <select id="f-sig" onchange="render()"><option value="all">All signals</option><option value="buy">Buy</option><option value="sell">Sell</option><option value="neutral">Neutral</option></select></div>
     <div class="fg"><label>Category</label>
@@ -1401,64 +1402,75 @@ SYM.USDT = SYM.USDT.filter(function(v,i,a){return a.indexOf(v)===i;});
 var RANK={BTCUSDT:1,ETHUSDT:2,XRPUSDT:3,BNBUSDT:4,SOLUSDT:5,DOGEUSDT:6,ADAUSDT:7,TRXUSDT:8,LINKUSDT:9,AVAXUSDT:10,XLMUSDT:11,SUIUSDT:12,HBARUSDT:13,TONUSDT:14,SHIBUSDT:15,LTCUSDT:16,DOTUSDT:17,BCHUSDT:18,HYPEUSDT:19,UNIUSDT:20,PEPEUSDT:21,NEARUSDT:22,APTUSDT:23,ICPUSDT:24,AAVEUSDT:25,ETCUSDT:26,POLUSDT:27,MATICUSDT:27,ONDOUSDT:28,TAOUSDT:29,VETUSDT:30,KASUSDT:31,RNDRUSDT:32,RENDERUSDT:32,FETUSDT:33,ARBUSDT:34,FILUSDT:35,ATOMUSDT:36,ENAUSDT:37,OPUSDT:38,INJUSDT:39,STXUSDT:40,TIAUSDT:41,IMXUSDT:42,WIFUSDT:43,GRTUSDT:44,SEIUSDT:45,JUPUSDT:46,LDOUSDT:47,THETAUSDT:48,RUNEUSDT:49,SUSDT:50,FLOKIUSDT:51,BONKUSDT:52,QNTUSDT:53,PYTHUSDT:54,JTOUSDT:55,ALGOUSDT:56,FLOWUSDT:57,GALAUSDT:58,EIGENUSDT:59,MKRUSDT:60,PENDLEUSDT:61,AEROUSDT:62,ENSUSDT:63,CRVUSDT:64,XTZUSDT:65,SANDUSDT:66,COMPUSDT:67,SNXUSDT:68,GMXUSDT:69,DYDXUSDT:70,MANAUSDT:71,CHZUSDT:72,WLDUSDT:73,AXSUSDT:74,APEUSDT:75,MNTUSDT:76,PAXGUSDT:77,IPUSDT:78,XPLUSDT:79,TNSRUSDT:80,SPXUSDT:81,USDCUSDT:99,USDEUSDT:99,
   BTCJPY:1,ETHJPY:2,XRPJPY:3,BNBJPY:4,SOLJPY:5,DOGJPY:6,ADAJPY:7,LTCJPY:16,LINKJPY:9}; // top-100 by market cap (approx; refreshed live from CoinGecko)
 var _rankLastFetch = 0;
-function fetchDynamicRanks() {
-  if (Date.now() - _rankLastFetch < 3600000) return; // 1h cache
-  var cgTarget = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false';
-  // Try each CORS proxy until one returns the top-100
-  function tryProxy(pi) {
-    if (pi >= CORS_PROXIES.length) return;
-    fetchJ(withProxy(cgTarget, pi), 9000).then(function(coins) {
-      if (!Array.isArray(coins) || coins.length < 10) { tryProxy(pi+1); return; }
-      coins.forEach(function(c, i) {
-        var sym = (c.symbol||'').toUpperCase() + 'USDT';
-        RANK[sym] = i + 1;
-      });
-      _rankLastFetch = Date.now();
-      if (allData && allData.length) { allData.forEach(function(d){d.rank=RANK[d.sym]||999;}); render(); }
-    }).catch(function(){ tryProxy(pi+1); }); // try next proxy
+// Do not present the legacy approximate list as current global ranks.
+RANK={};
+var marketCapUniverse={ranks:{},pairs:[],venues:{},coverage:'',at:0,pending:null,error:''};
+function marketCapBingXTickers(response){
+  if(!response||response.code!==0)throw Error('BingX ticker feed unavailable');
+  var rows=Array.isArray(response.data)?response.data:response.data&&response.data.tickers;
+  if(!Array.isArray(rows)||!rows.length)throw Error('BingX tickers missing');
+  return rows.filter(function(t){return /^[A-Z0-9]+-USDT$/.test(t.symbol||'')&&Number(t.lastPrice)>0;}).map(function(t){return {symbol:t.symbol.replace('-',''),lastPrice:t.lastPrice};});
+}
+function buildMarketCapUniverse(coins,tickers,bingxTickers){
+  var counts={},ranks={},pairs=[],available={},venues={};
+  coins.forEach(function(c){var symbol=String(c.symbol||'').toUpperCase();counts[symbol]=(counts[symbol]||0)+1;});
+  function addVenue(list,name){(list||[]).forEach(function(t){if(typeof t.symbol==='string'&&/^[A-Z0-9]+USDT$/.test(t.symbol)&&Number(t.lastPrice)>0){available[t.symbol]=true;if(!venues[t.symbol])venues[t.symbol]=[];if(venues[t.symbol].indexOf(name)<0)venues[t.symbol].push(name);}});}
+  addVenue(tickers,'Bybit');addVenue(bingxTickers,'BingX');
+  coins.forEach(function(c){
+    var symbol=String(c.symbol||'').toUpperCase(),rank=Number(c.market_cap_rank),pair=symbol+'USDT';
+    if(!c.id||!Number.isInteger(rank)||rank<1||rank>200||!c.market_cap||!Number.isFinite(Number(c.market_cap))||Number(c.market_cap)<=0||!/^[A-Z0-9]+$/.test(symbol)||counts[symbol]!==1||symbol==='USDT')return;
+    ranks[pair]=rank;if(available[pair])pairs.push(pair);
+  });
+  pairs.sort(function(a,b){return ranks[a]-ranks[b];});
+  return {ranks:ranks,pairs:pairs,venues:venues};
+}
+function marketCapVenueLabel(sym){return (marketCapUniverse.venues[sym]||[]).join(' + ');}
+function marketCapMatches(sym,range){
+  if(!range||range==='all')return true;
+  if(!marketCapUniverse.at||Date.now()-marketCapUniverse.at>86400000)return false;
+  var rank=marketCapUniverse.ranks[sym];
+  return Number.isInteger(rank)&&(range==='101-200'?rank>=101&&rank<=200:rank>=1&&rank<=Number(range));
+}
+function marketCapStatus(){
+  var el=document.getElementById('cap-rank-status');if(!el)return;
+  var u=marketCapUniverse;el.textContent=u.pending?'Refreshing global ranks…':u.at?(u.error?'Refresh failed · previous snapshot · ':'')+u.pairs.length+' unique USDT pairs in global top 200 · '+u.coverage+' · '+new Date(u.at).toLocaleTimeString()+(Date.now()-u.at>86400000?' · stale, ranked filter unavailable':' · CoinGecko snapshot'):u.error||'Ranks unavailable';
+}
+function fetchDynamicRanks(force) {
+  var u=marketCapUniverse;if(u.pending)return u.pending;
+  if(!force&&Date.now()-u.at<3600000&&u.at)return Promise.resolve(true);
+  var url='https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&sparkline=false';
+  async function coinsRequest(){
+    for(var i=-1;i<Math.min(CORS_PROXIES.length,3);i++){
+      try{var result=await fetchJ(i<0?url:withProxy(url,i),9000);if(Array.isArray(result)&&result.length>=200)return result;}catch(e){}
+    }throw Error('Global market-cap data unavailable');
   }
-  tryProxy(0);
+  u.pending=(async function(){
+    try{
+      var results=await Promise.allSettled([coinsRequest(),fetchJ(BYBIT+'/v5/market/tickers?category=spot',8000).catch(function(){return fetchJ(BYBIT2+'/v5/market/tickers?category=spot',8000);}),fetchJ(BINGX+'/openApi/spot/v1/ticker/24hr',9000).then(marketCapBingXTickers)]);
+      if(results[0].status!=='fulfilled')throw Error('Rank provider unavailable');
+      var exchange=results[1].status==='fulfilled'&&results[1].value,lists=exchange&&exchange.result&&exchange.result.list;
+      var bybitOK=Array.isArray(lists)&&lists.length>0,bingxOK=results[2].status==='fulfilled'&&results[2].value.length>0;
+      if(!bybitOK&&!bingxOK)throw Error('Exchange pair coverage unavailable');
+      var mapped=buildMarketCapUniverse(results[0].value,bybitOK?lists:[],bingxOK?results[2].value:[]);if(!mapped.pairs.length)throw Error('No matching spot pairs');
+      u.ranks=mapped.ranks;u.pairs=mapped.pairs;u.venues=mapped.venues;u.coverage=(bybitOK?'Bybit available':'Bybit unavailable')+' / '+(bingxOK?'BingX available':'BingX unavailable');u.at=Date.now();u.error='';_rankLastFetch=u.at;RANK=Object.assign({},mapped.ranks);
+      u.pairs.forEach(function(sym){if(SYM.USDT.indexOf(sym)<0)SYM.USDT.push(sym);if(!META[sym])META[sym]={cat:'Other',col:'#888'};});
+      if(allData&&allData.length){allData.forEach(function(d){d.rank=RANK[d.sym]||999;d.coinRank=d.rank;});render();}return true;
+    }catch(e){u.error='Rank refresh unavailable; no ranks invented';return false;}
+    finally{u.pending=null;marketCapStatus();}
+  })();marketCapStatus();return u.pending;
+}
+async function marketCapFilterChanged(){
+  var value=document.getElementById('f-cap').value;
+  if(value==='all'){render();return;}
+  var ok=await fetchDynamicRanks();
+  if(document.getElementById('f-cap').value!==value)return;
+  if(ok&&Q==='USDT')loadAll();else render();
 }
 var _rankLastUpdate = 0;
 
 // Fetch live CoinGecko ranks — runs once on load, refreshes every 6 hours
 function refreshRanks() {
-  var now = Date.now();
-  if (now - _rankLastUpdate < 6 * 3600 * 1000) return; // 6h cache
-  var cgMap = {bitcoin:'BTCUSDT',ethereum:'ETHUSDT',binancecoin:'BNBUSDT',solana:'SOLUSDT',
-    ripple:'XRPUSDT','dogecoin':'DOGEUSDT',cardano:'ADAUSDT',avalanche:'AVAXUSDT',
-    stellar:'XLMUSDT',litecoin:'LTCUSDT',chainlink:'LINKUSDT',polkadot:'DOTUSDT',
-    'matic-network':'MATICUSDT',aave:'AAVEUSDT',uniswap:'UNIUSDT',cosmos:'ATOMUSDT',
-    near:'NEARUSDT',aptos:'APTUSDT',stacks:'STXUSDT',injective:'INJUSDT',sui:'SUIUSDT',
-    arbitrum:'ARBUSDT',optimism:'OPUSDT',filecoin:'FILUSDT','lido-dao':'LDOUSDT',
-    render:'RNDRUSDT','fetch-ai':'FETUSDT','worldcoin-wld':'WLDUSDT',sei:'SEIUSDT',
-    celestia:'TIAUSDT',hedera:'HBARUSDT',icp:'ICPUSDT',algorand:'ALGOUSDT',
-    kaspa:'KASUSDT','ethena':'ENAUSDT',jupiter:'JUPUSDT',pyth:'PYTHUSDT',
-    pendle:'PENDLEUSDT',eigenlayer:'EIGENUSDT','maker':'MKRUSDT',compound:'COMPUSDT',
-    gmx:'GMXUSDT',curve:'CRVUSDT',synthetix:'SNXUSDT','thorchain':'RUNEUSDT',
-    theta:'THETAUSDT',flow:'FLOWUSDT','immutable-x':'IMXUSDT',bittensor:'TAOUSDT'};
-  var ids = Object.keys(cgMap).join(',');
-  var url = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(
-    'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=' + ids + '&order=market_cap_desc&per_page=100&page=1'
-  );
-  fetchJ(url, 10000).then(function(data) {
-    if (!Array.isArray(data)) return;
-    data.forEach(function(coin) {
-      var sym = cgMap[coin.id];
-      if (sym && coin.market_cap_rank) {
-        RANK[sym] = coin.market_cap_rank;
-        // also update JPY pair rank
-        var jpySym = sym.replace('USDT','JPY');
-        if (RANK[jpySym] !== undefined) RANK[jpySym] = coin.market_cap_rank;
-      }
-    });
-    _rankLastUpdate = Date.now();
-    // Re-render table with updated ranks if data is loaded
-    if (allData && allData.length) {
-      allData.forEach(function(d){ d.rank = RANK[d.sym] || 999; });
-      render();
-    }
-  }).catch(function() {}); // Fail silently — static ranks still work
+  return fetchDynamicRanks();
 }
 
 var META = {
@@ -1951,7 +1963,12 @@ function bybitTickers(syms) {
   return smartFetch(bvUrl, byt,
     [b2Url, bxUrl, bnUrl, bn2Url],
     [byt,   bx,   bn,    bn]
-  ).catch(function() {
+  ).then(function(rows){
+    // A successful Bybit response can still omit BingX-only pairs.
+    var seen={};rows.forEach(function(r){seen[r.symbol]=true;});
+    var missing=syms.filter(function(s){return !seen[s];});if(!missing.length)return rows;
+    return fetchJ(bxUrl,9000).then(function(raw){return rows.concat(parseBingXTickers(raw,missing));}).catch(function(){return rows;});
+  }).catch(function() {
     return Promise.reject(new Error('all sources failed'));
   });
 }
@@ -4487,7 +4504,8 @@ function loadAll() {
     if (t) t.textContent = txt || '';
   }
 
-  var syms = SYM[Q];
+  var capRange=document.getElementById('f-cap');
+  var syms = SYM[Q].filter(function(sym){return marketCapMatches(sym,capRange&&capRange.value)&&(!capRange||capRange.value==='all'||Q!=='USDT'||marketCapUniverse.pairs.indexOf(sym)>=0);});
 
   return bybitTickers(syms).then(function(tickers) {
     setLP(18, 'Got prices · loading indicators for ' + tickers.length + ' coins…');
@@ -5129,6 +5147,7 @@ function render() {
   var msc=parseFloat(document.getElementById('f-sc').value);
 
   var rows=allData.filter(function(d){
+    if(!marketCapMatches(d.sym,(document.getElementById('f-cap')||{}).value))return false;
     if(_investMode&&!d.invEligible)return false;
     if(searchQ&&d.sym.indexOf(searchQ)===-1&&d.pair.toUpperCase().indexOf(searchQ)===-1) return false;
     if(!_investMode&&sf!=='all'&&d.signal!==sf) return false;
@@ -5222,7 +5241,7 @@ function render() {
     if(d._stale) bg += 'opacity:.55;'; // showing last-known data this refresh failed to update
     var pos=loadPos(d.sym);
     return '<tr style="'+bg+'" onclick="openModal(\''+d.sym+'\')">'+
-      '<td style="color:var(--t3);font-size:11px;text-align:center;font-weight:700">'+(d.rank<999?'#'+d.rank:'—')+'</td>'+
+      '<td style="color:var(--t3);font-size:11px;text-align:center;font-weight:700">'+(d.rank<999?'#'+d.rank:'—')+(marketCapVenueLabel(d.sym)?'<br><small title="Spot ticker coverage; not necessarily the candle source">'+marketCapVenueLabel(d.sym)+'</small>':'')+'</td>'+
       '<td style="font-weight:800;font-size:13px">'+d.pair+(pos?' <span style="font-size:10px;background:var(--gb);color:var(--gt);padding:1px 5px;border-radius:8px;font-weight:700">IN</span>':'')+'</td>'+
       '<td>'+catH+'</td>'+
       '<td title="'+_escProviderHtml(rowMetricNote(d))+'" style="font-weight:600">'+fP(d.price)+'</td>'+
@@ -5306,7 +5325,7 @@ function renderMobileCards(rows) {
     return '<div class="m-card" onclick="openModal(\''+d.sym+'\')"'+(d.rowDataReady!==false&&d.highConviction?' style="border-color:rgba(124,77,255,.5);box-shadow:inset 3px 0 0 #7c4dff"':'')+'>' +
       '<div class="m-card-top">' +
         '<span class="m-card-sym">'+d.pair.replace('/USDT','').replace('/JPY','')+'</span>' +
-        '<span class="m-card-rank">'+(d.rank<999?'#'+d.rank:'')+'</span>' +
+        '<span class="m-card-rank">'+(d.rank<999?'#'+d.rank:'')+(marketCapVenueLabel(d.sym)?' · '+marketCapVenueLabel(d.sym):'')+'</span>' +
         (d.cat?'<span style="font-size:9px;color:var(--t3);background:var(--card3);padding:1px 6px;border-radius:4px">'+d.cat+'</span>':'') +
         '<div class="m-card-price">' +
           '<div style="font-size:14px;font-weight:700">'+fE(d.price)+'</div>' +
@@ -22714,24 +22733,7 @@ function stopWebSocket() {
 // ── Dynamic coin list — can auto-update from CoinGecko top 60 ───────────────
 var _dynCoinsLastFetch = 0;
 function fetchTopCoins(callback) {
-  if (Date.now() - _dynCoinsLastFetch < 86400000) { if(callback) callback(false); return; } // 24h cache
-  var url = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(
-    'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=60&page=1&sparkline=false&category=layer-1'
-  );
-  fetchJ(url, 10000).then(function(coins) {
-    if (!Array.isArray(coins) || coins.length < 10) return;
-    var newSyms = coins
-      .map(function(c) { return (c.symbol||'').toUpperCase() + 'USDT'; })
-      .filter(function(s) { return s.length > 4 && s.length < 15; });
-    if (newSyms.length > 15) {
-      // Merge with existing static list (don't remove, only add)
-      newSyms.forEach(function(s) {
-        if (SYM.USDT.indexOf(s) === -1) SYM.USDT.push(s);
-      });
-      _dynCoinsLastFetch = Date.now();
-      if (callback) callback(true);
-    }
-  }).catch(function() { if (callback) callback(false); });
+  return fetchDynamicRanks().then(function(ok){if(callback)callback(ok);return ok;});
 }
 
 function togglePrecision() {
