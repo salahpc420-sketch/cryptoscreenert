@@ -802,7 +802,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
     <div class="fg"><label>Volume</label>
       <select id="f-vol" onchange="render()"><option value="all">All</option><option value="1.5">≥1.5×</option><option value="2">≥2×</option></select></div>
     <div class="fg"><label>Buy type</label>
-      <select id="f-buy" onchange="render()"><option value="all">All</option><option value="strong">⚡ Strong Buy</option><option value="buy">✅ Buy Signal</option><option value="any">Any Buy</option><option value="sweep_buy">🟢 Sweep Buy</option></select></div>
+      <select id="f-buy" onchange="if(this.value==='sweep_buy'&&!['4h','1d','1w'].includes(TF))setTF('4h');else render()"><option value="all">All</option><option value="strong">⚡ Strong Buy</option><option value="buy">✅ Buy Signal</option><option value="any">Any Buy</option><option value="sweep_buy">🟢 Sweep Buy · 4h / 1d / 1w</option></select></div>
     <div class="fg"><label>Min score</label>
       <select id="f-sc" onchange="render()"><option value="0">Any</option><option value="55">55+</option><option value="65">65+</option><option value="75">75+</option><option value="85">85+</option></select></div>
   </div>
@@ -2681,6 +2681,12 @@ function calcScannerLiquidity(klines, candidateIndex, tf){
   evidence.source=klines.dataSource||'Unknown';evidence.unavailablePools=pools.unavailable;
   evidence.poolDetails=pools.details;evidence.support=sr.sup;evidence.resistance=sr.res;
   if(evidence.selected&&!evidence.selected.availableAt)evidence.selected.availableAt=at;
+  evidence.buySweepEnabled=['4h','1d','1w'].includes(tf);
+  if(!evidence.buySweepEnabled){
+    evidence.policyNote='Buy sweeps enabled only on 4h, 1d and 1w.';
+    if(evidence.tag==='buy_sweep'){evidence.tag='none';evidence.level=null;evidence.selected=null;}
+    evidence.matches=evidence.matches.filter(function(m){return m.tag!=='buy_sweep';});
+  }
   return evidence;
 }
 
@@ -2688,6 +2694,7 @@ function scannerSweepNote(d){
   var e=d&&d.liqEvidence;
   if(!e)return 'Price-action sweep proxy; not measured stop orders or an automatic buy.';
   return (e.valid?'Closed-candle sweep rules v2. ':'Sweep unavailable: invalid candle history. ')+
+    (e.policyNote?e.policyNote+' ':'')+
     (e.selected?'Matched '+e.selected.kind+' at '+e.level+'. ':'')+
     (e.unavailablePools||[]).join(' · ')+'. Price-action proxy; not measured stop orders or an automatic buy.';
 }
@@ -8444,6 +8451,7 @@ function renderNarrative(data){
 var scanTF = TF; // scanner can use its own TF independently
 
 function setScanTF(tf) {
+  if(scanTab==='sweep_buy'&&!['4h','1d','1w'].includes(tf))tf='4h';
   scanTF = tf;
   TF = tf; // make this the ACTIVE timeframe so the main scan + logging follow it
   document.querySelectorAll('[id^="sc-tf-"]').forEach(function(b) {
@@ -8468,7 +8476,7 @@ function openScanner(){
   document.querySelectorAll('[id^="sc-tf-"]').forEach(function(b) {
     b.classList.toggle('active', b.id === 'sc-tf-' + TF);
   });
-  showOv('scan-ov');runScanner();
+  showOv('scan-ov');setScanTab(scanTab);
 }
 var sectorFilter='all';
 var sectorMinScore=0;
@@ -8480,11 +8488,13 @@ function setSectorFilter(cat){
 }
 function setScanTab(t){
   scanTab=t;
+  ['15m','1h'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=t==='sweep_buy';b.title=t==='sweep_buy'?'Buy sweeps use 4h, 1d and 1w only':'';}});
   ['aplus','tierA','tierB','tierC','opportunity','strong','buy','confirmed_bo','ema_retest','sweep_buy','sweep_sell','breakout','accum','oversold','rsiDiv','choch','bos','sector'].forEach(function(x){
     var el=document.getElementById('sc-'+x);if(el)el.classList.toggle('active',x===t);
   });
   var row=document.getElementById('scan-sector-row');
   if(row)row.style.display=t==='sector'?'flex':'none';
+  if(t==='sweep_buy'&&!['4h','1d','1w'].includes(TF)){setScanTF('4h');return;}
   runScanner();
 }
 // Re-scan button — actually FETCH fresh data, then re-display (not just re-filter)
@@ -9681,7 +9691,7 @@ function autoLogBuySweeps(data){
   (data||[]).forEach(function(d){
     var s=d&&d.analysisSnapshot,b=d&&d.sweepCandle;
     if(!d||d._stale||d.liq!=='buy_sweep'||!s||!s.usable||s.symbol!==d.sym||!b)return;
-    if(!['15m','1h','4h','1d','1w'].includes(s.timeframe))return;
+    if(!['4h','1d','1w'].includes(s.timeframe))return;
     var duration=_chartTFDuration(s.timeframe);
     if(![b.openTime,b.closeTime,b.open,b.high,b.low,b.close,b.level].every(function(v){return typeof v==='number'&&isFinite(v)&&v>0;}))return;
     if(b.closeTime!==s.lastClosedTime||b.openTime+duration!==b.closeTime||b.closeTime>now||now-b.closeTime>=duration)return;
