@@ -555,6 +555,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 .cf-summary p,.cf-card p,.cf-method p{font-size:12px;line-height:1.6;margin:6px 0;color:var(--t2)}
 .cf-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .cf-card{min-width:0;background:var(--card2);border:1px solid var(--bd);border-radius:9px;padding:12px}
+.cf-card-weekly{grid-column:1 / -1;border-top:3px solid var(--bl)}
 .cf-card-head{font-size:13px}.cf-card-head span{font-size:11px;color:var(--t2)}
 .cf-structure{font-weight:700;font-size:13px;margin:12px 0}
 .cf-card dl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);font-size:12px;gap:8px;margin:10px 0}
@@ -808,7 +809,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
   </div>
   <button id="mobile-filter-toggle" onclick="document.body.classList.toggle('show-filters');this.textContent=document.body.classList.contains('show-filters')?'▲ Hide filters':'▼ Filters';" style="display:none;width:100%;margin-top:8px;padding:11px;border-radius:10px;border:.5px solid var(--bd);background:var(--card2);color:var(--t2);font-weight:700;font-size:13px;font-family:inherit;cursor:pointer">▼ Filters</button>
   <div class="filters">
-    <div class="fg"><label>Market-cap rank</label><select id="f-cap" onchange="marketCapFilterChanged()"><option value="all">All scanned coins</option><option value="200">Top 200 · ranks 1–200</option><option value="100">Top 100</option><option value="50">Top 50</option><option value="101-200">Ranks 101–200</option></select><small id="cap-rank-status" role="status">Loading global ranks…</small><button type="button" onclick="fetchDynamicRanks(true)">Refresh ranks</button></div>
+    <div class="fg"><label>Market-cap rank</label><select id="f-cap" onchange="marketCapFilterChanged()"><option value="all">All scanned coins</option><option value="200">Top 200 · ranks 1–200</option><option value="100">Top 100</option><option value="50">Top 50</option><option value="101-200">Ranks 101–200</option></select><small id="cap-rank-status" role="status">Loading global ranks…</small><button type="button" id="cap-rank-refresh" onclick="marketCapFilterChanged(true)">Refresh ranks</button></div>
     <div class="fg"><label>Signal</label>
       <select id="f-sig" onchange="render()"><option value="all">All signals</option><option value="buy">Buy</option><option value="sell">Sell</option><option value="neutral">Neutral</option></select></div>
     <div class="fg"><label>Category</label>
@@ -1438,7 +1439,40 @@ var RANK={BTCUSDT:1,ETHUSDT:2,XRPUSDT:3,BNBUSDT:4,SOLUSDT:5,DOGEUSDT:6,ADAUSDT:7
 var _rankLastFetch = 0;
 // Do not present the legacy approximate list as current global ranks.
 RANK={};
-var marketCapUniverse={ranks:{},pairs:[],venues:{},coverage:'',at:0,pending:null,error:''};
+var marketCapUniverse={ranks:{},pairs:[],venues:{},coverage:'',source:'',at:0,pending:null,error:'',phase:''};
+function marketCapNormalize(rows,source,now){
+  if(!Array.isArray(rows))throw Error(source+' returned non-list data');
+  var coins=rows.map(function(c){return {id:c&&c.id,symbol:c&&c.symbol,market_cap_rank:Number(c&&(source==='CoinPaprika'?c.rank:c.market_cap_rank)),market_cap:Number(c&&(source==='CoinPaprika'?c.quotes&&c.quotes.USD&&c.quotes.USD.market_cap:c.market_cap)),at:Date.parse(c&&(source==='CoinPaprika'?c.last_updated:c.last_updated)||'')};});
+  var top=coins.filter(function(c){return c.id&&c.symbol&&Number.isInteger(c.market_cap_rank)&&c.market_cap_rank>=1&&c.market_cap_rank<=200&&Number.isFinite(c.market_cap)&&c.market_cap>0&&Number.isFinite(c.at)&&c.at<=now+60000&&now-c.at<=86400000;});
+  var ranks=new Set(top.map(function(c){return c.market_cap_rank;}));
+  if(ranks.size<180||!ranks.has(1)||!ranks.has(200))throw Error(source+' top-200 coverage incomplete or stale');
+  // Keep the full symbol list for collision detection, but never map stale ranks.
+  coins.forEach(function(c){if(top.indexOf(c)<0)c.market_cap_rank=null;});
+  return {coins:coins,source:source,at:Math.min(now,Math.min.apply(null,top.map(function(c){return c.at;}))),rankCount:ranks.size};
+}
+function marketCapBybitTickers(j){
+  var rows=j&&j.result&&j.result.list;if(!j||Number(j.retCode)!==0||!Array.isArray(rows)||!rows.length)throw Error('Bybit spot pairs unavailable');return rows;
+}
+function marketCapApply(snapshot){
+  var u=marketCapUniverse;u.ranks=snapshot.ranks;u.pairs=snapshot.pairs;u.venues=snapshot.venues;u.coverage=snapshot.coverage;u.source=snapshot.source;u.at=snapshot.at;u.rankCount=snapshot.rankCount;RANK=Object.assign({},u.ranks);_rankLastFetch=u.at;
+  u.pairs.forEach(function(sym){if(SYM.USDT.indexOf(sym)<0)SYM.USDT.push(sym);if(!META[sym])META[sym]={cat:'Other',col:'#888'};});
+}
+function marketCapRestore(){
+  try{
+    var x=JSON.parse(localStorage.getItem('market_cap_snapshot_v1')||'null'),now=Date.now();
+    if(!x||x.version!==1||['CoinGecko','CoinPaprika'].indexOf(x.source)<0||!Number.isFinite(x.at)||x.at<=0||x.at>now||now-x.at>86400000||!x.ranks||!x.venues||!Array.isArray(x.pairs)||!x.pairs.length||x.pairs.length>200)return false;
+    if(Object.keys(x.ranks).length>200||!Object.keys(x.ranks).every(function(k){return /^[A-Z0-9]+USDT$/.test(k)&&Number.isInteger(x.ranks[k])&&x.ranks[k]>=1&&x.ranks[k]<=200;}))return false;
+    if(!x.pairs.every(function(k){return Object.prototype.hasOwnProperty.call(x.ranks,k)&&Array.isArray(x.venues[k])&&x.venues[k].length&&x.venues[k].every(function(v){return v==='Bybit'||v==='BingX';});}))return false;
+    x.pairs=Array.from(new Set(x.pairs));marketCapApply(x);return true;
+  }catch(e){return false;}
+}
+function marketCapEmptyMessage(){
+  var range=(document.getElementById('f-cap')||{}).value,u=marketCapUniverse;
+  if(!range||range==='all')return 'No coins match your filters.';
+  if(u.pending)return 'Loading market-cap ranks and exchange pairs. Please wait; the ranked universe is not ready yet.';
+  if(!u.at||Date.now()-u.at>86400000)return 'Rank data unavailable or stale. Retry Refresh ranks, or choose All scanned coins to continue without a rank filter.';
+  return 'No scanned coins match this rank range and your other filters. Refresh ranks to scan the current ranked universe, or clear the other filters.';
+}
 function marketCapBingXTickers(response){
   if(!response||response.code!==0)throw Error('BingX ticker feed unavailable');
   var rows=Array.isArray(response.data)?response.data:response.data&&response.data.tickers;
@@ -1467,38 +1501,43 @@ function marketCapMatches(sym,range){
 }
 function marketCapStatus(){
   var el=document.getElementById('cap-rank-status');if(!el)return;
-  var u=marketCapUniverse;el.textContent=u.pending?'Refreshing global ranks…':u.at?(u.error?'Refresh failed · previous snapshot · ':'')+u.pairs.length+' unique USDT pairs in global top 200 · '+u.coverage+' · '+new Date(u.at).toLocaleTimeString()+(Date.now()-u.at>86400000?' · stale, ranked filter unavailable':' · CoinGecko snapshot'):u.error||'Ranks unavailable';
+  var u=marketCapUniverse;el.textContent=u.pending?'Refreshing ranks · '+(u.phase||'connecting')+'…':u.at?(u.error?u.error+' · previous snapshot · ':'')+u.pairs.length+' unique USDT pairs in '+u.source+' top 200 · '+u.coverage+' · '+new Date(u.at).toLocaleString()+(Date.now()-u.at>86400000?' · stale, ranked filter unavailable':' · provider snapshot; ranks may differ between providers'):u.error||'Ranks unavailable';
+  var btn=document.getElementById('cap-rank-refresh');if(btn)btn.disabled=!!u.pending;
 }
 function fetchDynamicRanks(force) {
   var u=marketCapUniverse;if(u.pending)return u.pending;
-  if(!force&&Date.now()-u.at<3600000&&u.at)return Promise.resolve(true);
+  if(!force&&Date.now()-u.at<3600000&&u.at){marketCapStatus();return Promise.resolve(true);}
   var url='https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&sparkline=false';
   async function coinsRequest(){
-    for(var i=-1;i<Math.min(CORS_PROXIES.length,3);i++){
-      try{var result=await fetchJ(i<0?url:withProxy(url,i),9000);if(Array.isArray(result)&&result.length>=200)return result;}catch(e){}
-    }throw Error('Global market-cap data unavailable');
+    var routes=[{url:url,source:'CoinGecko'},{url:'https://api.coinpaprika.com/v1/tickers',source:'CoinPaprika'}];
+    for(var p=0;p<Math.min(CORS_PROXIES.length,2);p++)routes.push({url:withProxy(url,p),source:'CoinGecko'});
+    for(var i=0;i<routes.length;i++){
+      u.phase=routes[i].source+(i>1?' public fallback':'');marketCapStatus();
+      try{return marketCapNormalize(await fetchJ(routes[i].url,9000),routes[i].source,Date.now());}catch(e){}
+    }throw Error('CoinGecko and backup rank feeds unavailable');
   }
-  u.pending=(async function(){
+  u.pending=Promise.resolve().then(async function(){
     try{
-      var results=await Promise.allSettled([coinsRequest(),fetchJ(BYBIT+'/v5/market/tickers?category=spot',8000).catch(function(){return fetchJ(BYBIT2+'/v5/market/tickers?category=spot',8000);}),fetchJ(BINGX+'/openApi/spot/v1/ticker/24hr',9000).then(marketCapBingXTickers)]);
-      if(results[0].status!=='fulfilled')throw Error('Rank provider unavailable');
-      var exchange=results[1].status==='fulfilled'&&results[1].value,lists=exchange&&exchange.result&&exchange.result.list;
+      var results=await Promise.allSettled([coinsRequest(),fetchJ(BYBIT+'/v5/market/tickers?category=spot',8000).then(marketCapBybitTickers).catch(function(){return fetchJ(BYBIT2+'/v5/market/tickers?category=spot',8000).then(marketCapBybitTickers);}),fetchJ(BINGX+'/openApi/spot/v1/ticker/24hr',9000).then(marketCapBingXTickers)]);
+      if(results[0].status!=='fulfilled')throw Error('Rank feeds unavailable; try again or use All scanned coins');
+      var lists=results[1].status==='fulfilled'&&results[1].value;
       var bybitOK=Array.isArray(lists)&&lists.length>0,bingxOK=results[2].status==='fulfilled'&&results[2].value.length>0;
       if(!bybitOK&&!bingxOK)throw Error('Exchange pair coverage unavailable');
-      var mapped=buildMarketCapUniverse(results[0].value,bybitOK?lists:[],bingxOK?results[2].value:[]);if(!mapped.pairs.length)throw Error('No matching spot pairs');
-      u.ranks=mapped.ranks;u.pairs=mapped.pairs;u.venues=mapped.venues;u.coverage=(bybitOK?'Bybit available':'Bybit unavailable')+' / '+(bingxOK?'BingX available':'BingX unavailable');u.at=Date.now();u.error='';_rankLastFetch=u.at;RANK=Object.assign({},mapped.ranks);
-      u.pairs.forEach(function(sym){if(SYM.USDT.indexOf(sym)<0)SYM.USDT.push(sym);if(!META[sym])META[sym]={cat:'Other',col:'#888'};});
+      var provider=results[0].value,mapped=buildMarketCapUniverse(provider.coins,bybitOK?lists:[],bingxOK?results[2].value:[]);if(!mapped.pairs.length)throw Error('No matching spot pairs');
+      var saved=Object.assign({version:1,at:provider.at,source:provider.source,rankCount:provider.rankCount,coverage:(bybitOK?'Bybit available':'Bybit unavailable')+' / '+(bingxOK?'BingX available':'BingX unavailable')+' · '+provider.rankCount+'/200 provider ranks'},mapped);
+      marketCapApply(saved);u.error='';try{localStorage.setItem('market_cap_snapshot_v1',JSON.stringify(saved));}catch(e){}
       if(allData&&allData.length){allData.forEach(function(d){d.rank=RANK[d.sym]||999;d.coinRank=d.rank;});render();}return true;
-    }catch(e){u.error='Rank refresh unavailable; no ranks invented';return false;}
-    finally{u.pending=null;marketCapStatus();}
-  })();marketCapStatus();return u.pending;
+    }catch(e){u.error=e.message||'Rank refresh unavailable; no ranks invented';return false;}
+    finally{u.pending=null;u.phase='';marketCapStatus();}
+  });marketCapStatus();return u.pending;
 }
-async function marketCapFilterChanged(){
+async function marketCapFilterChanged(force){
   var value=document.getElementById('f-cap').value;
-  if(value==='all'){render();return;}
-  var ok=await fetchDynamicRanks();
+  if(value==='all'&&!force){render();return;}
+  var ok=await fetchDynamicRanks(!!force);
   if(document.getElementById('f-cap').value!==value)return;
-  if(ok&&Q==='USDT')loadAll();else render();
+  var usable=marketCapUniverse.at&&Date.now()-marketCapUniverse.at<=86400000;
+  if((ok||usable)&&Q==='USDT')return loadAll();else render();
 }
 var _rankLastUpdate = 0;
 
@@ -1671,9 +1710,9 @@ function fetchJ(url, ms) {
     }, ms || 6000);
     fetch(url, {cache: 'no-cache', signal: ctrl ? ctrl.signal : undefined})
     .then(function(r) {
-      if (done) return; clearTimeout(t); done = true;
-      if (!r.ok) { fail(new Error('HTTP ' + r.status)); return; }
-      r.json().then(ok).catch(fail);
+      if (done) return;
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json().then(function(data){if(!done){clearTimeout(t);done=true;ok(data);}});
     })
     .catch(function(e) {
       if (!done) { clearTimeout(t); done = true; fail(e); }
@@ -4526,6 +4565,14 @@ var Q='USDT', TF='4h', allData=[], sortS={col:'opportunity',dir:-1}, autoTmr=nul
 // LOAD ALL
 // ═══════════════════════════════════════════════════════════
 function loadAll() {
+  var rankSelect=document.getElementById('f-cap'),rankValue=rankSelect&&rankSelect.value;
+  if(rankValue&&rankValue!=='all'&&(!marketCapUniverse.at||Date.now()-marketCapUniverse.at>86400000)){
+    setBadge('loading','Loading ranks…');
+    return fetchDynamicRanks().then(function(ok){
+      if(rankSelect.value!==rankValue)return;
+      if(ok)return loadAll();setBadge('err','Ranks unavailable');render();
+    });
+  }
   setBadge('loading','Loading…');
   // Clear kline cache when TF changes so fresh data is fetched
   if (loadAll._lastTF !== TF) { _klCache = {}; loadAll._lastTF = TF; }
@@ -5224,7 +5271,7 @@ function render() {
     sc2('⭐ A+',aplus,aplus>0?'#7c4dff':'var(--t3)')+sc2('Pairs',rows.length,'')+sc2('Buy',buys,'var(--g)')+sc2('Sell',sells,'var(--r)')+
     sc2('⚡ Strong',sbuy,'var(--am)')+sc2('🟢 Sweep',swb,'var(--g)')+sc2('Avg',avg,'');
 
-  if(!rows.length){document.getElementById('tbody').innerHTML='<tr><td colspan="19" class="msg">No coins match your filters.</td></tr>';renderMobileCards(rows);return;}
+  if(!rows.length){document.getElementById('tbody').innerHTML='<tr><td colspan="19" class="msg">'+marketCapEmptyMessage()+'</td></tr>';renderMobileCards(rows);return;}
 
   // PERF: only build the view that's actually visible. On mobile the table is
   // hidden (CSS), on desktop the cards are hidden — no point rendering both.
@@ -5326,7 +5373,7 @@ function mSort(col) {
 function renderMobileCards(rows) {
   var body = document.getElementById('m-cards-body');
   if (!body) return;
-  if (!rows || !rows.length) { body.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--t3)">No coins match.</div>'; return; }
+  if (!rows || !rows.length) { body.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--t3)">'+marketCapEmptyMessage()+'</div>'; return; }
 
   // Sort by selected mobile column (investing mode sorts by Value score)
   var sorted = rows.slice().sort(function(a,b){
@@ -13389,6 +13436,7 @@ function exportJournalCSV(){
 // ═══════════════════════════════════════════════════════════════════════════
 // Confluence v2 — closed candles, separate structure/trend/trigger evidence.
 var _confluenceRequest = 0;
+var CONFLUENCE_TFS=['1w','1d','4h','1h','15m'];
 function confirmedStructurePivots(h,l,strength,lookback){
   var start=Math.max(strength,h.length-(lookback||60)),highs=[],lows=[];
   for(var i=start;i<h.length-strength;i++){
@@ -13456,15 +13504,17 @@ function confluenceAnalyze(rows,sym,tf,now){
     confirmation:structure.side==='bull'&&trend==='bull'&&(pullback||freshBreak),bars:n});
 }
 function confluenceSummary(results){
-  var tfs=['1d','4h','1h','15m'],missing=tfs.filter(function(tf){return !results[tf]||results[tf].health!=='ready';});
+  var tfs=CONFLUENCE_TFS,missing=tfs.filter(function(tf){return !results[tf]||results[tf].health!=='ready';});
   var sources=tfs.map(function(tf){return results[tf]&&results[tf].source;}).filter(Boolean);
   if(missing.length)return {tone:'wait',title:'Waiting for reliable data',next:'Check '+missing.join(', ')+' source status. No alignment decision yet.'};
   if(new Set(sources).size>1)return {tone:'wait',title:'Different exchanges — review separately',next:'Timeframes came from different venues. Refresh before treating them as one aligned setup.'};
-  var day=results['1d'],setup=results['4h'],confirm=results['1h'],timing=results['15m'];
+  var week=results['1w'],day=results['1d'],setup=results['4h'],confirm=results['1h'],timing=results['15m'];
   function bullish(r){return r.structure.side==='bull'&&r.trend==='bull';}
+  if(week.structure.side==='bear'||week.trend==='bear')return {tone:'risk',title:'Weekly context opposes a spot long',next:'Lower-timeframe strength is counter to the weekly structure or EMA trend. Five-timeframe alignment is not confirmed.'};
+  if(!bullish(week))return {tone:'wait',title:'Weekly context not aligned',next:'Weekly confirmed swings and EMA20/50 are not both bullish. Review the lower-timeframe cards separately; full alignment is pending.'};
   if(day.structure.side==='bear'||day.trend==='bear')return {tone:'risk',title:'Daily context opposes a spot long',next:'Lower-timeframe strength is a countertrend move. Wait for the daily context to improve.'};
   if(!bullish(day))return {tone:'wait',title:'Daily context not aligned',next:'Wait for confirmed daily higher highs / higher lows and bullish EMA alignment.'};
-  if(!bullish(setup))return {tone:'wait',title:'Daily bullish · 4H setup pending',next:'Wait for 4H bullish structure and trend; a lower-timeframe bounce alone is insufficient.'};
+  if(!bullish(setup))return {tone:'wait',title:'Weekly / daily bullish · 4H setup pending',next:'Wait for 4H bullish structure and trend; a lower-timeframe bounce alone is insufficient.'};
   if(!bullish(confirm)||!confirm.confirmation)return {tone:'wait',title:'Higher timeframes aligned · 1H confirmation pending',next:'Watch for a closed 1H EMA20 pullback hold or a fresh upside break / retest.'};
   if(!timing.trigger)return {tone:'wait',title:'Setup aligned · 15m trigger pending',next:'Wait for a fresh 15m upside close break / retest, bullish structure and trend, a green close and volume ≥1.5×.'};
   return {tone:'bull',title:'Alignment confirmed — review trade plan',next:'Check nearby resistance, invalidation, net reward/risk and market/news risks. Alignment alone does not authorize an entry.'};
@@ -13473,8 +13523,8 @@ function confluenceEscape(value){return String(value==null?'':value).replace(/[&
 function confluenceTime(value){return value?new Date(value).toISOString().slice(0,16).replace('T',' ')+' UTC':'Unknown';}
 function buildConfluenceTab(d,force){
   var sec=document.getElementById('msec');if(!sec||!d)return Promise.resolve();
-  var request=++_confluenceRequest,sym=d.sym,results={},tfs=['15m','1h','4h','1d'];
-  sec.innerHTML='<div id="confluence-root" data-request="'+request+'"><div class="spinner-wrap"><div class="sp"></div>Checking closed candles on four timeframes…</div></div>';
+  var request=++_confluenceRequest,sym=d.sym,results={},tfs=CONFLUENCE_TFS;
+  sec.innerHTML='<div id="confluence-root" data-request="'+request+'"><div class="spinner-wrap"><div class="sp"></div>Checking closed candles on five timeframes, including weekly…</div></div>';
   function current(){var root=document.getElementById('confluence-root'),tab=document.getElementById('mt-conf');return request===_confluenceRequest&&root&&root.getAttribute('data-request')===String(request)&&curSym===sym&&window._d&&window._d.sym===sym&&tab&&tab.classList.contains('active');}
   return Promise.all(tfs.map(function(tf){
     if(force&&typeof _klCache!=='undefined')delete _klCache[sym+'_'+tf+'_300'];
@@ -13491,12 +13541,12 @@ function renderConfluence(d,results,request){
   if(request!=null&&root.getAttribute('data-request')!==String(request))return;
   var summary=confluenceSummary(results),colors={bull:'var(--g)',bear:'var(--r)',risk:'var(--r)',mixed:'var(--am)',wait:'var(--am)',unknown:'var(--t2)'};
   var esc=confluenceEscape;
-  var h='<div class="cf-heading"><div><strong>Timeframe alignment</strong><small>Closed candles · v2026.09.13-r1</small></div><button onclick="refreshConfluence()">↻ Refresh all</button></div>';
+  var h='<div class="cf-heading"><div><strong>Timeframe alignment</strong><small>1W → 1D → 4H → 1H → 15m · Closed candles · v2026.09.30-r2</small></div><button onclick="refreshConfluence()">↻ Refresh all</button></div>';
   h+='<div class="cf-summary" style="border-left-color:'+colors[summary.tone]+'"><strong style="color:'+colors[summary.tone]+'">'+esc(summary.title)+'</strong><p>'+esc(summary.next)+'</p></div>';
   h+='<div class="cf-grid">';
-  ['1d','4h','1h','15m'].forEach(function(tf){
-    var r=results[tf],roles={'1d':'Context','4h':'Setup','1h':'Confirmation','15m':'Timing'};
-    h+='<article class="cf-card"><div class="cf-card-head"><strong>'+tf.toUpperCase()+' · '+roles[tf]+'</strong><span>'+(r?(r.health==='ready'?'Closed data':'Unknown'):'Loading…')+'</span></div>';
+  CONFLUENCE_TFS.forEach(function(tf){
+    var r=results[tf],roles={'1w':'Weekly context','1d':'Daily context','4h':'Setup','1h':'Confirmation','15m':'Timing'};
+    h+='<article class="cf-card'+(tf==='1w'?' cf-card-weekly':'')+'"><div class="cf-card-head"><strong>'+tf.toUpperCase()+' · '+roles[tf]+'</strong><span>'+(r?(r.health==='ready'?'Closed data':'Unknown'):'Loading…')+'</span></div>';
     if(!r||r.health!=='ready')h+='<p>'+esc(r?r.reason:'Fetching candle history…')+'</p>';
     else{
       var s=r.structure,e=s.event;
@@ -13511,9 +13561,10 @@ function renderConfluence(d,results,request){
       if(e)h+='<p>Tested level '+esc(fE(e.level))+' · 0.1 ATR close buffer.</p>';
       h+='</details>';
     }
+    if(tf==='1w')h+='<p class="cf-note">Higher-timeframe context, not an entry trigger. The forming week is excluded; at least 55 closed weekly candles are required. Newer listings may show Unknown.</p>';
     h+='<footer>'+esc(r?r.source||'Unknown':'Source pending')+' · Last close '+esc(confluenceTime(r&&r.closedAt))+'</footer></article>';
   });
-  h+='</div><details class="cf-method"><summary>How to read this</summary><p>1D context → 4H setup → 1H confirmation → 15m timing. These timeframes overlap; they are not four independent signals.</p><p>Structure uses the last 60 closed candles and strict swing pivots with 3 candles on each side, shared with the scanner. Higher highs and higher lows must each exceed the previous pivot by 0.1%. Confirmation therefore arrives after the swing, and forming pivots are excluded.</p><p>EMA20/50 and Wilder RSI use the same shared calculations and 300-candle request as the chart. Volume is the last closed candle’s base-coin volume divided by the previous 20 closed candles; it is shown separately from structure. Scanner quote-volume ratios may differ.</p><p>An upside break needs a close above a confirmed high plus a 0.1 ATR buffer. A retest needs a later touch and close above the buffer. A close back through the opposite buffer marks a failed break. These are configured conditions, not a tested win rate.</p><p>Refresh after candle close. Every card shows its own last close and venue; header values can reflect a different snapshot. No automatic entry, order or position-size instruction comes from this tab.</p></details>';
+  h+='</div><details class="cf-method"><summary>How to read this</summary><p>1W weekly context → 1D daily context → 4H setup → 1H confirmation → 15m timing. These timeframes overlap; they are not five independent signals. Full alignment here requires bullish weekly and daily structure and EMA trend. This does not change the scanner’s separate entry or sweep rules.</p><p>Structure uses the last 60 closed candles and strict swing pivots with 3 candles on each side, shared with the scanner. Higher highs and higher lows must each exceed the previous pivot by 0.1%. Confirmation therefore arrives after the swing, and forming pivots are excluded. On 1W, pivot confirmation takes three subsequent closed weeks.</p><p>EMA20/50 and Wilder RSI use the same shared calculations and 300-candle request as the chart. Volume is the last closed candle’s base-coin volume divided by the previous 20 closed candles; it is shown separately from structure. Scanner quote-volume ratios may differ.</p><p>An upside break needs a close above a confirmed high plus a 0.1 ATR buffer. A retest needs a later touch and close above the buffer. A close back through the opposite buffer marks a failed break. These are configured conditions, not a tested win rate.</p><p>Refresh after candle close. Every card shows its own last close and venue; header values can reflect a different snapshot. No automatic entry, order or position-size instruction comes from this tab.</p></details>';
   h+=buildPriceAlertUI(d);root.innerHTML=h;
 }
 
@@ -26090,7 +26141,8 @@ function renderMoonPanel() {
 }
 
 // ═══════════════════════════════════════════════════════════
-fetchDynamicRanks();   // update market cap ranks from CoinGecko (hourly)
+marketCapRestore();
+fetchDynamicRanks();   // refresh ranks with a labelled provider fallback
 setInterval(function(){if(!document.hidden)checkBuySweepOutcomes();},60000);
 setTimeout(function(){checkBuySweepOutcomes();},2000);
 fetchTopCoins();       // optionally expand coin list from CoinGecko (daily)
