@@ -362,6 +362,24 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 .market-rel th,.market-rel td{padding:9px 8px;border-bottom:1px solid var(--bd);vertical-align:top}.market-rel th{color:var(--t2);font-weight:600}
 .market-rel td small{display:block;color:var(--t2);font-size:10px;line-height:1.5;margin-top:4px}.market-rel .rel-up{color:#087b68}.market-rel .rel-down{color:#bd343b}
 .market-rel .rel-read{min-width:240px;max-width:340px;line-height:1.5}.market-rel-note{font-size:10px;color:var(--t2);line-height:1.6;margin-top:8px}
+.alt-breadth{margin:10px 0 16px}
+.alt-breadth-heading{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:9px}
+.alt-breadth-heading strong{font-size:13px}.alt-breadth-heading span{font-size:11px;color:var(--t2)}
+.alt-breadth-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.alt-breadth-card{padding:13px;border:1px solid var(--bd2);border-top:3px solid var(--bl);border-radius:10px;background:var(--card);min-width:0}
+.alt-breadth-card.advance{border-top-color:var(--g)}.alt-breadth-card.decline{border-top-color:var(--r)}.alt-breadth-card.stale{border-top-color:var(--t3)}
+.alt-breadth-top{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:12px}
+.alt-breadth-state{font-size:10px;font-weight:600;color:var(--t2);text-align:right}
+.alt-breadth-value{font-size:29px;font-weight:800;letter-spacing:-.04em;line-height:1.2;margin:12px 0 2px;color:var(--text)}
+.alt-breadth-value small{font-size:12px;font-weight:500;letter-spacing:0;color:var(--t2)}
+.alt-breadth-count{font-size:11px;color:var(--t2);line-height:1.5}
+.alt-breadth-bar{display:flex;height:10px;border-radius:6px;overflow:hidden;background:var(--card3);margin:10px 0 8px}
+.alt-breadth-up{background:var(--g)}.alt-breadth-flat{background:var(--t3)}.alt-breadth-down{background:var(--r)}
+.alt-breadth-legend{display:flex;justify-content:space-between;gap:5px;flex-wrap:wrap;font-size:10px;color:var(--t2)}
+.alt-breadth-foot{font-size:10px;line-height:1.5;color:var(--t2);margin-top:9px;padding-top:8px;border-top:1px solid var(--bd)}
+.alt-breadth-read{padding:9px 11px;margin-top:9px;border-radius:7px;background:var(--card3);font-size:12px;line-height:1.6;color:var(--text)}
+@media(max-width:1000px){.alt-breadth-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:460px){.alt-breadth-grid{grid-template-columns:1fr}.alt-breadth-value{font-size:26px}}
 .sweep-track-panel{background:#17232d;color:#d1d4dc;border:1px solid #347b79;border-radius:7px;padding:10px;font:12px/1.6 -apple-system,sans-serif;flex-shrink:0}
 .sweep-track-panel p{margin:5px 0}.sweep-track-panel small{color:#aebccd}.sweep-track-panel .btn{color:#d1d4dc;background:#243747;border:1px solid #4d6379;font-size:10px;margin:3px}
 .sweep-track-levels{display:flex;gap:10px;flex-wrap:wrap}.sweep-track-levels span{min-width:95px}.sweep-track-levels b{display:block;color:#66dbc9}
@@ -849,6 +867,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       <p class="market-chart-note" style="margin-bottom:10px">Tap a market to open its chart page. Use Back or Close to return here.</p>
       <section class="market-rel" aria-label="BTC ETH and altcoin performance comparison">
         <div class="market-rel-heading"><strong>BTC vs ETH vs Alts · price performance</strong><button class="btn" id="market-perf-refresh" onclick="refreshMarketPerformance(true)">↻ Update performance</button></div>
+        <div id="market-alt-breadth" class="alt-breadth" aria-label="Altcoin market breadth"><div class="market-rel-note">Alt breadth will appear after performance loads.</div></div>
         <div class="market-rel-scroll"><table>
           <thead><tr><th scope="col">Window</th><th scope="col">BTC</th><th scope="col">ETH</th><th scope="col">Alts · equal weight</th><th scope="col">Alts − BTC</th><th scope="col">Relative leader</th></tr></thead>
           <tbody id="market-perf-body"><tr><td colspan="6">Open Market Charts to load performance.</td></tr></tbody>
@@ -858,6 +877,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
           Returns are close-to-close over the last 1, 2, 4 or 24 complete hours, all ending at the same UTC hour. This is not a forming candle or a calendar-day return.
           Alts is an equal-weight average of the current USDT scanner universe, excluding BTC, ETH, known stablecoins, BTC/ETH derivatives and leveraged tokens. The same coins with complete 24-hour history are used in every row. This is not TOTAL3 or a market-cap-weighted index.
           Missing, conflicting or gapped candles are excluded, never counted as zero. Alts − BTC is a percentage-point difference. A relative leader can still lose value; performance is not a forecast or buy signal. Exchange sources can differ across coins.
+          Breadth counts coins with positive, unchanged or negative returns, regardless of move size. “Broad advance/decline” means at least two-thirds rising/falling; otherwise a majority is labelled “More rising/falling,” or “Mixed / flat.” These are display labels, not validated entry thresholds. Different windows overlap; a 1h versus 4h difference is not a measured change in breadth over time.
           <div id="market-perf-basket"></div>
         </details>
       </section>
@@ -17034,12 +17054,36 @@ function marketPerformanceSnapshot(histories,alts,end){
     var alt=included.length?included.reduce(function(sum,x){return sum+x.returns[h];},0)/included.length:null;
     var b=btc.returns[h],e=eth.returns[h],values=[{name:'BTC',v:b},{name:'ETH',v:e},{name:'Alts',v:alt}],leader='Unavailable';
     if(values.every(function(x){return Number.isFinite(x.v);})){var best=Math.max(b,e,alt),winners=values.filter(function(x){return Math.abs(x.v-best)<.005;});leader=winners.map(function(x){return x.name;}).join(' / ')+(winners.length>1?' · near tie':best<0?' · least decline':'');}
-    return {hours:h,btc:b,eth:e,alt:alt,spread:alt!=null&&b!=null?alt-b:null,leader:leader,positive:included.filter(function(x){return x.returns[h]>0;}).length};
+    return {hours:h,btc:b,eth:e,alt:alt,spread:alt!=null&&b!=null?alt-b:null,leader:leader,positive:included.filter(function(x){return x.returns[h]>0;}).length,negative:included.filter(function(x){return x.returns[h]<0;}).length,flat:included.filter(function(x){return x.returns[h]===0;}).length};
   })};
+}
+function marketBreadthState(row,count){
+  if(!count)return {label:'No coverage',tone:'unknown',percent:null};
+  var up=row.positive/count,down=row.negative/count;
+  return {label:up>=2/3?'Broad advance':down>=2/3?'Broad decline':up>.5?'More rising':down>.5?'More falling':'Mixed / flat',tone:up>.5?'advance':down>.5?'decline':'mixed',percent:up*100};
+}
+function marketBreadthHTML(snap,now){
+  if(!snap)return '<div class="market-rel-note">Waiting for aligned candle data.</div>';
+  var n=snap.included.length,stale=now>=snap.end+3600000,esc=_marketEsc;
+  var h='<div class="alt-breadth-heading"><strong>Alt breadth · how many coins are rising?</strong><span>'+n+'/'+snap.total+' covered'+(n<snap.total?' · partial basket':'')+(n>0&&n<5?' · small sample':'')+' · '+(stale?'STALE snapshot':'closed-hour snapshot')+'</span></div><div class="alt-breadth-grid">';
+  snap.rows.forEach(function(r){
+    var b=marketBreadthState(r,n),up=n?r.positive/n*100:0,flat=n?r.flat/n*100:0,down=n?r.negative/n*100:0;
+    var label=r.hours===24?'1d':r.hours+'h',aria=label+': '+r.positive+' rising, '+r.flat+' flat, '+r.negative+' falling out of '+n+' covered coins';
+    h+='<article class="alt-breadth-card '+(stale?'stale':b.tone)+'"><div class="alt-breadth-top"><b>'+label+'</b><span class="alt-breadth-state">'+(stale?'Prior: ':'')+esc(b.label)+'</span></div>';
+    h+='<div class="alt-breadth-value">'+(b.percent==null?'—':b.percent.toFixed(1)+'%')+' <small>rising</small></div><div class="alt-breadth-count">'+(n?r.positive+' of '+n+' covered alts are up':'No valid altcoin history')+'</div>';
+    h+='<div class="alt-breadth-bar" role="img" aria-label="'+esc(aria)+'"><span class="alt-breadth-up" style="width:'+up+'%"></span><span class="alt-breadth-flat" style="width:'+flat+'%"></span><span class="alt-breadth-down" style="width:'+down+'%"></span></div>';
+    h+='<div class="alt-breadth-legend"><span>↑ '+r.positive+' rising</span><span>→ '+r.flat+' flat</span><span>↓ '+r.negative+' falling</span></div>';
+    h+='<div class="alt-breadth-foot">Basket return '+(r.alt==null?'unavailable':(r.alt>0?'+':'')+r.alt.toFixed(2)+'%')+'<br>'+ (r.spread==null?'BTC comparison unavailable':(r.spread>=0?'+':'')+r.spread.toFixed(2)+' pp vs BTC')+'</div></article>';
+  });
+  var one=snap.rows.find(function(r){return r.hours===1;}),four=snap.rows.find(function(r){return r.hours===4;}),read='No breadth reading until valid altcoin history is available.';
+  if(n&&one&&four){var a=one.positive/n*100,b=four.positive/n*100;read='1h: '+a.toFixed(1)+'% rising · 4h: '+b.toFixed(1)+'% rising. '+(a<b?'Fewer coins are up over 1h than 4h.':a>b?'More coins are up over 1h than 4h.':'The same share is up in both windows.');}
+  h+='</div><div class="alt-breadth-read">'+(stale?'<b>Stale — refresh before using this context.</b> ':'')+esc(read)+' <span class="market-rel-note">'+(n<snap.total?'Available sample only. ':'')+'Participation, not an entry signal.</span></div>';
+  return h;
 }
 function renderMarketPerformance(){
   var body=document.getElementById('market-perf-body'),snap=_marketPerf.snapshot;if(!body||!snap)return;
   var stale=Date.now()>=snap.end+3600000,esc=_marketEsc;
+  var breadth=document.getElementById('market-alt-breadth');if(breadth)breadth.innerHTML=marketBreadthHTML(snap,Date.now());
   function cell(value,unit){return value==null?'<td>Unavailable</td>':'<td class="'+(value>0?'rel-up':value<0?'rel-down':'')+'">'+(value>0?'+':'')+value.toFixed(2)+(unit||'%')+(stale?'<small>Stale window</small>':'')+'</td>';}
   body.innerHTML=snap.rows.map(function(r){return '<tr><th scope="row">'+(r.hours===24?'1d':r.hours+'h')+'</th>'+cell(r.btc)+cell(r.eth)+cell(r.alt)+cell(r.spread,' pp')+'<td>'+esc(r.leader)+'<small>'+snap.included.length+'/'+snap.total+' alts covered'+(snap.included.length?' · '+r.positive+'/'+snap.included.length+' rising':'')+(snap.excluded.length?' · partial basket':'')+'</small></td></tr>';}).join('');
   var status=document.getElementById('market-perf-status');if(status)status.textContent=(stale?'STALE · ':'')+'All windows end '+new Date(snap.end).toISOString().replace('T',' ').replace('.000Z',' UTC')+' · '+snap.included.length+'/'+snap.total+' eligible alts with complete history · BTC: '+snap.btc.source+' · ETH: '+snap.eth.source+'. Refreshes while this tab is visible. Leaders refer only to available data.';
