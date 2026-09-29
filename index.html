@@ -847,6 +847,20 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
         <span class="market-chart-auto" title="The screener draws confirmed trendlines, structure levels, Fib and sweep references">AUTO DRAWINGS ON</span>
       </div>
       <p class="market-chart-note" style="margin-bottom:10px">Tap a market to open its chart page. Use Back or Close to return here.</p>
+      <section class="market-rel" aria-label="BTC ETH and altcoin performance comparison">
+        <div class="market-rel-heading"><strong>BTC vs ETH vs Alts · price performance</strong><button class="btn" id="market-perf-refresh" onclick="refreshMarketPerformance(true)">↻ Update performance</button></div>
+        <div class="market-rel-scroll"><table>
+          <thead><tr><th scope="col">Window</th><th scope="col">BTC</th><th scope="col">ETH</th><th scope="col">Alts · equal weight</th><th scope="col">Alts − BTC</th><th scope="col">Relative leader</th></tr></thead>
+          <tbody id="market-perf-body"><tr><td colspan="6">Open Market Charts to load performance.</td></tr></tbody>
+        </table></div>
+        <div class="market-rel-note" id="market-perf-status" role="status"></div>
+        <details class="market-rel-note"><summary>Basket, sources and calculation</summary>
+          Returns are close-to-close over the last 1, 2, 4 or 24 complete hours, all ending at the same UTC hour. This is not a forming candle or a calendar-day return.
+          Alts is an equal-weight average of the current USDT scanner universe, excluding BTC, ETH, known stablecoins, BTC/ETH derivatives and leveraged tokens. The same coins with complete 24-hour history are used in every row. This is not TOTAL3 or a market-cap-weighted index.
+          Missing, conflicting or gapped candles are excluded, never counted as zero. Alts − BTC is a percentage-point difference. A relative leader can still lose value; performance is not a forecast or buy signal. Exchange sources can differ across coins.
+          <div id="market-perf-basket"></div>
+        </details>
+      </section>
       <div class="chart-macro-strip" data-chart-macro-strip aria-label="Macro tape context"></div>
       <section class="market-rel" aria-label="Crypto market relationships by timeframe">
         <div class="market-rel-heading"><strong>Market relationships · vs TOTAL</strong><button class="btn" id="market-rel-refresh" onclick="refreshMarketRelationships(true)">↻ Update relationships</button></div>
@@ -6985,7 +6999,7 @@ function buildCascadePanel(){
 // remain manual in Coin Updates. Automatic runs use primary/free feeds and a
 // deliberately small synthesis packet so free keys are not consumed by noise.
 // ═══════════════════════════════════════════════════════════════════════════
-var UA_VERSION=2, _uaRunning=false, _uaLastRun=0;
+var UA_VERSION=2, _uaRunning=false, _uaLastRun=0, _uaMemoryState=null;
 function _uaDefaults(){return {version:UA_VERSION,on:false,provider:'none',dailyBudget:8,requireOnchain:false,notifyReview:true,notifyRisk:true};}
 function unifiedAgentSettings(){
   var d=_uaDefaults(),x={};try{x=JSON.parse(localStorage.getItem('unified_agent_settings_v1')||'{}')||{};}catch(e){}
@@ -7015,8 +7029,8 @@ function enableUnifiedNotifications(){
   if(!('Notification' in window)){alert('This browser does not support system notifications. Telegram alerts can still be used.');return;}
   Notification.requestPermission().then(function(){try{renderAgent();}catch(e){}});
 }
-function _uaState(){try{var state=JSON.parse(localStorage.getItem('unified_agent_state_v1')||'{}')||{};Object.keys(state).forEach(function(k){var r=state[k]&&state[k].result;if(r&&!r.evidenceScopeVersion){state[k].result=null;}});return state;}catch(e){return {};}}
-function _uaSaveState(x){try{localStorage.setItem('unified_agent_state_v1',JSON.stringify(x));}catch(e){}}
+function _uaState(){if(_uaMemoryState)return _uaMemoryState;try{var state=JSON.parse(localStorage.getItem('unified_agent_state_v1')||'{}')||{};Object.keys(state).forEach(function(k){var r=state[k]&&state[k].result;if(r&&!r.evidenceScopeVersion){state[k].result=null;}});return state;}catch(e){return {};}}
+function _uaSaveState(x){try{localStorage.setItem('unified_agent_state_v1',JSON.stringify(x));_uaMemoryState=null;}catch(e){_uaMemoryState=x;}}
 function _uaDay(){return new Date().toISOString().slice(0,10);}
 function _uaUsage(){var x={};try{x=JSON.parse(localStorage.getItem('unified_agent_usage_v1')||'{}')||{};}catch(e){}if(x.day!==_uaDay())x={day:_uaDay(),calls:0};return x;}
 function _uaUseCall(){var x=_uaUsage(),s=unifiedAgentSettings();if(x.calls>=s.dailyBudget)return false;x.calls++;try{localStorage.setItem('unified_agent_usage_v1',JSON.stringify(x));}catch(e){}return true;}
@@ -7059,7 +7073,7 @@ function _uaEvidence(d,c,oc,now){
   var trigger=_uaTechnicalTrigger(d),fresh=_uaFreshChart(d,now),daily=window._dailyTrend&&window._dailyTrend[d.sym];
   var regime=_regime&&_regime.mode||'unknown',ext=d&&d.ema20>0?(d.price-d.ema20)/d.ema20*100:null;
   var catRisk=_uaRiskEvents(d,c,now),legacy=_catalystVeto(d),risks=(legacy.vetoes||[]).concat(catRisk).filter(function(v,i,a){return a.indexOf(v)===i;});
-  var ocBias=oc?_freeOnchainBias(oc):{bias:'UNKNOWN',biasReason:'Not fetched; the agent only spends on-chain requests on candidates or manual checks.'};
+  var ocBias=oc?_freeOnchainBias(oc):{bias:'UNKNOWN',biasReason:'Not checked yet or source unavailable. Missing coverage is not a directional signal.'};
   if(oc&&ocBias.bias==='BEARISH')risks.push('Selected DEX pool is sell-dominated; broader wallet flows are not established');
   var liquid=(d.vol24usd||d.vol24||0)>=5000000,rr=!!(d.rrOK||d.rrRatio>=1),marketOK=btc?(btcState==='bullish'||btcState==='stable'):
     (regime!=='risk_off'&&regime!=='btc_season'&&(btcState==='bullish'||btcState==='stable'));
@@ -7081,7 +7095,7 @@ function _uaEvidence(d,c,oc,now){
   var why=risks.length?risks.slice(0,3):status==='REVIEW_READY'?[trigger.text,'Closed-candle, market, liquidity and reward/risk gates passed']:
     status==='WATCH'?['No validated entry trigger yet']:[].concat(blockers.slice(0,3));
   return {version:UA_VERSION,evidenceScopeVersion:2,sym:d.sym,pair:d.pair,status:status,confidence:confidence,checkedAt:now,trigger:trigger,layers:layers,
-    reasons:why,risks:risks.slice(0,4),missing:missing.slice(0,5),blockers:blockers.slice(0,6),earlyWatch:d.earlyState||null,
+    reasons:why,risks:risks.slice(0,4),missing:missing.slice(0,5),blockers:blockers.slice(0,6),earlyWatch:d.earlyState||null,onchainCoverage:_ocCoverageSnapshot(oc),
     levels:{price:d.price,support:d.sup,resistance:d.res,ema20:d.ema20,ema50:d.ema50,invalidation:d.sup?d.sup-(d.price*(d.atrPct||2)/100*.3):null},
     metrics:{rsi:d.rsi,volumeRatio:d.volR,atrPct:d.atrPct,rrRatio:d.rrRatio,rank:d.coinRank,quoteTurnover24h:d.vol24usd||d.vol24,regime:regime,dailyTrend:daily,extensionPct:ext},
     sources:{catalyst:c&&c.health?c.health.filter(function(x){return x.status==='CHECKED';}).map(function(x){return x.label;}).slice(0,4):[],onchain:oc&&oc.sources?(oc.sources||[]).slice(0,5):[]}};
@@ -7103,10 +7117,10 @@ function _uaAICall(e){
   var user='Evaluate this compact evidence packet for '+e.pair+': '+JSON.stringify(packet).slice(0,4800);
   if(provider==='gemini'){
     var mainKey=(localStorage.getItem('ai_api_key')||'').trim(),key=(!/^sk-(?:ant|or-)/.test(mainKey)&&mainKey)||(_crGeminiKey?_crGeminiKey():'');
-    return fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+encodeURIComponent(key),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({systemInstruction:{parts:[{text:sys}]},contents:[{role:'user',parts:[{text:user}]}],generationConfig:{temperature:0.1,maxOutputTokens:700,thinkingConfig:{thinkingBudget:0},responseMimeType:'application/json'}})}).then(function(r){if(!r.ok)throw Error('Gemini HTTP '+r.status);return r.json();}).then(function(j){if(j.error)throw Error(j.error.message||'Gemini error');return _uaAIJSON((j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts||[]).map(function(p){return p.text||'';}).join(''));});
+    return _ffDirect('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+encodeURIComponent(key),30000,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({systemInstruction:{parts:[{text:sys}]},contents:[{role:'user',parts:[{text:user}]}],generationConfig:{temperature:0.1,maxOutputTokens:700,thinkingConfig:{thinkingBudget:0},responseMimeType:'application/json'}})}).then(function(j){if(j.error)throw Error('Gemini response error');return _uaAIJSON((j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts||[]).map(function(p){return p.text||'';}).join(''));});
   }
   if(provider==='groq'){
-    var g=groqKey();return fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+g},body:JSON.stringify({model:'groq/compound-mini',messages:[{role:'system',content:sys},{role:'user',content:user}],temperature:0.1,max_completion_tokens:700,response_format:{type:'json_object'}})}).then(function(r){if(!r.ok)throw Error('Groq HTTP '+r.status);return r.json();}).then(function(j){if(j.error)throw Error(j.error.message||'Groq error');return _uaAIJSON(j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content);});
+    var g=groqKey();return _ffDirect('https://api.groq.com/openai/v1/chat/completions',30000,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+g},body:JSON.stringify({model:'groq/compound-mini',messages:[{role:'system',content:sys},{role:'user',content:user}],temperature:0.1,max_completion_tokens:700,response_format:{type:'json_object'}})}).then(function(j){if(j.error)throw Error('Groq response error');return _uaAIJSON(j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content);});
   }
   if(provider==='anthropic'||provider==='openrouter')return _aiCallModel(sys,[{role:'user',content:user}],null).then(_uaAIJSON);
   return Promise.resolve(null);
@@ -7125,38 +7139,62 @@ function _uaNotify(d,e,previous){
   previous=previous||{};previous.lastAlertSig=sig;previous.lastAlertAt=now;return previous;
 }
 function _uaAnalyseOne(d,manual){
-  var now=Date.now(),pre=_uaEvidence(d,_catLoad(_freeSym(d.pair||d.sym)),null,now);
-  // Event feeds are checked for every monitored coin (cached for 30 minutes),
-  // because a new risk matters even when the chart has no long trigger.
-  var catP=collectCatalystEvidence(d,!!manual);
-  return catP.then(function(c){var mid=_uaEvidence(d,c,null,Date.now()),needOC=manual||mid.status==='REVIEW_READY'||unifiedAgentSettings().requireOnchain;
-    return (needOC?_agentOnchain({sym:d.pair||d.sym,price:d.price,force:!!manual}):Promise.resolve(null)).then(function(oc){
+  // Rotate all monitors through cached public evidence, not only ready setups.
+  // Independent sources still finish when one service rejects a request.
+  return Promise.allSettled([
+    Promise.resolve().then(function(){return collectCatalystEvidence(d,!!manual);}),
+    Promise.resolve().then(function(){return _agentOnchain({sym:d.pair||d.sym,price:d.price,force:!!manual});})
+  ]).then(function(r){
+      var c=r[0].status==='fulfilled'?r[0].value:null,oc=r[1].status==='fulfilled'?r[1].value:{symbol:_freeSym(d.pair||d.sym),status:'error'};
       var e=_uaEvidence(d,c,oc,Date.now()),shouldAI=manual||e.status==='REVIEW_READY'||e.status==='RISK';
+      e.evidenceErrors=r.map(function(x,i){return x.status==='rejected'?(i?'On-chain':'Events')+': '+_ffStatus(x.reason):null;}).filter(Boolean);
+      if(r[0].status==='rejected'&&e.status==='REVIEW_READY'){e.status='WAIT';e.blockers.push('successful event-source refresh');e.reasons=['Event-source refresh failed; readiness cannot be confirmed.'];}
       if(!shouldAI||!_uaHasAI()||!_uaUseCall())return e;
       return _uaAICall(e).then(function(ai){e.ai=ai;e.status=_uaClamp(e,ai);return e;}).catch(function(err){e.aiError=_catError(err);return e;});
-    });
+  });
+}
+function _uaQueue(data,monitors,state){
+  var bySym=new Map(),seen=new Set();(data||[]).forEach(function(d){if(d&&d.sym)bySym.set(d.sym,d);});
+  return (monitors||[]).filter(function(m){if(!m||seen.has(m.sym)||!bySym.has(m.sym))return false;seen.add(m.sym);return true;})
+    .map(function(m,i){var old=state[m.sym]||{},at=old.lastAttemptAt||old.result&&old.result.checkedAt||0;return {row:bySym.get(m.sym),order:i,at:Number.isFinite(at)&&at<=Date.now()?at:0};})
+    .sort(function(a,b){return a.at-b.at||a.order-b.order;}).map(function(x){return x.row;});
+}
+function _uaCheckAndSave(d,manual){
+  var state=_uaState(),old=state[d.sym]||{};old.lastAttemptAt=Date.now();delete old.lastError;state[d.sym]=old;_uaSaveState(state);
+  return Promise.resolve().then(function(){return _uaAnalyseOne(d,manual);}).then(function(e){
+    state=_uaState();old=state[d.sym]||old;e.previousStatus=old.result&&old.result.status||null;e.updatedAt=Date.now();old.result=e;old.lastSuccessAt=e.updatedAt;
+    try{old=_uaNotify(d,e,old);}catch(err){/* Notification failure must not stop evidence rotation. */}
+    delete old.lastError;state[d.sym]=old;_uaSaveState(state);return e;
+  }).catch(function(err){
+    state=_uaState();old=state[d.sym]||old;old.lastError=_ffStatus(err);state[d.sym]=old;_uaSaveState(state);return null;
   });
 }
 function runUnifiedDecisionAgent(data,manual){
   if((!unifiedAgentEnabled()&&!manual)||_uaRunning)return Promise.resolve([]);var now=Date.now();if(!manual&&now-_uaLastRun<300000)return Promise.resolve([]);
-  var mons=loadMonitors(),rows=mons.slice(0,6).map(function(m){return (data||[]).find(function(d){return d.sym===m.sym;});}).filter(Boolean);if(!rows.length)return Promise.resolve([]);
-  _uaRunning=true;_uaLastRun=now;var state=_uaState(),results=[];
-  return rows.reduce(function(p,d){return p.then(function(){return _uaAnalyseOne(d,!!manual).then(function(e){var old=state[d.sym]||{};e.previousStatus=old.result&&old.result.status||null;e.updatedAt=Date.now();old.result=e;old=_uaNotify(d,e,old);state[d.sym]=old;results.push(e);_uaSaveState(state);});});},Promise.resolve())
+  var rows=_uaQueue(data,loadMonitors(),_uaState()).slice(0,6);if(!rows.length)return Promise.resolve([]);
+  _uaRunning=true;_uaLastRun=now;var results=[];
+  return rows.reduce(function(p,d){return p.then(function(){
+    if(!manual&&!unifiedAgentEnabled()||!loadMonitors().some(function(m){return m.sym===d.sym;}))return;
+    return _uaCheckAndSave(d,!!manual).then(function(e){if(e)results.push(e);});
+  });},Promise.resolve())
     .then(function(){try{renderAgent();}catch(e){}return results;}).finally(function(){_uaRunning=false;});
 }
 function unifiedAgentRunNow(sym){
-  var d=(allData||[]).find(function(x){return x.sym===sym;});if(!d)return;
-  var el=document.getElementById('ua-status-'+sym);if(el)el.textContent='Checking chart, events, fundamentals and on-chain evidence…';
+  var d=(allData||[]).find(function(x){return x.sym===sym;}),el=document.getElementById('ua-status-'+sym);
+  if(!d){if(el)el.textContent='Waiting for this coin to appear in the scanner data. Run a scan with its market selected.';return;}
+  if(el)el.textContent='Checking chart, events, fundamentals and on-chain evidence…';
   if(_uaRunning){if(el)el.textContent='Another evidence check is already running. Try again when it finishes.';return;}
-  _uaRunning=true;_uaAnalyseOne(d,true).then(function(e){var state=_uaState(),old=state[d.sym]||{};e.previousStatus=old.result&&old.result.status||null;e.updatedAt=Date.now();old.result=e;old=_uaNotify(d,e,old);state[d.sym]=old;_uaSaveState(state);renderAgent();})
+  _uaRunning=true;_uaCheckAndSave(d,true).then(function(){renderAgent();})
     .catch(function(e){if(el)el.textContent='Agent failed: '+_catError(e);}).finally(function(){_uaRunning=false;});
 }
 function _uaEsc(v){return _catEsc(v==null?'':v);}
 function _uaResultCard(e){
-  if(!e)return '<span style="color:var(--t3)">Waiting for the first agent check.</span>';
+  if(!e)return '<span style="color:var(--t3)">Waiting for the first agent check.</span>'+_renderOnchainCoverage(null);
   var col=e.status==='REVIEW_READY'?'var(--g)':e.status==='RISK'?'var(--r)':e.status==='WAIT'?'var(--am)':'var(--t2)',h='<div style="margin-top:7px;border-top:.5px solid var(--bd);padding-top:7px">';
   h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="color:'+col+'">'+_uaEsc(e.status.replace('_',' '))+'</b><span style="font-size:9px;color:var(--t3)">'+_uaEsc(e.confidence)+' evidence completeness · '+new Date(e.updatedAt||e.checkedAt).toLocaleTimeString()+'</span></div>';
   if(e.ai&&e.ai.summary)h+='<div style="font-size:10px;line-height:1.5;margin-top:4px">'+_uaEsc(e.ai.summary)+'</div>';
+  h+=_renderOnchainCoverage(e.onchainCoverage);
+  if(e.evidenceErrors&&e.evidenceErrors.length)h+='<div style="font-size:9px;color:var(--am)">'+e.evidenceErrors.map(_uaEsc).join(' · ')+'</div>';
   h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:5px;margin-top:6px">';Object.keys(e.layers||{}).forEach(function(k){var x=e.layers[k],c=x.state==='PASS'||x.state==='SUPPORT'?'var(--g)':x.state==='RISK'||x.state==='BLOCK'?'var(--r)':'var(--t3)';h+='<div style="background:var(--card3);border-radius:6px;padding:6px"><b style="font-size:9px;text-transform:capitalize">'+(k==='onchain'?'Selected DEX pool':k)+'</b><div style="font-size:9px;color:'+c+'">'+_uaEsc(x.state)+'</div></div>';});h+='</div>';
   var next=e.status==='REVIEW_READY'?'Review the chart, entry condition and invalidation before any order.':e.risks&&e.risks.length?e.risks[0]:(e.blockers||[]).join(' · ');
   h+='<div style="font-size:9px;color:var(--t2);margin-top:6px"><b>Next:</b> '+_uaEsc(next||'Wait for a material change.')+'</div>';
@@ -7169,12 +7207,20 @@ function buildUnifiedAgentPanel(compact){
   h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="font-size:14px">🧠 Unified Decision Agent</b><span style="font-size:10px;color:'+(s.on?'var(--g)':'var(--t3)')+'">'+(s.on?'WATCHING '+mons.length+' COIN'+(mons.length===1?'':'S'):'OFF')+'</span><span style="margin-left:auto;font-size:8px;color:var(--t3)">2026.09.07-r1</span></div>';
   h+='<div style="font-size:10px;color:var(--t2);line-height:1.55;margin:5px 0 8px">One conservative decision from closed-candle chart structure, BTC/regime, liquidity/fundamentals, source-backed events and sampled on-chain data. It notifies a human review—never places an order.</div>';
   h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><label style="font-size:10px"><input type="checkbox" '+(s.on?'checked':'')+' onchange="toggleUnifiedAgent(this.checked)"> Run automatically</label>';
-  h+='<label style="font-size:9px;color:var(--t2)">AI <select onchange="setUnifiedAgentProvider(this.value)" style="background:var(--card);color:var(--text);border:.5px solid var(--bd);border-radius:5px;padding:4px"><option value="auto"'+(s.provider==='auto'?' selected':'')+'>Auto</option><option value="gemini"'+(s.provider==='gemini'?' selected':'')+'>Gemini</option><option value="groq"'+(s.provider==='groq'?' selected':'')+'>Groq</option></select></label>';
+  h+='<label style="font-size:9px;color:var(--t2)">AI <select onchange="setUnifiedAgentProvider(this.value)" style="background:var(--card);color:var(--text);border:.5px solid var(--bd);border-radius:5px;padding:4px"><option value="none"'+(s.provider==='none'?' selected':'')+'>Off · data only</option><option value="auto"'+(s.provider==='auto'?' selected':'')+'>Auto</option><option value="gemini"'+(s.provider==='gemini'?' selected':'')+'>Gemini</option><option value="groq"'+(s.provider==='groq'?' selected':'')+'>Groq</option></select></label>';
   h+='<label style="font-size:9px;color:var(--t2)">AI calls/day <input type="number" min="1" max="24" value="'+s.dailyBudget+'" onchange="setUnifiedAgentBudget(this.value)" style="width:48px;background:var(--card);color:var(--text);border:.5px solid var(--bd);border-radius:5px;padding:4px"></label>';
   h+='<button onclick="enableUnifiedNotifications()" style="padding:5px 9px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:9px;cursor:pointer">Notifications: '+_uaEsc(perm)+'</button></div>';
   h+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:7px;font-size:9px;color:var(--t2)"><label><input type="checkbox" '+(s.notifyReview?'checked':'')+' onchange="setUnifiedNotify(\'review\',this.checked)"> review-ready alerts</label><label><input type="checkbox" '+(s.notifyRisk?'checked':'')+' onchange="setUnifiedNotify(\'risk\',this.checked)"> new-risk alerts</label><label title="Strict mode can leave native coins waiting when directional on-chain coverage does not exist"><input type="checkbox" '+(s.requireOnchain?'checked':'')+' onchange="setUnifiedRequireOnchain(this.checked)"> require selected-pool buying</label></div>';
-  h+='<div style="font-size:9px;color:var(--t3);margin-top:6px">AI budget '+u.calls+'/'+s.dailyBudget+' today · checks up to 6 monitored coins every ~5 minutes while this page is open · web search stays manual in Coin Updates.</div>';
-  if(!compact&&mons.length)mons.forEach(function(m){var e=state[m.sym]&&state[m.sym].result;h+='<div style="margin-top:8px;padding:8px;border:.5px solid var(--bd);border-radius:8px"><div style="display:flex;gap:7px;align-items:center"><b>'+_uaEsc(m.pair)+'</b><button onclick="unifiedAgentRunNow(\''+_uaEsc(m.sym)+'\')" style="margin-left:auto;padding:4px 8px;border-radius:5px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:9px;cursor:pointer">Check all evidence now</button></div><div id="ua-status-'+_uaEsc(m.sym)+'">'+_uaResultCard(e)+'</div></div>';});
+  var available=_uaQueue(typeof allData!=='undefined'?allData:[],mons,state),checked=mons.filter(function(m){return state[m.sym]&&state[m.sym].result;}).length;
+  h+='<div style="font-size:9px;color:var(--t3);margin-top:6px">AI budget '+u.calls+'/'+s.dailyBudget+' today · rotating batches of up to 6, least recently checked first, about every 5 minutes while this page is open and scanning. All monitored coins with scanner data receive on-chain checks; AI calls remain budget-limited. Web search stays manual.</div>';
+  h+='<div style="font-size:9px;color:var(--t2);margin-top:5px">'+checked+'/'+mons.length+' have saved results (not necessarily fresh) · '+available.length+' eligible for rotation · '+Math.max(0,mons.length-available.length)+' waiting for scanner data.'+(available.length?' Full rotation: roughly '+Math.ceil(available.length/6)*5+' minutes or longer, depending on API responses.':'')+(_uaMemoryState?' Browser storage unavailable; rotation/results kept in memory until this page closes.':'')+'</div>';
+  if(!compact&&mons.length)mons.forEach(function(m){
+    var record=state[m.sym]||{},ready=available.some(function(d){return d.sym===m.sym;});
+    h+='<div style="margin-top:8px;padding:8px;border:.5px solid var(--bd);border-radius:8px"><div style="display:flex;gap:7px;align-items:center"><b>'+_uaEsc(m.pair)+'</b><button onclick="unifiedAgentRunNow(\''+_uaEsc(m.sym)+'\')" style="margin-left:auto;padding:4px 8px;border-radius:5px;border:.5px solid var(--bd);background:var(--card);color:var(--t2);font-size:9px;cursor:pointer">Check all evidence now</button></div><div id="ua-status-'+_uaEsc(m.sym)+'">';
+    if(!ready)h+='<div style="font-size:10px;color:var(--am)">Waiting for scanner data; this coin cannot be checked in the current scan.</div>';
+    if(record.lastError)h+='<div style="font-size:10px;color:var(--am)">Last attempt: '+_uaEsc(record.lastError)+' · '+_uaEsc(new Date(record.lastAttemptAt).toLocaleString())+'. Any previous result below was not refreshed. Rotation will retry.</div>';
+    h+=_uaResultCard(record.result)+'</div></div>';
+  });
   if(!mons.length)h+='<div style="font-size:10px;color:var(--am);margin-top:7px">Add coins below. The agent does not scan the entire market automatically.</div>';
   h+='<details style="margin-top:8px"><summary style="font-size:9px;color:var(--t3);cursor:pointer">Rules and limitations</summary><div style="font-size:9px;color:var(--t3);line-height:1.55;margin-top:5px">Early Watch is watch-only. A recent exploit, delisting, material unlock or bearish Wyckoff state vetoes readiness. AI cannot upgrade a deterministic WAIT. Unknown data never becomes bullish. Browser/Telegram delivery requires this page to remain open; true closed-page push needs a server and push service.</div></details>';
   return h+'</section>';
@@ -10991,6 +11037,68 @@ function _ffCoverage(out){
   rows.push({name:'Blockchain / token activity',status:n?n.status:'NOT COVERED',note:n?n.source+' · '+(n.scope||n.reason):'No supported adapter'});
   return rows;
 }
+// Compact, persistable source coverage only. Never used to award a trading vote.
+function _ocCoverageSnapshot(out){
+  var labels={network:'Network',dex:'DEX',holders:'Holders',transfers:'Transfers'};
+  function empty(key,route){
+    var pending=key==='network'?'Network context':'Wallets / DEX';
+    var status=!out?'NOT CHECKED':out.loading&&(out.pending||[]).indexOf(pending)>=0?'LOADING':out.status==='error'?'UNAVAILABLE':'NOT COVERED';
+    // Keep route diagnostics explicit; never infer a missing key from missing data.
+    if(out&&route&&route.status)status=route.status;
+    return {key:key,label:labels[key],status:status,observed:false,asOf:null,maxAge:0,
+      note:route&&route.note||(!out?'Waiting for an evidence check.':'No verified data returned for this source.')};
+  }
+  if(!out)return Object.keys(labels).map(function(k){return empty(k);});
+  var n=out.networkActivity,m=out.market,id=_ocIdentity(out.network,out.contract);
+  var network=empty('network'),dex=empty('dex'),holders=empty('holders',out.holderRoute),transfers=empty('transfers',out.transferRoute);
+  if(n){
+    var daily=(n.metrics||[]).filter(function(x){return Number.isFinite(x.value)&&Number.isFinite(x.end)&&x.end>0;});
+    network.status=n.status||'UNKNOWN';network.note=(n.source||'Network provider')+' · '+(n.scope||n.reason||'Activity, not buying pressure');
+    if(daily.length){network.observed=true;network.asOf=Math.min.apply(null,daily.map(function(x){return x.end;}));network.maxAge=86400000;network.daily=true;network.note+=' · '+daily.length+' metrics; timestamp is the oldest reported daily window end.';}
+    else if(n.performance&&n.performance.samples>0){network.observed=true;network.asOf=n.asOf;network.maxAge=600000;network.status='SAMPLED';}
+  }
+  if(out.symbol==='BTC'){dex.status='NOT APPLICABLE';dex.note='Native BTC has no DEX token contract. Wrapped BTC is a separate asset.';}
+  else if(m&&m.identityVerified===true){
+    dex.status='SINGLE POOL';dex.observed=true;dex.asOf=m.asOf;dex.maxAge=600000;
+    dex.note=(m.source||'DEX provider')+' · '+(m.network||'unknown network')+' · '+(m.representation||out.symbol)+' · '+(m.poolAddress||m.pool||'selected pool')+'. Not coin-wide flow; trade-window eligibility is separate.';
+  }else if(m){dex.status=_ffStatus(m.flowNote);dex.note=m.flowNote||'No verified pool returned.';}
+  // Include stale snapshots so the UI can say STALE, rather than silently losing them.
+  var h=[out.holders&&out.holders.snapshot,out.moralis&&out.moralis.snapshot,out.goldRush&&out.goldRush.snapshot]
+    .filter(function(v){return id&&v&&v.identityKey===id&&Array.isArray(v.holders)&&v.holders.length;})
+    .sort(function(a,b){return (b.asOf||0)-(a.asOf||0);})[0];
+  if(h){holders.status='PARTIAL';holders.observed=true;holders.asOf=h.asOf;holders.maxAge=1800000;holders.note=(h.source||'Holder provider')+' · '+h.holders.length+' top-address balances. Not all holders or unique people.';}
+  else if(holders.status==='AVAILABLE')holders.status='NO VERIFIED SAMPLE';
+  var f=[out.transfers,out.moralis&&out.moralis.flow].filter(function(v){return id&&v&&v.version===2&&v.identityKey===id;})
+    .sort(function(a,b){return (b.asOf||0)-(a.asOf||0);})[0];
+  if(f){
+    var hasTransfers=Object.keys(f.windows||{}).some(function(k){return f.windows[k].observedTransfers>0;});
+    transfers.status=hasTransfers?'PARTIAL':'NO OBSERVATIONS';transfers.observed=true;transfers.asOf=f.asOf;transfers.maxAge=1800000;
+    transfers.note=(f.source||'Transfer provider')+' · Returned transfer sample, not all wallets or trades. No observations does not mean zero network activity.';
+  }else if(transfers.status==='AVAILABLE')transfers.status='NO VERIFIED SAMPLE';
+  return [network,dex,holders,transfers];
+}
+function _ocCoverageDisplay(row,now){
+  var r=Object.assign({},row),at=r.asOf;
+  r.freshness='';
+  if(r.observed){
+    if(!Number.isFinite(at)||at<=0||at>now){r.freshness='TIME UNKNOWN';}
+    else r.freshness=now-at>=r.maxAge?'STALE':r.daily?'LATEST CLOSED DAY':'FRESH';
+  }
+  return r;
+}
+function _renderOnchainCoverage(rows,now){
+  now=now||Date.now();rows=Array.isArray(rows)&&rows.length?rows:_ocCoverageSnapshot(null);
+  var esc=_escProviderHtml,view=rows.map(function(r){return _ocCoverageDisplay(r,now);});
+  var h='<div class="oc-coverage" style="margin-top:7px"><div style="display:flex;gap:5px;flex-wrap:wrap" aria-label="On-chain source coverage">';
+  view.forEach(function(r){
+    var warning=r.freshness==='STALE'||r.freshness==='TIME UNKNOWN'||/KEY|RESTRICTED|FAILED|LIMITED|UNAVAILABLE|TIMED OUT/.test(r.status);
+    var text=r.label+': '+r.status+(r.freshness?' · '+r.freshness:'');
+    h+='<span style="font-size:9px;line-height:1.5;padding:4px 6px;border:1px solid var(--bd);border-radius:5px;color:'+(warning?'var(--am)':'var(--t2)')+'" title="'+esc(r.note)+'">'+esc(text)+'</span>';
+  });
+  h+='</div><details style="font-size:10px;margin-top:5px"><summary>Coverage details &amp; timestamps</summary>';
+  view.forEach(function(r){h+='<div style="margin:5px 0"><b>'+esc(r.label)+' · '+esc(r.status)+'</b><br>'+esc(r.note)+(r.observed?'<br>'+esc(_ocAge(r.asOf,now,r.maxAge)):'')+'</div>';});
+  return h+'<div>Coverage is not a buy/sell signal. Exchange volume is separate from on-chain data. Missing data stays unknown.</div></details></div>';
+}
 function _renderFreeCoverage(out){
   var esc=_escProviderHtml,rows=_ffCoverage(out);
   return '<section class="dex-evidence"><div class="dex-evidence-title">Free data coverage · '+esc(out.symbol)+'</div><div class="dex-source">No paid subscription required for these sources. Coverage is per asset, venue and metric—not a trading score.</div>'+rows.map(function(r){return '<div class="oc-proof"><strong>'+esc(r.name)+' · '+esc(r.status)+'</strong><div class="dex-muted">'+esc(r.note)+'</div></div>';}).join('')+'</section>';
@@ -11242,6 +11350,7 @@ function _renderOnchainDashboard(out,sym){
   var esc=_escProviderHtml,m=out.market,e=out.onchainEvidence||_ocBuildEvidence(out,[],Date.now()),n=out.networkActivity,b=_freeOnchainBias(out),flow=out.spotFlow;
   var spot4=flow&&flow.windows&&flow.windows['4h'],spotFresh=flow&&Number.isFinite(flow.asOf)&&Date.now()-flow.asOf>=0&&Date.now()-flow.asOf<=600000;
   var h='<div class="oc-dashboard"><strong>'+esc(out.symbol)+' · On-chain & trading evidence</strong><div class="oc-status">2026.09.12-r2 · '+(out.loading?'Loading: '+esc((out.pending||[]).join(' · ')):'Updated '+esc(new Date(out.updatedAt||Date.now()).toLocaleString()))+'</div>';
+  h+=_renderOnchainCoverage(_ocCoverageSnapshot(out));
   h+='<div class="oc-summary-grid"><div>Trading pressure<strong>'+esc(spotFresh&&spot4&&spot4.status==='COMPLETE'?spot4.direction||'UNKNOWN':'UNKNOWN')+'</strong><small>Binance spot · closed 4H window</small></div><div>Wallet flows<strong>'+esc(_ocWalletSummary(e))+'</strong><small>Deposits / withdrawals, not trades</small></div><div>Liquidity<strong>'+(out.symbol==='BTC'?'Check order size':_dexMoney(e.liquidity.current&&e.liquidity.current.usd))+'</strong><small>'+(out.symbol==='BTC'?'Binance spot book · on demand':'Selected-pool reserve value')+'</small></div><div>Network context<strong>'+esc(n?n.status:out.loading?'LOADING':'UNKNOWN')+'</strong><small>Activity, not accumulation</small></div></div>';
   h+='<div class="dex-muted">'+esc(out.symbol==='BTC'?'BTC spot pressure is exchange trading data. Wallet flows and network activity are separate measurements.':'Selected DEX pool: '+(b.direction||'UNKNOWN')+' · '+b.biasReason)+'</div>';
   h+='<details data-oc-section="coverage"><summary>Source health, scope and timestamps</summary>'+_renderFreeCoverage(out);
@@ -12484,14 +12593,19 @@ function _agentOnchainCore(f){
       if(result.market.wrappedProxy)out.warnings.push('DEX evidence uses '+result.market.representation+'. Wrapped-token holders/transfers are not used as native-coin holders/transfers.');
       // Holder enrichment may still work when the DEX provider is unavailable.
       var pick=result.pick||(result.market.wrappedProxy||['SOL','ETH','BNB','AVAX','NEAR'].indexOf(sym)>=0?null:_freePickPlatform(meta));
-      if(!pick)return finish(out);
+      if(!pick){
+        out.holderRoute={status:'NOT COVERED',note:'No verified native holder adapter. Wrapped-token holders are not native-coin holders.'};
+        out.transferRoute={status:'NOT COVERED',note:'No verified native transfer adapter. Wrapped-token transfers are not native-coin flows.'};
+        return finish(out);
+      }
       var chain=FF_BLOCKSCOUT_CHAINS[pick.network];
       var base=chain&&_provKey('blockscout')?'https://api.blockscout.com/'+chain:null;out.network=pick.network;out.contract=pick.address;
       out.tokenDecimals=_freeNum(meta.detailPlatforms&&meta.detailPlatforms[pick.platform]&&meta.detailPlatforms[pick.platform].decimal_place);
       out.holderRoute={status:base?'REQUESTED':chain?'NEEDS FREE KEY':'NOT COVERED',note:chain?'Optional Blockscout Pro free-tier key enables supported EVM token holders/transfers.':'No native holder/labelled-transfer adapter for this chain.'};
+      out.transferRoute=Object.assign({},out.holderRoute);
       return Promise.allSettled([base?_freeHolders(base,pick.address,pick.network):Promise.resolve(null),base?_freeTransfers(base,pick.address,null,pick.network):Promise.resolve(null)]).then(function(r){
         if(r[0].status==='fulfilled'&&r[0].value){out.holders=r[0].value;out.sources.push('Blockscout Pro');out.holderRoute.status='AVAILABLE';}else if(base){out.holderRoute.status=_ffStatus(r[0].reason);out.errors.push('Blockscout holders: '+String(r[0].reason&&r[0].reason.message||'No data'));}
-        if(r[1].status==='fulfilled'&&r[1].value)out.transfers=r[1].value;else if(base)out.errors.push('Blockscout transfers: '+String(r[1].reason&&r[1].reason.message||'No data'));
+        if(r[1].status==='fulfilled'&&r[1].value){out.transfers=r[1].value;out.transferRoute.status='AVAILABLE';}else if(base){out.transferRoute.status=_ffStatus(r[1].reason);out.errors.push('Blockscout transfers: '+String(r[1].reason&&r[1].reason.message||'No data'));}
         return finish(out);
       });
     });
@@ -16886,6 +17000,73 @@ function marketIndexKlines(key,tf,force){
 function marketClosedRows(rows,tf,now){
   now=now==null?Date.now():now;return rows.filter(function(k){return Number(k[0])+_chartTFDuration(tf)<=now;});
 }
+// Price performance uses measured spot closes, independently of sampled cap indices.
+var _marketPerf={snapshot:null,promise:null,at:0,key:'',timer:null};
+var MARKET_PERF_EXCLUDE=('BTC ETH USDT USDC USDE DAI FDUSD TUSD USDD USDS USD1 USDP PYUSD FRAX LUSD GUSD RLUSD EURC EURS EURAEUR UST USTC USD0 USDB USDF USDD US DOLA CRVUSD GHO MIM USDJ USDQ USDX USDY USR SUSDE SUSD SUSDS SDAI USUALUSD USTB USYC USDC.E WBTC WETH STETH WSTETH WEETH EZETH RETH CBETH RSETH METH OSETH ETHX BETH WBETH CMETH LBTC CBBTC TBTC BTCB BTC.B SOLVBTC SOLVBTC.BBN EBTC PAXG XAUT').split(' ');
+function marketPerformanceUniverse(rows,fallback){
+  var pairs=(rows||[]).map(function(d){return d&&d.sym;}).filter(function(s){return typeof s==='string'&&/^[A-Z0-9]+USDT$/.test(s);});
+  if(!pairs.length)pairs=(fallback||[]).slice();
+  return Array.from(new Set(pairs)).filter(function(s){
+    if(typeof s!=='string'||!/^[A-Z0-9]+USDT$/.test(s))return false;
+    var base=s.slice(0,-4);return MARKET_PERF_EXCLUDE.indexOf(base)<0&&!/(?:[235][LS]|UP|DOWN|BULL|BEAR)$/.test(base);
+  }).sort();
+}
+function marketPerformanceCloses(rows,end){
+  var hour=3600000,byEnd={},bad={},source=rows&&rows.dataSource||'Unknown source';
+  (Array.isArray(rows)?rows:[]).forEach(function(k){
+    if(!Array.isArray(k))return;var t=Number(k[0]),e=t+hour;
+    if(!Number.isFinite(t)||t%hour||e>end||e<end-24*hour)return;
+    var p=k.slice(1,5).map(function(v){return v==null||v===''?NaN:Number(v);});
+    if(p.length!==4||p.some(function(v){return !Number.isFinite(v)||v<=0;})||p[1]<Math.max(p[0],p[2],p[3])||p[2]>Math.min(p[0],p[1],p[3])){bad[e]=true;return;}
+    if(byEnd[e]&&byEnd[e].join(',')!==p.join(','))bad[e]=true;else byEnd[e]=p;
+  });
+  Object.keys(bad).forEach(function(e){delete byEnd[e];});
+  var returns={};[1,2,4,24].forEach(function(h){
+    var complete=true;for(var i=0;i<=h;i++)if(!byEnd[end-i*hour])complete=false;
+    returns[h]=complete?(byEnd[end][3]/byEnd[end-h*hour][3]-1)*100:null;
+  });
+  return {returns:returns,source:source};
+}
+function marketPerformanceSnapshot(histories,alts,end){
+  var btc=marketPerformanceCloses(histories.BTCUSDT,end),eth=marketPerformanceCloses(histories.ETHUSDT,end),included=[],excluded=[];
+  alts.forEach(function(sym){var s=marketPerformanceCloses(histories[sym],end);if(Number.isFinite(s.returns[24]))included.push({sym:sym,returns:s.returns,source:s.source});else excluded.push(sym);});
+  return {end:end,total:alts.length,included:included,excluded:excluded,btc:btc,eth:eth,rows:[1,2,4,24].map(function(h){
+    var alt=included.length?included.reduce(function(sum,x){return sum+x.returns[h];},0)/included.length:null;
+    var b=btc.returns[h],e=eth.returns[h],values=[{name:'BTC',v:b},{name:'ETH',v:e},{name:'Alts',v:alt}],leader='Unavailable';
+    if(values.every(function(x){return Number.isFinite(x.v);})){var best=Math.max(b,e,alt),winners=values.filter(function(x){return Math.abs(x.v-best)<.005;});leader=winners.map(function(x){return x.name;}).join(' / ')+(winners.length>1?' · near tie':best<0?' · least decline':'');}
+    return {hours:h,btc:b,eth:e,alt:alt,spread:alt!=null&&b!=null?alt-b:null,leader:leader,positive:included.filter(function(x){return x.returns[h]>0;}).length};
+  })};
+}
+function renderMarketPerformance(){
+  var body=document.getElementById('market-perf-body'),snap=_marketPerf.snapshot;if(!body||!snap)return;
+  var stale=Date.now()>=snap.end+3600000,esc=_marketEsc;
+  function cell(value,unit){return value==null?'<td>Unavailable</td>':'<td class="'+(value>0?'rel-up':value<0?'rel-down':'')+'">'+(value>0?'+':'')+value.toFixed(2)+(unit||'%')+(stale?'<small>Stale window</small>':'')+'</td>';}
+  body.innerHTML=snap.rows.map(function(r){return '<tr><th scope="row">'+(r.hours===24?'1d':r.hours+'h')+'</th>'+cell(r.btc)+cell(r.eth)+cell(r.alt)+cell(r.spread,' pp')+'<td>'+esc(r.leader)+'<small>'+snap.included.length+'/'+snap.total+' alts covered'+(snap.included.length?' · '+r.positive+'/'+snap.included.length+' rising':'')+(snap.excluded.length?' · partial basket':'')+'</small></td></tr>';}).join('');
+  var status=document.getElementById('market-perf-status');if(status)status.textContent=(stale?'STALE · ':'')+'All windows end '+new Date(snap.end).toISOString().replace('T',' ').replace('.000Z',' UTC')+' · '+snap.included.length+'/'+snap.total+' eligible alts with complete history · BTC: '+snap.btc.source+' · ETH: '+snap.eth.source+'. Refreshes while this tab is visible. Leaders refer only to available data.';
+  var basket=document.getElementById('market-perf-basket');if(basket)basket.textContent='Included: '+(snap.included.map(function(x){return x.sym.replace(/USDT$/,'')+' ('+x.source+')';}).join(', ')||'none')+'. Missing/invalid 24h history: '+(snap.excluded.join(', ')||'none')+'. Exclusions use a maintained symbol list; unrecognized pegged or wrapped assets may remain.';
+}
+function refreshMarketPerformance(force){
+  if(_marketPerf.promise)return _marketPerf.promise;
+  var alts=marketPerformanceUniverse(typeof allData!=='undefined'?allData:[],typeof SYM!=='undefined'?SYM.USDT:[]),end=Math.floor(Date.now()/3600000)*3600000,key=end+':'+alts.join(',');
+  if(!force&&_marketPerf.key===key&&Date.now()-_marketPerf.at<300000){renderMarketPerformance();return Promise.resolve(_marketPerf.snapshot);}
+  var symbols=['BTCUSDT','ETHUSDT'].concat(alts),histories={},next=0,done=0,button=document.getElementById('market-perf-refresh'),status=document.getElementById('market-perf-status');
+  if(button)button.disabled=true;renderMarketPerformance();
+  function progress(){if(status)status.textContent='Loading aligned hourly closes: '+done+'/'+symbols.length+' coins. Previous results, if shown, have not yet refreshed.';}
+  progress();
+  async function worker(){while(next<symbols.length){var sym=symbols[next++];try{
+    // A cached forming candle must be refetched after its close boundary.
+    var cacheKey=sym+'_1h_30',cached=_klCache[cacheKey];if(force||cached&&cached.ts<end)delete _klCache[cacheKey];
+    histories[sym]=await bybitKlines(sym,'1h',30);
+  }catch(e){histories[sym]=null;}done++;progress();}}
+  _marketPerf.promise=Promise.all([worker(),worker(),worker()]).then(function(){
+    _marketPerf.snapshot=marketPerformanceSnapshot(histories,alts,end);_marketPerf.at=Date.now();_marketPerf.key=key;renderMarketPerformance();return _marketPerf.snapshot;
+  }).catch(function(){if(status)status.textContent='Performance comparison unavailable. Please retry; previous results were not refreshed.';}).finally(function(){_marketPerf.promise=null;if(button)button.disabled=false;});
+  return _marketPerf.promise;
+}
+function startMarketPerformance(){
+  refreshMarketPerformance(false);
+  if(!_marketPerf.timer)_marketPerf.timer=setInterval(function(){var panel=document.getElementById('ip-charts');if(!document.hidden&&panel&&panel.classList.contains('active'))refreshMarketPerformance(false);},60000);
+}
 var _marketRelSerial=0,_marketRelAt=0,_marketRelPromise=null,_marketRelRows={};
 function marketRelationshipReturns(rows,tf,now){
   var span=_chartTFDuration(tf),out={points:[],byEnd:{},source:rows&&rows.dataSource||'Unknown source',sampled:!!(rows&&rows.sampled)};
@@ -17087,7 +17268,7 @@ function showIntel(which){
     if(btn) btn.textContent='▲';
   }
   // Listing only; selecting a market opens its dedicated chart page.
-  if(which==='charts'){_marketInstallChoices();refreshChartMacroTape();refreshMarketRelationships(false);}
+  if(which==='charts'){_marketInstallChoices();refreshChartMacroTape();refreshMarketRelationships(false);startMarketPerformance();}
 }
 
 function renderBuyZone(){
