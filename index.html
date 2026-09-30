@@ -2068,29 +2068,19 @@ function calcEMA(arr, p) {
 
 // FIX 2: RSI — Wilder smoothing + flat-market guard (ag=0,al=0 → 50, not 100)
 function calcRSI(c) {
-  var p = 14;
-  if (c.length < p + 1) return 50;
-  var g = 0, l = 0, d;
-  for (var i = 1; i <= p; i++) { d = c[i] - c[i-1]; if (d > 0) g += d; else l -= d; }
-  var ag = g / p, al = l / p;
-  for (var i = p + 1; i < c.length; i++) {
-    d = c[i] - c[i-1];
-    ag = (ag * (p-1) + (d > 0 ? d : 0)) / p;
-    al = (al * (p-1) + (d < 0 ? -d : 0)) / p;
-  }
-  if (ag === 0 && al === 0) return 50; // FIX: flat market → neutral, not 100
-  if (al === 0) return 100;
-  return 100 - (100 / (1 + ag / al));
+  var series = calcRSISeries(c), value = series[series.length-1];
+  // Legacy scalar callers expect a number; divergence never uses this fallback.
+  return value == null ? 50 : value;
 }
 
 // RSI series — Wilder RSI value at every bar (so we can read RSI at swing points)
 function calcRSISeries(c) {
-  var p = 14, out = new Array(c.length).fill(50);
-  if (c.length < p + 1) return out;
+  var p = 14, out = new Array(c.length).fill(null);
+  if (c.length < p + 1 || !c.every(function(v){return typeof v==='number'&&isFinite(v)&&v>0;})) return out;
   var g = 0, l = 0, d;
   for (var i = 1; i <= p; i++) { d = c[i] - c[i-1]; if (d > 0) g += d; else l -= d; }
   var ag = g / p, al = l / p;
-  out[p] = al === 0 ? 100 : (ag === 0 && al === 0 ? 50 : 100 - 100/(1 + ag/al));
+  out[p] = (ag === 0 && al === 0) ? 50 : (al === 0 ? 100 : 100 - 100/(1 + ag/al));
   for (var i = p + 1; i < c.length; i++) {
     d = c[i] - c[i-1];
     ag = (ag * (p-1) + (d > 0 ? d : 0)) / p;
@@ -2101,18 +2091,25 @@ function calcRSISeries(c) {
 }
 
 // ── PROPER SWING-PIVOT RSI DIVERGENCE ────────────────────────────────────────
-// Finds actual swing lows/highs (pivots) and compares price vs RSI at those exact
-// points — matching what you'd draw by hand. Returns 'bull', 'bear', or 'none'.
+// Regular divergence on CLOSE pivots, not wick pivots or hidden divergence.
+// Input must contain closed candles only; two subsequent closes confirm a pivot.
 //   Bullish (regular): price lower low, RSI higher low  → momentum waning on selloff
 //   Bearish (regular): price higher high, RSI lower high → momentum waning on rally
 function calcRSIDivergence(c) {
+  var evidence = calcRSIDivergenceEvidence(c);
+  return evidence.state==='active' ? evidence.direction : 'none';
+}
+function calcRSIDivergenceEvidence(c) {
   var n = c.length;
-  if (n < 25) return 'none';
+  var empty = {version:2,direction:'none',state:'none',maxAgeBars:3};
+  if (n < 25 || !c.every(function(v){return typeof v==='number'&&isFinite(v)&&v>0;})) {
+    empty.state='unavailable';return empty;
+  }
   var rsi = calcRSISeries(c);
   var L = 2; // pivot strength: a pivot low is lower than L bars on each side
   // Collect swing lows and highs in the recent window (last ~40 bars, ignore last 1)
   var lows = [], highs = [];
-  var start = Math.max(L, n - 40);
+  var start = Math.max(14, n - 40), candidates=[];
   for (var i = start; i < n - L; i++) {
     var isLow = true, isHigh = true;
     for (var k = 1; k <= L; k++) {
@@ -2130,7 +2127,7 @@ function calcRSIDivergence(c) {
       var priceLowerLow = c[b] < c[a] * 0.999;   // price made a lower low
       var rsiHigherLow  = rsi[b] > rsi[a] + 1;    // but RSI made a higher low
       // only meaningful if it happened in oversold-ish territory
-      if (priceLowerLow && rsiHigherLow && rsi[b] < 55) return 'bull';
+      if (priceLowerLow && rsiHigherLow && rsi[b] < 55) candidates.push({direction:'bull',first:a,second:b});
     }
   }
   // Bearish: compare the two most recent swing HIGHS
@@ -2139,10 +2136,37 @@ function calcRSIDivergence(c) {
     if (y - x >= 3) {
       var priceHigherHigh = c[y] > c[x] * 1.001;  // price made a higher high
       var rsiLowerHigh    = rsi[y] < rsi[x] - 1;   // but RSI made a lower high
-      if (priceHigherHigh && rsiLowerHigh && rsi[y] > 45) return 'bear';
+      if (priceHigherHigh && rsiLowerHigh && rsi[y] > 45) candidates.push({direction:'bear',first:x,second:y});
     }
   }
-  return 'none';
+  if (!candidates.length) return empty;
+  // Select the newest direction before checking its lifecycle, never revive an older opposite signal.
+  candidates.sort(function(a,b){return b.second-a.second;});
+  var e=candidates[0];
+  e.version=2;e.confirmedIndex=e.second+L;e.barsAgo=n-1-e.confirmedIndex;e.maxAgeBars=3;
+  e.firstPrice=c[e.first];e.secondPrice=c[e.second];e.firstRSI=rsi[e.first];e.secondRSI=rsi[e.second];
+  e.state=e.barsAgo>e.maxAgeBars?'expired':'active';
+  for(var j=e.confirmedIndex+1;j<n;j++){
+    if(e.direction==='bull'?c[j]<e.secondPrice:c[j]>e.secondPrice){e.state='invalidated';e.invalidatedIndex=j;break;}
+  }
+  return e;
+}
+function rsiDivergenceDirection(d,now) {
+  var e=d&&d._rsiDivEvidence,s=d&&d.analysisSnapshot;
+  now=now==null?Date.now():now;
+  if(!e||e.version!==2||e.state!=='active'||!d.rowDataReady||!s||!s.usable||s.symbol!==d.sym||e.snapshotKey!==s.signature)return 'none';
+  var duration=_chartTFDuration(s.timeframe),age=now-s.lastClosedTime;
+  if(!isFinite(age)||age<0||age>=duration||e.barsAgo<0||e.barsAgo>e.maxAgeBars)return 'none';
+  return e.direction==='bull'||e.direction==='bear'?e.direction:'none';
+}
+function rsiDivergenceText(d) {
+  var direction=rsiDivergenceDirection(d),e=d&&d._rsiDivEvidence;
+  if(direction==='none')return 'No active confirmed RSI divergence';
+  return (direction==='bull'?'Bullish':'Bearish')+' regular RSI divergence · '+d.analysisSnapshot.timeframe+
+    ' close pivots · RSI '+e.firstRSI.toFixed(1)+' → '+e.secondRSI.toFixed(1)+
+    ' · Confirmed '+new Date(e.confirmedAt).toISOString().replace('T',' ').slice(0,16)+' UTC · '+e.barsAgo+
+    ' closed bars ago · Expires after 3 bars · Invalidated by a close '+(direction==='bull'?'below ':'above ')+e.secondPrice+
+    ' · Context only, not an entry signal';
 }
 
 // ── SMART MONEY CONCEPTS — BOS + CHoCH (objective structure markers) ──────────
@@ -3642,7 +3666,10 @@ function processSymbol(ticker, btcReferenceOverride) {
     var signalStrongActive = signalBuyActive && strongBuy;
 
     // RSI divergence — proper swing-pivot detection (bull or bear)
-    var _rsiDiv = calcRSIDivergence(c);
+    var _rsiDivEvidence = calcRSIDivergenceEvidence(c);
+    _rsiDivEvidence.snapshotKey=analysisSnapshot.signature;
+    _rsiDivEvidence.confirmedAt=_rsiDivEvidence.confirmedIndex==null?null:analysisSnapshot.times[_rsiDivEvidence.confirmedIndex]+_chartTFDuration(catalystTF);
+    var _rsiDiv = rowDataReady&&_rsiDivEvidence.state==='active'?_rsiDivEvidence.direction:'none';
 
     // EMA cross: EMA20 crossed above EMA50 in last 3 bars
     var _emaCross = (function() {
@@ -3698,7 +3725,7 @@ function processSymbol(ticker, btcReferenceOverride) {
       buySignal:signalBuyActive, strongBuy:signalStrongActive, highConviction:highConviction,
       sellSignal:(sellSignal && sc >= signalThreshold),
       signal:signal, rank:RANK[sym]||999, cat:meta.cat,
-      _rsiDiv:_rsiDiv, _emaCross:_emaCross,
+      _rsiDiv:_rsiDiv, _rsiDivEvidence:_rsiDivEvidence, _emaCross:_emaCross,
       confCount:confCount, rsiRising:rsiRising, aboveEMA200:aboveEMA200, aboveEMA50:aboveEMA50, regimeTrendOK:regimeTrendOK, btcBull:btcBull, volBullish:volBullish, strongClose:strongClose,
       pullbackBuy:pullbackBuy, breakoutBuy:breakoutBuy, exhausted:exhausted, rrRatio:rrRatio, rrRisk:rrRisk, rrReward:rrReward, rrOK:rrOK, gain5:gain5,
       buyTier:buyTier, buyTierFails:buyTierFails,
@@ -5313,7 +5340,8 @@ function render() {
     if(d.smc&&d.smc.bos==='bull') bdg('<span style="'+BG+';background:rgba(38,166,154,.13);color:var(--g)" title="Break of Structure — broke above last swing high">📈 BOS↑</span>', 4);
     else if(d.smc&&d.smc.bos==='bear') bdg('<span style="'+BG+';background:rgba(239,83,80,.13);color:var(--r)" title="Break of Structure — broke below last swing low">📉 BOS↓</span>', 7);
     if(d.pullbackBuy) bdg('<span style="'+BG+';background:rgba(38,166,154,.18);color:var(--g)" title="Pullback entry — buying a dip near EMA20 in an uptrend. Tighter stop, better R:R than chasing a breakout.">📉➡️📈 Pullback</span>', 1);
-    if(d._rsiDiv==='bull') bdg('<span style="'+BG+';background:rgba(41,98,255,.13);color:var(--bl)" title="Bullish RSI divergence">📊 RSI Div↑</span>', 5);
+    var divDirection=rsiDivergenceDirection(d);
+    if(divDirection!=='none') bdg('<span style="'+BG+';background:rgba(41,98,255,.13);color:'+(divDirection==='bull'?'var(--bl)':'var(--r)')+'" title="'+confluenceEscape(rsiDivergenceText(d))+'">📊 RSI Div'+(divDirection==='bull'?'↑':'↓')+' · '+d._rsiDivEvidence.barsAgo+' bars</span>', 5);
     // Sort by priority, show top 2, collapse the rest into a +N chip
     badges.sort(function(a,b){return a.pri-b.pri;});
     var setupBadge='';
@@ -8650,12 +8678,13 @@ function runScanner(){
     if(scanTab==="breakout")   return d.struct==="breakout";
     if(scanTab==="accum")      return d.struct==='low-volatility range';
     if(scanTab==="oversold")   return d.rsi<30;
-    if(scanTab==="rsiDiv")     return d._rsiDiv==='bull';
+    if(scanTab==="rsiDiv")     return rsiDivergenceDirection(d)!=='none';
     if(scanTab==="choch")      return d.smc&&d.smc.choch==='bull';
     if(scanTab==="bos")        return d.smc&&d.smc.bos==='bull';
     if(scanTab==="sector")     return (sectorFilter==='all'||d.cat===sectorFilter)&&d.score>=sectorMinScore&&(sectorSigFilter==='all'||(sectorSigFilter==='buy'&&(d.buySignal||d.strongBuy))||(sectorSigFilter==='sweep'&&d.liq==='buy_sweep')||(sectorSigFilter==='breakout'&&d.struct==='breakout'));
     return false;
   }).sort(function(a,b){
+    if(scanTab==='rsiDiv')return a._rsiDivEvidence.barsAgo-b._rsiDivEvidence.barsAgo;
     // A+ and Opportunity tabs sort by opportunity score; others by R:R
     if(scanTab==="aplus"||scanTab==="opportunity") return (b.opportunity||0)-(a.opportunity||0);
     // Sort by R:R (tp1-entry / entry-sl) descending, fall back to score
@@ -8686,6 +8715,7 @@ function runScanner(){
     var scoreC=d.score>=70?"var(--g)":d.score>=50?"var(--am)":"var(--r)";
     var rsiC=d.rsi<30?"var(--g)":d.rsi>70?"var(--r)":"var(--t2)";
     var entryNote=d.price<=d.ema20*1.01?"🟡 Near EMA20 — ideal entry":d.price<=d.ema20*1.05?"✅ Acceptable entry":"⚠ Extended — wait for pullback to "+fE(d.ema20);
+    if(scanTab==='rsiDiv')entryNote=confluenceEscape(rsiDivergenceText(d));
     var liqH=d.liq==="buy_sweep"?"<span class=\"pill pg\" style=\"font-size:10px\">🟢 Buy Sweep</span>":d.liq==="sell_sweep"?"<span class=\"pill pr\" style=\"font-size:10px\">🔴 Sell Sweep</span>":"";
     var structCls=SCLS[d.struct]||"pgr";
     var sym2=d.sym;
@@ -8709,7 +8739,7 @@ function runScanner(){
       +"<div style=\"text-align:right;flex:0 0 56px\">"
         +"<div style=\"font-size:18px;font-weight:800;color:"+scoreC+"\">"+d.score+"</div>"
         +"<div style=\"font-size:10px;color:var(--t3)\">/97</div>"
-        +(function(){var e=d.ema20||d.price,sl=d.sup?d.sup*0.984:e*0.97,tp=d.res?Math.min(d.res*0.998,e*1.04):e*1.04;var slP=(e-sl)/e,tpP=(tp-e)/e;var rr=slP>0?(tpP/slP).toFixed(1):'—';var rC=parseFloat(rr)>=2?'var(--g)':parseFloat(rr)>=1.5?'var(--am)':'var(--r)';return "<div style=\"font-size:10px;font-weight:700;color:"+rC+"\">R:R "+rr+"</div>";}())
+        +(function(){if(scanTab==='rsiDiv')return '';var e=d.ema20||d.price,sl=d.sup?d.sup*0.984:e*0.97,tp=d.res?Math.min(d.res*0.998,e*1.04):e*1.04;var slP=(e-sl)/e,tpP=(tp-e)/e;var rr=slP>0?(tpP/slP).toFixed(1):'—';var rC=parseFloat(rr)>=2?'var(--g)':parseFloat(rr)>=1.5?'var(--am)':'var(--r)';return "<div style=\"font-size:10px;font-weight:700;color:"+rC+"\">R:R "+rr+"</div>";}())
         +"<div style=\"font-size:11px;color:var(--g);margin-top:2px\">→</div>"
       +"</div>"
     +"</div>";
@@ -21978,23 +22008,7 @@ function calcEMAArr(closes, period) {
 
 // ── RSI array calculator ────────────────────────────────────────────────────
 function calcRSIArr(closes) {
-  var arr = new Array(closes.length).fill(null);
-  var period = 14;
-  if (closes.length < period + 1) return arr;
-  var g = 0, l = 0;
-  for (var i = 1; i <= period; i++) {
-    var d = closes[i] - closes[i-1];
-    if (d > 0) g += d; else l -= d;
-  }
-  var ag = g / period, al = l / period;
-  arr[period] = al === 0 ? 100 : 100 - (100 / (1 + ag / al));
-  for (var i = period + 1; i < closes.length; i++) {
-    var d = closes[i] - closes[i-1];
-    ag = (ag * (period-1) + Math.max(d, 0)) / period;
-    al = (al * (period-1) + Math.max(-d, 0)) / period;
-    arr[i] = al === 0 ? 100 : 100 - (100 / (1 + ag / al));
-  }
-  return arr;
+  return calcRSISeries(closes);
 }
 
 // ── Price formatting ────────────────────────────────────────────────────────
@@ -22135,7 +22149,7 @@ function buildSignalsTab(){
     {id:'al-sweepsell',ico:'🔴',name:'Sweep Sell',desc:'Liquidity swept above resistance — distribution'},
     {id:'al-breakout',ico:'🚀',name:'Breakout',desc:'Price closes above resistance with strong volume'},
     {id:'al-oversold',ico:'📉',name:'Oversold RSI',desc:'RSI < 30 — potential reversal / bounce zone'},
-    {id:'al-rsiDiv',ico:'📊',name:'RSI Divergence',desc:'Price new low + RSI higher low = bullish reversal signal'},
+    {id:'al-rsiDiv',ico:'📊',name:'RSI Divergence',desc:'Newly confirmed bullish close-pivot divergence; context only, not an entry signal'},
     {id:'al-emaCross',ico:'✂️',name:'EMA Cross Bull',desc:'EMA20 crossed above EMA50 — trend change signal'},
   ];
   sigs.forEach(function(s){
@@ -22394,9 +22408,9 @@ function checkAlerts(data){
     else if(alPrefs.breakout&&d.struct==='breakout'&&d.score>=58
             && !(retestOnly() && d.tlBreakUp && !d.tlRetestHeld && !d.resFlipHeld))sig='breakout';
     else if(alPrefs.oversold&&d.rsi<30)sig='oversold';
-    else if(alPrefs.rsiDiv&&d._rsiDiv==='bull')sig='rsiDiv';
+    else if(alPrefs.rsiDiv&&rsiDivergenceDirection(d,now)==='bull'&&d._rsiDivEvidence.barsAgo===0)sig='rsiDiv';
     else if(alPrefs.emaCross&&d._emaCross==='bull')sig='emaCross';
-    cur[d.sym]=sig;
+    cur[d.sym]=sig==='rsiDiv'?sig+'|'+d.analysisSnapshot.key+'|'+d._rsiDivEvidence.confirmedAt:sig;
   });
   var prev={};
   try{var s=sessionStorage.getItem('al_prev');if(s)prev=JSON.parse(s);}catch(e){}
@@ -22406,11 +22420,17 @@ function checkAlerts(data){
   data.forEach(function(d){
     var cs=cur[d.sym]||'',ps=prev[d.sym]||'';
     if(!cs||cs===ps)return;
+    var type=cs.indexOf('rsiDiv|')===0?'rsiDiv':cs;
+    if(type==='rsiDiv'&&alCooldowns[d.sym+'_'+cs]!=null)return; // once per confirmed event, including timeframe
     if((now-(alCooldowns[d.sym+'_'+cs]||0))<cdMs)return;
-    var label=LABELS[cs]||cs;
+    var label=type==='rsiDiv'?'📊 Bullish RSI divergence · '+d.analysisSnapshot.timeframe+' · confirmed close · context only':(LABELS[type]||type);
+    if(type==='rsiDiv')Object.keys(alCooldowns).forEach(function(k){
+      // No supported timeframe can still have a fresh confirmation after a week.
+      if(k.indexOf('_rsiDiv|')>=0&&now-alCooldowns[k]>=604800000)delete alCooldowns[k];
+    });
     alCooldowns[d.sym+'_'+cs]=now; saveAlCooldowns();
-    showToast(d,cs,label);addAlHistory(d,cs,label);
-    if(sndOn)playSound(cs);sendBrowserNotif(d,label);
+    showToast(d,type,label);addAlHistory(d,type,label);
+    if(sndOn)playSound(type);sendBrowserNotif(d,label);
   });
   try{sessionStorage.setItem('al_prev',JSON.stringify(cur));}catch(e){}
 }
