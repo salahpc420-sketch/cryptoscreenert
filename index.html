@@ -3160,10 +3160,16 @@ function calcPP(rsi, trend, volR, st, chg, price, e20, e50, liq) {
 // ═══════════════════════════════════════════════════════════
 // PROCESS SYMBOL — wires all indicator fixes
 // ═══════════════════════════════════════════════════════════
-function processSymbol(ticker, btcReferenceOverride) {
+function processSymbol(ticker, btcReferenceOverride, requestTF) {
   var sym = ticker.symbol;
-  var catalystTF = TF; // retain the timeframe used by this request
-  return bybitKlines(sym, TF, 300).then(function(klines) {
+  var catalystTF = requestTF || TF; // immutable request timeframe, including background scans
+  var cacheKey=sym+'_'+catalystTF+'_300',cached=typeof _klCache!=='undefined'&&_klCache[cacheKey];
+  if(cached&&cached.data){
+    var lastCached=cached.data[cached.data.length-1],age=Date.now()-cached.data.fetchedAt;
+    if(!lastCached||Number(lastCached[0])+_chartTFDuration(catalystTF)<=Date.now()||
+      (['BTCUSDT','BTCJPY'].includes(sym)&&(!Number.isFinite(age)||age<0||age>=900000)))delete _klCache[cacheKey];
+  }
+  return bybitKlines(sym, catalystTF, 300).then(function(klines) {
     var cAll = klines.map(function(k){ return parseFloat(k[4]); });
     var hAll = klines.map(function(k){ return parseFloat(k[2]); });
     var lAll = klines.map(function(k){ return parseFloat(k[3]); });
@@ -3190,6 +3196,8 @@ function processSymbol(ticker, btcReferenceOverride) {
     var v = candleClosed ? vAll.slice(0, -1) : vAll;
     var vB = candleClosed ? vBase.slice(0, -1) : vBase;
     var analysisSnapshot=chartSnapshot(klines,sym,catalystTF);
+    var btcRef=btcReferenceOverride||btcReferenceSnapshot();
+    var rowBtcContext=btcContextForSnapshot(btcRef&&btcRef.context,analysisSnapshot);
 
     // Cache BTC CLOSED closes globally so other coins compute relative strength.
     // Callers may provide an immutable snapshot to avoid concurrent-scan races.
@@ -3198,17 +3206,14 @@ function processSymbol(ticker, btcReferenceOverride) {
     // USDT scanner only trusts exact timestamp matches from btcReferenceSnapshot().
     var btcClosesForCalc = Array.isArray(btcReferenceOverride)
       ? btcReferenceOverride.slice()
-      : (btcReferenceOverride&&btcReferenceOverride.closes&&btcReferenceOverride.closes.length
-          ? btcReferenceOverride.closes.slice() : (_btcCloses?_btcCloses.slice():null));
-    var btcBarsForCalc = !Array.isArray(btcReferenceOverride)&&btcReferenceOverride&&btcReferenceOverride.bars
-      ? btcReferenceOverride.bars.map(function(x){return [Number(x[0]),Number(x[1])];})
-      : (_btcRSBars?_btcRSBars.map(function(x){return [Number(x[0]),Number(x[1])];}):null);
+      : (btcRef&&btcRef.closes?btcRef.closes.slice():null);
+    var btcBarsForCalc = !Array.isArray(btcReferenceOverride)&&btcRef&&btcRef.bars
+      ? btcRef.bars.map(function(x){return [Number(x[0]),Number(x[1])];}):null;
     var coinBarsForCalc = klines.slice(0,-1).map(function(k){return [Number(k[0]),Number(k[4])];});
     if (sym === 'BTCUSDT' || sym === 'BTCJPY') {
-      _btcCloses = c.slice();
-      _btcRSBars = coinBarsForCalc.map(function(x){return x.slice();});
       btcClosesForCalc = c.slice();
-      btcBarsForCalc = _btcRSBars.map(function(x){return x.slice();});
+      btcBarsForCalc = coinBarsForCalc.map(function(x){return x.slice();});
+      rowBtcContext=classifyBtcContext(klines,sym,catalystTF);
     }
 
     // FIX 1: Full-history EMAs (on closed candles)
@@ -3230,7 +3235,7 @@ function processSymbol(ticker, btcReferenceOverride) {
     // while every liquidity threshold in this tool is written in USD. At ~150
     // JPY/USD the filters were roughly 150x too loose in JPY mode, so they
     // effectively did nothing. Carry a normalized USD figure alongside.
-    var vol24usd = (Q === 'JPY')
+    var vol24usd = sym.endsWith('JPY')
       ? vol24 / (window._jpyRate || 150)
       : vol24;
 
@@ -3324,7 +3329,7 @@ function processSymbol(ticker, btcReferenceOverride) {
 
     // TREND CASCADE — resampled from these same candles, no extra API calls
     var _casc = null;
-    try { _casc = computeCascade(h, l, c, v, TF); } catch(e){}
+    try { _casc = computeCascade(h, l, c, v, catalystTF); } catch(e){}
 
     // ── EARLY-WATCH FEATURES v2 — read like a trader, not like an indicator ──
     // v1 flaw (found by testing): a coin bleeding out ALSO has contracting
@@ -3598,8 +3603,9 @@ function processSymbol(ticker, btcReferenceOverride) {
     // When BTC is falling/dumping, alts bleed harder, so alt buy signals are suppressed.
     // BTC itself is always allowed; sell signals always pass.
     var isBTC = (sym === 'BTCUSDT' || sym === 'BTCJPY');
-    var btcStateOK = (btcState === 'bullish' || btcState === 'stable');
-    var btcMacroOK = isBTC || !BTC_FILTER_ENABLED || (btcStateOK && (btcTrendScore === 0 || btcTrendScore >= BTC_FILTER_THRESHOLD));
+    var btcStateOK = btcContextAllowsAlts(rowBtcContext,catalystTF);
+    var rowBtcScore = rowBtcContext.score;
+    var btcMacroOK = isBTC || !BTC_FILTER_ENABLED || (btcStateOK && Number.isFinite(rowBtcScore) && rowBtcScore >= BTC_FILTER_THRESHOLD);
     var buyConfirmed = hasBuyCondition && rsi >= 38 && rsi <= 76 && trend !== 'down' && btcMacroOK
                        && trendAccumAligned // NEW: trend + accumulation must agree
                        && !wyckoffBearBlock // SOW/LPSY Phase D/E = no new spot long
@@ -3612,7 +3618,7 @@ function processSymbol(ticker, btcReferenceOverride) {
       buyConfirmed = false;
     }
     // High-conviction tag: strong BTC macro + good room to run (data: best win rate)
-    var highConviction = buyConfirmed && (isBTC || btcTrendScore >= CONFIG.STRONG_BTC_GATE) && distToRes >= CONFIG.MIN_DIST_RESISTANCE;
+    var highConviction = buyConfirmed && (isBTC || Number.isFinite(rowBtcScore)&&rowBtcScore >= CONFIG.STRONG_BTC_GATE) && distToRes >= CONFIG.MIN_DIST_RESISTANCE;
 
     // ═══ SIGNAL TIERING (A/B/C) ═══════════════════════════════════════════════
     // Instead of a hard pass/fail (which can empty the scanner in a bear market),
@@ -3656,11 +3662,12 @@ function processSymbol(ticker, btcReferenceOverride) {
       var precisionPass = sc >= CONFIG.PRECISION_SCORE
         && rsi >= CONFIG.PRECISION_RSI_LOW && rsi <= CONFIG.PRECISION_RSI_HIGH
         && emaExtPre >= CONFIG.PRECISION_EXT_LOW && emaExtPre <= CONFIG.PRECISION_EXT_HIGH
-        && (isBTC || btcTrendScore >= CONFIG.PRECISION_BTC_MIN);  // require strong BTC macro
+        && (isBTC || Number.isFinite(rowBtcScore)&&rowBtcScore >= CONFIG.PRECISION_BTC_MIN);  // require verified BTC macro
       if (!precisionPass) buyConfirmed = false;
     }
 
     var rowDataReady=rowDataGate(analysisSnapshot,volumeInfo);
+    if(isBTC)rowBtcContext.score=rowDataReady&&Number.isFinite(sc)?sc:null;
     if(!rowDataReady){buyConfirmed=false;sellSignal=false;wyckoffBullConfirm=false;wyckoff.bullConfirm=false;buyTier=null;highConviction=false;}
 
     var signal = (buyConfirmed    && sc >= signalThreshold) ? 'buy'
@@ -3721,6 +3728,9 @@ function processSymbol(ticker, btcReferenceOverride) {
       invScore:invScore, ddHigh:ddHigh, distE200:distE200pct,
       invEligible:invEligible, invReason:invReason, e200Rising:e200Rising, coinRank:coinRank,
       struct:st, liq:liq, liqEvidence:liqEvidence, sup:sr.sup, res:sr.res, sDist:sr.sDist, rDist:sr.rDist,
+      // Research only: frozen closed-candle context; never a signal/entry gate.
+      sweepContextFrame:['4h','1d'].includes(catalystTF)&&(sym==='BTCUSDT'||liq==='buy_sweep')
+        ? buildSweepContextFrame(klines,sym,catalystTF,analysisSnapshot.lastClosedTime):null,
       // Preserve the actual closed sweep candle, never the live ticker price.
       sweepCandle:liq==='buy_sweep'&&klines.length>1?{
         openTime:Number(klines[klines.length-2][0]),closeTime:analysisSnapshot.lastClosedTime,
@@ -3737,6 +3747,8 @@ function processSymbol(ticker, btcReferenceOverride) {
       pullbackBuy:pullbackBuy, breakoutBuy:breakoutBuy, exhausted:exhausted, rrRatio:rrRatio, rrRisk:rrRisk, rrReward:rrReward, rrOK:rrOK, gain5:gain5,
       buyTier:buyTier, buyTierFails:buyTierFails,
       analysisSnapshot:analysisSnapshot,wyckoff:wyckoff, wyckoffBullConfirm:wyckoffBullConfirm, wyckoffBearBlock:wyckoffBearBlock,
+      btcContext:rowBtcContext,
+      btcReference:isBTC?{closes:c.slice(),bars:coinBarsForCalc.map(function(x){return x.slice();}),context:JSON.parse(JSON.stringify(rowBtcContext))}:null,
       smc:smc,
       breakout:breakout, emaRetest:emaRetest, pumpDump:pumpDump,
       relStr:relStr, resil:resil, dbeta:dbeta, accum:accum, rsRank:null, opportunity:0,
@@ -4577,14 +4589,81 @@ function calcOpportunity(d) {
 }
 
 
-var btcTrendScore = 0;  // live BTC score — updated every scan, used as macro filter
+var btcTrendScore = null; // missing is not a passing zero score
 var chartBtcEvidence = null; // observed scanner context; null is not a zero-score observation
-var btcState = 'stable'; // 'bullish' | 'stable' | 'falling' | 'dumping' — gates alt buys
+var btcState = 'unknown'; // closed-candle classification; never default to supportive
+var btcActiveContext = null, _btcActiveReference = null, _btcScanSerial = 0;
 var _ethVsBtc = 0, _ethWeak = false, _breadth = 50, _breadthWeak = false, _btcDominanceRising = false; // market-context gates
 var _btcCloses = null;  // BTC close prices for market-state calculations
 var _btcRSBars = null;  // [open timestamp, closed price] pairs for aligned relative metrics
-function btcReferenceSnapshot(){
-  return {closes:_btcCloses?_btcCloses.slice():null,bars:_btcRSBars?_btcRSBars.map(function(x){return x.slice();}):null};
+function btcReferenceSnapshot(row){
+  var ref=row?row.btcReference:_btcActiveReference;
+  if(row&&row._stale)ref=null;
+  if(!ref||!btcContextIsCurrent(ref.context,ref.context&&ref.context.timeframe))return {closes:null,bars:null,context:unknownBtcContext(row&&row.analysisSnapshot?row.analysisSnapshot.timeframe:TF,'BTC reference unavailable or stale')};
+  return JSON.parse(JSON.stringify(ref));
+}
+function unknownBtcContext(tf,reason){
+  return {version:1,method:'btc-closed-v1',state:'unknown',trend:'unknown',status:'UNKNOWN',timeframe:tf,source:'Unknown',closedAt:null,observedAt:null,expiresAt:null,score:null,reason:reason||'Verified BTC history unavailable'};
+}
+function classifyBtcContext(rows,sym,tf,now){
+  now=now==null?Date.now():now;
+  var out=unknownBtcContext(tf),allowed=['15m','1h','4h','1d','1w'];
+  if(!['BTCUSDT','BTCJPY'].includes(sym)||!allowed.includes(tf)||!Number.isFinite(now)||!Array.isArray(rows)||rows.some(function(k){return !Array.isArray(k)||k.length<5;}))return out;
+  var snap=chartSnapshot(rows,sym,tf,now);
+  if(!snap.usable){out.reason=snap.message;return out;}
+  var fetchedAt=rows.fetchedAt;
+  if(!Number.isFinite(fetchedAt)||fetchedAt>now||now-fetchedAt>=900000){out.reason='BTC fetch timestamp missing or older than 15 minutes';return out;}
+  var frame=buildSweepContextFrame(rows,sym,tf,snap.lastClosedTime),c=rows.slice(0,-1).map(function(k){return Number(k[4]);});
+  if(frame.status!=='READY'||!(frame.atr>0)){out.reason='BTC volatility/history cannot be verified';return out;}
+  // Trend and short-term pressure are separate. No rolling ticker or live price.
+  var trend=frame.price>frame.ema20&&frame.ema20>frame.ema50&&frame.emaSlopeATR>0?'bullish':
+    frame.price<frame.ema20&&frame.ema20<frame.ema50&&frame.emaSlopeATR<0?'bearish':'mixed';
+  var move=c[c.length-1]-c[c.length-4],moveATR=move/frame.atr,movePct=100*move/c[c.length-4];
+  var state=moveATR<=-2?'dumping':moveATR<=-1?'falling':frame.regime==='RANGE'?'stable':trend;
+  var reason=state==='stable'?'Measured prior-40-bar range; not an automatic trade signal':
+    state==='dumping'?'Three closed bars fell at least 2 ATR':state==='falling'?'Three closed bars fell at least 1 ATR':
+    state==='bullish'?'Closed price above rising EMA20 > EMA50':state==='bearish'?'Closed price below falling EMA20 < EMA50':'Mixed / transitioning; no confirmed range';
+  return Object.assign(out,{symbol:sym,status:'READY',state:state,trend:trend,reason:reason,source:snap.source,signature:snap.signature,
+    closedAt:snap.lastClosedTime,observedAt:fetchedAt,classifiedAt:now,expiresAt:Math.min(snap.lastClosedTime+_chartTFDuration(tf),fetchedAt+900000),
+    price:frame.price,ema20:frame.ema20,ema50:frame.ema50,emaSlopeATR:frame.emaSlopeATR,atr:frame.atr,
+    recentBars:3,recentHours:3*_chartTFDuration(tf)/3600000,recentPct:movePct,recentATR:moveATR,
+    range:frame.regime==='RANGE'?{low:frame.rangeLow,high:frame.rangeHigh,position:frame.rangePosition,lowTests:frame.lowTests,highTests:frame.highTests}:null});
+}
+function btcContextIsCurrent(e,tf,now){
+  now=now==null?Date.now():now;
+  return !!(e&&e.version===1&&e.method==='btc-closed-v1'&&e.status==='READY'&&e.timeframe===tf&&
+    ['BTCUSDT','BTCJPY'].includes(e.symbol)&&e.source&&e.source!=='Unknown'&&
+    ['bullish','bearish','stable','falling','dumping','mixed'].includes(e.state)&&
+    Number.isFinite(e.closedAt)&&Number.isFinite(e.observedAt)&&Number.isFinite(e.expiresAt)&&
+    now>=e.closedAt&&now>=e.observedAt&&now<e.expiresAt&&now-e.observedAt<900000&&now<e.closedAt+_chartTFDuration(tf));
+}
+function btcContextForSnapshot(e,s,now){
+  if(!s||!s.usable||!btcContextIsCurrent(e,s.timeframe,now))return unknownBtcContext(s&&s.timeframe,'BTC data missing, stale or wrong timeframe');
+  if(e.source!==s.source||e.closedAt!==s.lastClosedTime)return unknownBtcContext(s.timeframe,'BTC and coin venue or closed-candle time differ');
+  return JSON.parse(JSON.stringify(e));
+}
+function btcContextAllowsAlts(e,tf,now){
+  return btcContextIsCurrent(e,tf,now)&&(e.state==='bullish'||e.state==='stable');
+}
+function publishBtcContext(ref,tf,reason){
+  var e=ref&&ref.context;
+  btcActiveContext=btcContextIsCurrent(e,tf)?JSON.parse(JSON.stringify(e)):unknownBtcContext(tf,reason||(e&&e.status!=='READY'&&e.reason)||'Waiting for fresh closed BTC candles');
+  btcState=btcActiveContext.state;btcTrendScore=Number.isFinite(btcActiveContext.score)?btcActiveContext.score:null;
+  _btcActiveReference=btcActiveContext.status==='READY'?JSON.parse(JSON.stringify(ref)):null;
+  _btcCloses=_btcActiveReference?_btcActiveReference.closes.slice():null;
+  _btcRSBars=_btcActiveReference?_btcActiveReference.bars.map(function(x){return x.slice();}):null;
+  chartBtcEvidence=btcContextAllowsAlts(btcActiveContext,tf)&&Number.isFinite(btcTrendScore)?
+    {score:btcTrendScore,observedAt:btcActiveContext.observedAt,timeframe:tf,source:btcActiveContext.source,closedAt:btcActiveContext.closedAt}:null;
+  if(BTC_FILTER_ENABLED&&!(btcContextAllowsAlts(btcActiveContext,tf)&&Number.isFinite(btcTrendScore)&&btcTrendScore>=BTC_FILTER_THRESHOLD)){
+    (allData||[]).forEach(function(d){if(d.sym!=='BTCUSDT'&&d.sym!=='BTCJPY'){d.buySignal=false;d.strongBuy=false;d.highConviction=false;if(d.signal==='buy')d.signal='neutral';}});
+  }
+}
+function expireBtcContext(){
+  if(btcActiveContext&&btcActiveContext.status==='READY'&&!btcContextIsCurrent(btcActiveContext,TF)){
+    publishBtcContext(null,TF,'BTC evidence expired; refresh required');
+    return true;
+  }
+  return false;
 }
 var PRECISION_MODE = false; // true = tighter filter (~72% WR in backtest, fewer signals)
 var BTC_FILTER_ENABLED = true;  // toggle: true = only buy when BTC bullish
@@ -4599,10 +4678,15 @@ var Q='USDT', TF='4h', allData=[], sortS={col:'opportunity',dir:-1}, autoTmr=nul
 // LOAD ALL
 // ═══════════════════════════════════════════════════════════
 function loadAll() {
+  var scanTF=TF,scanQ=Q,scanID=++_btcScanSerial;
+  function scanCurrent(){return scanID===_btcScanSerial&&scanTF===TF&&scanQ===Q;}
+  publishBtcContext(null,scanTF,'Refreshing BTC closed-candle evidence');
+  updateBTCFilterUI();renderBTCMacroBanner();
   var rankSelect=document.getElementById('f-cap'),rankValue=rankSelect&&rankSelect.value;
   if(rankValue&&rankValue!=='all'&&(!marketCapUniverse.at||Date.now()-marketCapUniverse.at>86400000)){
     setBadge('loading','Loading ranks…');
     return fetchDynamicRanks().then(function(ok){
+      if(!scanCurrent())return;
       if(rankSelect.value!==rankValue)return;
       if(ok)return loadAll();setBadge('err','Ranks unavailable');render();
     });
@@ -4628,8 +4712,11 @@ function loadAll() {
 
   var capRange=document.getElementById('f-cap');
   var syms = SYM[Q].filter(function(sym){return marketCapMatches(sym,capRange&&capRange.value)&&(!capRange||capRange.value==='all'||Q!=='USDT'||marketCapUniverse.pairs.indexOf(sym)>=0);});
+  var benchmarkSym=scanQ==='JPY'?'BTCJPY':'BTCUSDT';
+  if(syms.indexOf(benchmarkSym)<0)syms.push(benchmarkSym); // reference required even when rank filters exclude BTC
 
   return bybitTickers(syms).then(function(tickers) {
+    if(!scanCurrent())return [];
     setLP(18, 'Got prices · loading indicators for ' + tickers.length + ' coins…');
 
     // Concurrency: direct Bybit handles many parallel requests fine. Only throttle
@@ -4646,19 +4733,21 @@ function loadAll() {
     for (var bti = 0; bti < qItems.length; bti++) {
       if (qItems[bti].t.symbol === 'BTCUSDT' || qItems[bti].t.symbol === 'BTCJPY') { btcScanItem = qItems[bti]; break; }
     }
-    var btcScanSnapshot = null;
+    var btcScanSnapshot = {closes:null,bars:null,context:unknownBtcContext(scanTF,'BTC ticker unavailable')};
     var btcScanPromise = Promise.resolve();
     if (btcScanItem) {
       qItems.splice(qItems.indexOf(btcScanItem), 1);
-      btcScanPromise = processSymbol(btcScanItem.t, null).then(function(res){
+      btcScanPromise = processSymbol(btcScanItem.t, null, scanTF).then(function(res){
         results[btcScanItem.i] = res;
-        btcScanSnapshot = btcReferenceSnapshot();
+        btcScanSnapshot = btcReferenceSnapshot(res);
+        if(scanCurrent()){publishBtcContext(btcScanSnapshot,scanTF);updateBTCFilterUI();renderBTCMacroBanner();}
         completed = 1;
         setLP(20, 'BTC reference loaded · scanning ' + (total-1) + ' coins…');
       }).catch(function(){
-        btcScanSnapshot = btcReferenceSnapshot();
+        btcScanSnapshot = {closes:null,bars:null,context:unknownBtcContext(scanTF,'BTC candle fetch failed')};
+        if(scanCurrent()){publishBtcContext(null,scanTF,'BTC candle fetch failed');updateBTCFilterUI();renderBTCMacroBanner();}
         completed = 1;
-        setLP(20, 'BTC reference unavailable · using last known BTC snapshot…');
+        setLP(20, 'BTC reference unavailable · alt macro gate remains unknown');
       });
     }
 
@@ -4666,7 +4755,7 @@ function loadAll() {
       function next() {
         if (!qItems.length) return;
         var item = qItems.shift();
-        processSymbol(item.t, btcScanSnapshot).then(function(res) {
+        processSymbol(item.t, btcScanSnapshot, scanTF).then(function(res) {
           results[item.i] = res;
         }).catch(function() {
           failedItems.push(item); // remember failures for one retry pass
@@ -4683,7 +4772,7 @@ function loadAll() {
               function retryNext() {
                 if (!retryQ.length) return;
                 var it = retryQ.shift();
-                processSymbol(it.t, btcScanSnapshot).then(function(res){ results[it.i] = res; })
+                processSymbol(it.t, btcScanSnapshot, scanTF).then(function(res){ results[it.i] = res; })
                   .catch(function(){})
                   .finally(function(){
                     retryDone++;
@@ -4701,13 +4790,15 @@ function loadAll() {
         });
       }
       btcScanPromise.then(function(){
+        if(!scanCurrent()){resolve([]);return;}
         var workers = Math.min(CONCURRENCY, qItems.length);
         for (var w = 0; w < workers; w++) next();
-        if (!qItems.length) resolve(results);
+        if (completed === total) resolve(results);
       });
     });
 
   }).then(function(results) {
+    if(!scanCurrent())return; // late results cannot overwrite another timeframe/refresh
     // MERGE, don't replace: keep the last-good data for any coin that failed to
     // fetch this round, so a single failed request never makes a coin (and its
     // signal) disappear. Only successfully-fetched coins get updated.
@@ -4723,7 +4814,7 @@ function loadAll() {
       var merged = [];
       (SYM[Q] || []).forEach(function(sym){
         if (bySym[sym]) merged.push(bySym[sym]);
-        else if (prevBySym[sym]) { prevBySym[sym]._stale = true; merged.push(prevBySym[sym]); }
+        else if (prevBySym[sym]) { var stale=prevBySym[sym];stale._stale=true;stale.buySignal=false;stale.strongBuy=false;stale.highConviction=false;if(stale.signal==='buy')stale.signal='neutral';merged.push(stale); }
       });
       // include any fresh coins not in SYM list (safety)
       fresh.forEach(function(d){ if (merged.indexOf(d) === -1) merged.push(d); });
@@ -4748,33 +4839,8 @@ function loadAll() {
     } else if (warnEl) {
       warnEl.remove();
     }
-    // Update BTC trend score for macro filter
-    var _btcData = allData.find(function(d){return d.sym==='BTCUSDT'||d.sym==='BTCJPY';});
-    if (_btcData) btcTrendScore = _btcData.score;
-    if(_btcData&&!_btcData._stale&&_btcData.analysisSnapshot&&_btcData.analysisSnapshot.usable&&isFinite(_btcData.score)){
-      chartBtcEvidence={score:_btcData.score,observedAt:Date.now(),timeframe:TF,source:_btcData.analysisSnapshot.source};
-    }
-
-    // ── BTC STATE CLASSIFIER — alts only buy when BTC is stable or bullish ──────
-    // Classify BTC into a clear state from its trend (EMA stack) + recent momentum
-    // (24h change) + score. This is what gates alt buy signals.
-    if (_btcData) {
-      var bc = _btcCloses || [];
-      var btcChg = _btcData.chg || 0;            // 24h % change
-      var btcE20 = _btcData.ema20, btcE50 = _btcData.ema50;
-      var btcAboveStack = btcE20 > btcE50 && _btcData.price > btcE20;
-      var btcRecent = bc.length >= 4 ? (bc[bc.length-1]-bc[bc.length-4])/bc[bc.length-4]*100 : btcChg;
-
-      if (btcChg <= -4 || btcRecent <= -5) {
-        btcState = 'dumping';   // sharp drop — alts will bleed, suppress alt buys
-      } else if (btcChg < -1.5 || (btcRecent < -2 && !btcAboveStack)) {
-        btcState = 'falling';   // weak/declining — risky for alts
-      } else if (btcAboveStack && btcChg > 1) {
-        btcState = 'bullish';   // trending up — best for alt rotation
-      } else {
-        btcState = 'stable';    // flat/consolidating — alts can work
-      }
-    }
+    // The exact BTC context was classified BEFORE these alt rows, not after.
+    expireBtcContext();
 
     // ── MARKET CONTEXT — the alt-weather read (fixes rule context-blindness) ──
     // Derived from data already in hand (no new API calls). Answers the exact
@@ -4981,6 +5047,8 @@ function loadAll() {
       renderMacro(); // re-render the macro panel with fresh F&G
     })();
   }).catch(function(){
+    if(!scanCurrent())return;
+    publishBtcContext(null,scanTF,'Scan failed; BTC state unavailable');updateBTCFilterUI();renderBTCMacroBanner();
     setBadge('err','⚠ Error');
     document.getElementById('tbody').innerHTML='<tr><td colspan="19"><div style="padding:2rem;text-align:center">'
       +'<div style="font-size:32px;margin-bottom:.75rem">📡</div>'
@@ -8794,13 +8862,12 @@ function setModalTF(tf){
   if(document.getElementById('chart-canvas') && chartState && chartState.sym) loadChart(tf);
   // Re-fetch with new TF
   if(!curSym) return;
-  var oldTF=TF; TF=tf;
   var syms=[curSym];
   document.getElementById('msec').innerHTML='<div class="spinner-wrap"><div class="sp"></div>Loading '+tf+' data…</div>';
   bybitTickers(syms).catch(function(){return bnFetch('/api/v3/ticker/24hr?symbols='+encodeURIComponent(JSON.stringify(syms)));})
-  .then(function(tickers){return tickers&&tickers.length?processSymbol(tickers[0]):null;})
+  .then(function(tickers){return tickers&&tickers.length?processSymbol(tickers[0],null,tf):null;})
   .then(function(d){
-    TF=oldTF; // restore global TF
+    if(modalTF!==tf)return;
     if(!d) return;
     window._d=d;
     document.getElementById('mpair').textContent=d.pair+' · '+tf+' · Score: '+d.score+'/97';
@@ -8818,7 +8885,7 @@ function setModalTF(tf){
     var active='entry';
     ['entry','chart','conf','pos','news','ai'].forEach(function(t){if(document.getElementById('mt-'+t)&&document.getElementById('mt-'+t).classList.contains('active'))active=t;});
     switchMTab(active);
-  }).catch(function(){TF=oldTF;});
+  }).catch(function(){});
 }
 
 function switchMTab(t){
@@ -9756,6 +9823,63 @@ function saveBuySweepLog(rows){
   try{localStorage.setItem('buy_sweep_log_v1',JSON.stringify(rows));buySweepLogError='';return true;}
   catch(e){buySweepLogError='Buy Sweeps could not be saved. Browser storage may be full or disabled.';return false;}
 }
+function buildSweepContextFrame(rows,sym,tf,asOf){
+  // range-v1 is an explicit descriptive heuristic, not a calibrated trading edge.
+  // Boundaries use 40 bars BEFORE the signal; only closes available at asOf count.
+  var out={version:1,method:'range-v1',symbol:sym,timeframe:tf,source:rows&&rows.dataSource||'Unknown',closedAt:asOf,
+    status:'UNKNOWN',regime:'UNKNOWN',rangePosition:'UNKNOWN',reason:'Insufficient verified closed history'};
+  var dt=_chartTFDuration(tf);
+  if(!['15m','1h','4h','1d','1w'].includes(tf)||!Array.isArray(rows)||out.source==='Unknown'||!Number.isFinite(asOf)||asOf>Date.now())return out;
+  var bars=rows.filter(function(k){return k&&Number(k[0])+dt<=asOf;}).slice(-300);
+  if(bars.length<55||Number(bars[bars.length-1][0])+dt!==asOf)return out;
+  if(bars.some(function(k,i){var t=Number(k[0]),o=Number(k[1]),h=Number(k[2]),l=Number(k[3]),c=Number(k[4]);
+    return ![t,o,h,l,c].every(Number.isFinite)||t<0||l<=0||h<Math.max(o,c)||l>Math.min(o,c)||(i&&t-Number(bars[i-1][0])!==dt);
+  })){out.reason='Invalid, duplicate or missing closed candles';return out;}
+  var h=bars.map(function(k){return Number(k[2]);}),l=bars.map(function(k){return Number(k[3]);}),c=bars.map(function(k){return Number(k[4]);});
+  var n=c.length,price=c[n-1],atr=calcATR(h,l,c,14),ema20=calcEMA(c,20),ema50=calcEMA(c,50),oldEMA=calcEMA(c.slice(0,-5),20);
+  var prior=bars.slice(-41,-1),low=Math.min.apply(null,prior.map(function(k){return Number(k[3]);})),high=Math.max.apply(null,prior.map(function(k){return Number(k[2]);})),width=high-low;
+  var travel=0;for(var i=n-20;i<n;i++)travel+=Math.abs(c[i]-c[i-1]);
+  var efficiency=travel>0?Math.abs(price-c[n-21])/travel:0,slope=atr>0?(ema20-oldEMA)/atr:null;
+  var tolerance=Math.min(width*.2,Math.max(atr*.35,price*.001)),lowTests=0,highTests=0,lastLow=-4,lastHigh=-4;
+  prior.forEach(function(k,i){
+    // A boundary rejection may close on this or up to three later PRIOR bars.
+    // Distinct tests require an intervening close away, not a plateau of touches.
+    var after=prior.slice(i,i+4);
+    if(i-lastLow>=3&&Number(k[3])<=low+tolerance&&after.some(function(b){return Number(b[4])>low+tolerance;})&&
+      (lastLow<0||prior.slice(lastLow+1,i).some(function(b){return Number(b[4])>low+tolerance;}))){lowTests++;lastLow=i;}
+    if(i-lastHigh>=3&&Number(k[2])>=high-tolerance&&after.some(function(b){return Number(b[4])<high-tolerance;})&&
+      (lastHigh<0||prior.slice(lastHigh+1,i).some(function(b){return Number(b[4])<high-tolerance;}))){highTests++;lastHigh=i;}
+  });
+  var range=atr>0&&width>=2*atr&&width<=12*atr&&lowTests>=2&&highTests>=2&&efficiency<=.35&&Math.abs(slope)<=.5&&price>=low&&price<=high;
+  var regime=range?'RANGE':atr>0&&price>ema20&&ema20>ema50&&slope>.5&&efficiency>=.35?'UPTREND':atr>0&&price<ema20&&ema20<ema50&&slope<-.5&&efficiency>=.35?'DOWNTREND':'UNKNOWN';
+  var position=range?(price-low)/width:null,sr=calcSR(h,l,c),res=(sr.resistances||[])[0];
+  return Object.assign(out,{status:'READY',regime:regime,reason:regime==='UNKNOWN'?'Mixed / transitioning; no established range or trend by these rules':'Closed-candle rules met; descriptive only',
+    historyBars:n,price:price,atr:atr,ema20:ema20,ema50:ema50,emaSlopeATR:slope,efficiency20:efficiency,
+    windowBars:40,windowStart:Number(prior[0][0]),windowEnd:Number(prior[prior.length-1][0])+dt,
+    windowLow:low,windowHigh:high,lowTests:lowTests,highTests:highTests,touchTolerance:tolerance,
+    rangeLow:range?low:null,rangeHigh:range?high:null,rangeFraction:position,
+    rangePosition:position==null?'UNKNOWN':position<=.25?'LOW':position>=.75?'HIGH':'MIDDLE',
+    resistance:res?{low:res.low,high:res.high,price:res.price,state:res.state,tests:res.touches,confirmedAt:Number(bars[res.confirmedIndex][0])+dt}:null});
+}
+function buildBuySweepConditions(d,btc){
+  var s=d.analysisSnapshot,b=d.sweepCandle;
+  var unknown=function(reason){return {status:'UNKNOWN',regime:'UNKNOWN',rangePosition:'UNKNOWN',reason:reason};};
+  function frame(row,symbol){
+    var f=row&&row.sweepContextFrame,a=row&&row.analysisSnapshot;
+    if(!row||row._stale||!a||!a.usable||!f||f.version!==1||f.status!=='READY')return unknown('No verified context saved at the signal');
+    if(row.sym!==symbol||a.symbol!==symbol||f.symbol!==symbol||a.timeframe!==s.timeframe||f.timeframe!==s.timeframe||a.lastClosedTime!==b.closeTime||f.closedAt!==b.closeTime||a.source!==s.source||f.source!==s.source)return unknown('Context timeframe, close or venue mismatch');
+    return JSON.parse(JSON.stringify(f));
+  }
+  var coin=frame(d,d.sym),benchmark=frame(btc,'BTCUSDT'),risk=b.close-b.low*.999,tp=b.close+2*risk;
+  var edge=coin.status==='READY'&&coin.resistance?coin.resistance.low:null;
+  var ceiling=coin.regime==='RANGE'?coin.rangeHigh:null,obstacles=[edge,ceiling].filter(function(v){return Number.isFinite(v)&&v>0;});
+  var nearest=obstacles.length?Math.min.apply(null,obstacles):null;
+  return {version:1,method:'range-v1',indicatorVersion:'2026.10.01',timeframe:s.timeframe,source:s.source,asOf:b.closeTime,
+    btc:benchmark,coin:coin,room:{resistanceEdge:edge,rangeCeiling:ceiling,nearestObstacle:nearest,
+      resistanceR:edge!=null&&risk>0?Math.max(0,(edge-b.close)/risk):null,roomR:nearest!=null&&risk>0?Math.max(0,(nearest-b.close)/risk):null,
+      targetStatus:nearest==null||!(risk>0)?'UNKNOWN':nearest<=tp?'BLOCKED':'CLEAR',
+      note:'Mapped obstacles at signal close only. CLEAR does not predict that 2R will be reached; unknown is not unlimited room.'}};
+}
 function initBuySweepStudy(r,now){
   if(r.study)return false;
   var entry=Number(r.referenceClose),sl=Number(r.low)*.999;
@@ -9764,6 +9888,9 @@ function initBuySweepStudy(r,now){
     entryAt:r.closedAt,createdAt:now,retrospective:now>r.closedAt,
     expiresAt:r.closedAt+48*_chartTFDuration(r.tf),nextAt:r.closedAt,
     lastPrice:entry,lastPriceAt:r.closedAt,checkedAt:null,dataNote:'Waiting for later completed candles'};
+  // No invented past path: old/open studies without this field remain untracked.
+  if(r.conditions&&r.conditions.version===1)r.study.excursions={version:1,fromAt:r.closedAt,throughAt:r.closedAt,
+    favourableR:0,possibleFavourableR:0,adverseR:0,possibleAdverseR:0,halfRAt:null,oneRAt:null,terminalOrderUnknown:false};
   return true;
 }
 // Pure evaluator. Only contiguous, completed candles AFTER the sweep count.
@@ -9781,6 +9908,16 @@ function evaluateBuySweepStudy(r,bars,now){
     s.resultR=price==null?null:(price-s.entry)/(s.entry-s.sl);
     s.exitBarAt=Number(k[0]);s.exitBarEnd=Number(k[0])+dt;
   }
+  function excursion(knownHigh,possibleHigh,knownLow,possibleLow,t){
+    var e=s.excursions,risk=s.entry-s.sl;if(!e||e.version!==1||!(risk>0))return;
+    e.favourableR=Math.max(e.favourableR,(knownHigh-s.entry)/risk,0);
+    e.possibleFavourableR=Math.max(e.possibleFavourableR,(possibleHigh-s.entry)/risk,e.favourableR);
+    e.adverseR=Math.max(e.adverseR,(s.entry-knownLow)/risk,0);
+    e.possibleAdverseR=Math.max(e.possibleAdverseR,(s.entry-possibleLow)/risk,e.adverseR);
+    if(e.favourableR>=.5-1e-9&&!e.halfRAt)e.halfRAt=t+dt;
+    if(e.favourableR>=1-1e-9&&!e.oneRAt)e.oneRAt=t+dt;
+    e.throughAt=t+dt;e.terminalOrderUnknown=e.possibleFavourableR>e.favourableR+1e-9||e.possibleAdverseR>e.adverseR+1e-9;
+  }
   for(var i=0;i<closed.length;i++){
     var k=closed[i],t=Number(k[0]);if(t<cursor)continue;if(cursor>=s.expiresAt)break;
     if(t!==cursor){s.dataNote='Missing candle history from '+new Date(cursor).toISOString().slice(0,16)+' UTC; outcome not known.';break;}
@@ -9790,12 +9927,14 @@ function evaluateBuySweepStudy(r,bars,now){
     }
     s.lastPrice=c;s.lastPriceAt=t+dt;s.nextAt=cursor=t+dt;
     // An opening gap has known precedence over the intrabar range.
-    if(o<=s.sl){finish('sl',o,k);s.gap=true;break;}
-    if(o>=s.tp){finish('tp',s.tp,k);s.gap=true;break;}
+    if(o<=s.sl){excursion(o,o,o,o,t);finish('sl',o,k);s.gap=true;break;}
+    if(o>=s.tp){excursion(s.tp,s.tp,s.tp,s.tp,t);finish('tp',s.tp,k);s.gap=true;break;}
     var hitTP=h>=s.tp,hitSL=l<=s.sl;
-    if(hitTP&&hitSL){finish('unclear',null,k);break;}
-    if(hitSL){finish('sl',s.sl,k);break;}
-    if(hitTP){finish('tp',s.tp,k);break;}
+    // Stop/target-bar extremes may occur AFTER exit. Store bounds, never guess order.
+    if(hitTP&&hitSL){excursion(o,s.tp,o,s.sl,t);finish('unclear',null,k);break;}
+    if(hitSL){excursion(o,h,s.sl,s.sl,t);finish('sl',s.sl,k);break;}
+    if(hitTP){excursion(s.tp,s.tp,o,l,t);finish('tp',s.tp,k);break;}
+    excursion(h,h,l,l,t);
     if(cursor>=s.expiresAt){finish('expired',c,k);break;}
   }
   if(s.status==='open'&&!s.dataNote){
@@ -9806,7 +9945,12 @@ function evaluateBuySweepStudy(r,bars,now){
 var buySweepCheckBusy=false,buySweepLastCheck=0;
 function refreshBuySweepPanel(){
   var panel=document.getElementById('buy-sweep-log-panel');
-  if(panel)panel.outerHTML=buildBuySweepLogPanel();
+  if(panel){
+    var opened=Array.from(panel.querySelectorAll('details[data-sweep-section][open]')).map(function(el){return el.getAttribute('data-sweep-section');});
+    panel.outerHTML=buildBuySweepLogPanel();
+    var next=document.getElementById('buy-sweep-log-panel');
+    if(next)next.querySelectorAll('details[data-sweep-section]').forEach(function(el){if(opened.indexOf(el.getAttribute('data-sweep-section'))>=0)el.open=true;});
+  }
 }
 async function checkBuySweepOutcomes(force){
   if(buySweepCheckBusy||(!force&&Date.now()-buySweepLastCheck<60000))return;
@@ -9838,6 +9982,7 @@ async function checkBuySweepOutcomes(force){
 function autoLogBuySweeps(data){
   var rows=loadBuySweepLog();if(!rows)return 0;
   var seen=new Set(rows.map(function(r){return r.id;})),added=0,now=Date.now();
+  var btc=(data||[]).find(function(d){return d&&d.sym==='BTCUSDT';});
   (data||[]).forEach(function(d){
     var s=d&&d.analysisSnapshot,b=d&&d.sweepCandle;
     if(!d||d._stale||d.liq!=='buy_sweep'||!s||!s.usable||s.symbol!==d.sym||!b)return;
@@ -9849,12 +9994,15 @@ function autoLogBuySweeps(data){
     var id=d.sym+'|'+s.timeframe+'|'+b.closeTime;
     if(seen.has(id))return;
     function metric(v){return typeof v==='number'&&isFinite(v)?v:null;}
+    var btcEvidence=btcContextForSnapshot(d.btcContext,s,now);
     var record={id:id,kind:'buy_sweep',sym:d.sym,pair:d.pair||d.sym,tf:s.timeframe,
       closedAt:b.closeTime,observedAt:now,referenceClose:b.close,sweptLevel:b.level,
       detectorVersion:b.settingsVersion||1,levelKind:b.levelKind||null,levelAvailableAt:b.levelAvailableAt||null,
       open:b.open,high:b.high,low:b.low,source:s.source,signature:s.signature,
-      rsi:metric(d.rsi),volR:metric(d.volR),btcState:typeof btcState==='string'?btcState:'unknown',
+      rsi:metric(d.rsi),volR:metric(d.volR),btcState:btcEvidence.state,
+      btcStateMethod:'btc-closed-v1',btcStateClosedAt:btcEvidence.closedAt,btcStateSource:btcEvidence.source,btcStateTimeframe:btcEvidence.timeframe,
       status:'observed',note:'Closed-candle sweep and reclaim; simulated study, not an executed trade.'};
+    if(['4h','1d'].includes(s.timeframe))record.conditions=buildBuySweepConditions(d,btc);
     initBuySweepStudy(record,now);rows.push(record);
     seen.add(id);added++;
   });
@@ -9869,30 +10017,122 @@ function exportBuySweepLog(){
   var a=document.createElement('a');a.href=url;a.download='buy_sweeps_'+new Date().toISOString().slice(0,10)+'.json';
   a.click();setTimeout(function(){URL.revokeObjectURL(url);},1000);
 }
+var buySweepLogView={tf:'4h',detector:'2',cohort:'all',group:'btc'};
+function setBuySweepLogView(key,value){
+  var allowed={tf:['4h','1d','1w','1h','all'],detector:['2','1','all'],cohort:['all','new','legacy'],group:['btc','btcPosition','coin','coinPosition','room','volume','level']};
+  if(!Object.prototype.hasOwnProperty.call(allowed,key)||allowed[key].indexOf(value)<0)return;
+  buySweepLogView[key]=value;refreshBuySweepPanel();
+}
+function buySweepFilteredRows(rows){
+  var v=buySweepLogView;
+  return rows.filter(function(r){return (v.tf==='all'||r.tf===v.tf)&&(v.detector==='all'||String(r.detectorVersion||1)===v.detector)&&
+    (v.cohort==='all'||(v.cohort==='new'?!!(r.conditions&&r.conditions.version===1):!(r.conditions&&r.conditions.version===1)));});
+}
+function buySweepStats(rows){
+  var out={n:rows.length,tp:0,sl:0,open:0,expired:0,unclear:0,missing:0,dataWait:0,rCount:0,sumR:0,closes:0},closes=new Set();
+  rows.forEach(function(r){var s=r.study;if(Number.isFinite(r.closedAt))closes.add(r.closedAt);
+    if(s&&['tp','sl','open','expired','unclear'].includes(s.status))out[s.status]++;else out.missing++;
+    if(s&&s.status==='open'&&/missing|unavailable|invalid|alternate/i.test(s.dataNote||''))out.dataWait++;
+    if(s&&['tp','sl','expired'].includes(s.status)&&Number.isFinite(s.resultR)){out.sumR+=s.resultR;out.rCount++;}
+  });
+  out.closes=closes.size;out.resolved=out.tp+out.sl;out.rate=out.resolved?100*out.tp/out.resolved:null;out.meanR=out.rCount?out.sumR/out.rCount:null;
+  return out;
+}
+function buySweepConditionKey(r,key){
+  if(key==='volume')return !Number.isFinite(r.volR)?'Unknown':r.volR>=1.5?'Volume ≥1.5×':'Volume <1.5×';
+  if(key==='level')return r.levelKind||'Unknown / legacy';
+  var c=r.conditions;if(!c||c.version!==1)return 'Unknown / not recorded';
+  if(key==='room')return c.room&&c.room.targetStatus==='BLOCKED'?'Obstacle at/before 2R':c.room&&c.room.targetStatus==='CLEAR'?'Mapped obstacle beyond 2R':'Unknown / no obstacle mapped';
+  var f=key==='btc'||key==='btcPosition'?c.btc:c.coin;
+  if(!f||f.status!=='READY')return 'Unknown / unavailable';
+  if(key==='btcPosition'||key==='coinPosition')return f.regime!=='RANGE'?'No confirmed range':f.rangePosition==='LOW'?'Range low (0–25%)':f.rangePosition==='HIGH'?'Range high (75–100%)':f.rangePosition==='MIDDLE'?'Range middle (25–75%)':'Unknown';
+  return {RANGE:'Range · rules met',UPTREND:'Uptrend · rules met',DOWNTREND:'Downtrend · rules met',UNKNOWN:'Unknown / mixed'}[f.regime]||'Unknown';
+}
+function buySweepSLPath(r){
+  var s=r.study,e=s&&s.excursions;if(!s||s.status!=='sl')return null;
+  if(!e||e.version!==1||e.fromAt!==s.entryAt||!Number.isFinite(e.favourableR)||!Number.isFinite(e.possibleFavourableR)||e.favourableR<0||e.possibleFavourableR<e.favourableR)return 'Unknown / old path not recorded';
+  if(e.favourableR>=1-1e-9)return 'Reached +1R before SL';
+  if(e.possibleFavourableR>=1-1e-9||e.favourableR<.5-1e-9&&e.possibleFavourableR>=.5-1e-9)return 'Stop-candle order uncertain';
+  if(e.favourableR>=.5-1e-9)return 'Reached +0.5R, not +1R, before SL';
+  return 'Stayed below +0.5R before SL';
+}
+function buySweepConditionsHTML(r){
+  var esc=confluenceEscape,c=r.conditions,s=r.study,e=s&&s.excursions;
+  function num(v){return Number.isFinite(v)?v.toFixed(2):'unknown';}
+  function price(v){return Number.isFinite(v)?fmtPrice(v):'unknown';}
+  function date(t){return Number.isFinite(t)?new Date(t).toISOString().slice(0,16).replace('T',' ')+' UTC':'unknown';}
+  function frame(name,f){
+    if(!f||f.status!=='READY')return '<p><b>'+name+'</b>: unknown · '+esc(f&&f.reason||'not recorded')+'</p>';
+    return '<p><b>'+name+'</b>: '+esc(f.regime)+' · '+esc(f.rangePosition)+'<br>'+esc(f.timeframe)+' · '+esc(f.source)+' · closed '+date(f.closedAt)+
+      '<br>'+esc(f.reason)+'<br>40 prior-bar bounds '+price(f.windowLow)+'–'+price(f.windowHigh)+' · tests low/high '+esc(f.lowTests)+'/'+esc(f.highTests)+
+      '<br>Efficiency '+num(f.efficiency20)+' · EMA20 5-bar slope '+num(f.emaSlopeATR)+' ATR'+
+      (f.regime==='RANGE'?'<br>Confirmed-range position '+num(f.rangeFraction*100)+'%':'<br>Window extremes alone are not a confirmed range')+'</p>';
+  }
+  var h='<details style="white-space:normal;min-width:230px;max-width:440px;line-height:1.6"><summary>Range / target room / price path</summary>';
+  if(c&&c.version===1){h+='<p>Context v1 · range-v1 · frozen at '+date(c.asOf)+'; BTC uses the signal timeframe, not a separate higher-timeframe confirmation.</p>'+frame('BTC',c.btc)+frame('Coin',c.coin);
+    var room=c.room||{};h+='<p>Resistance edge '+price(room.resistanceEdge)+' · range ceiling '+price(room.rangeCeiling)+'<br>Nearest mapped obstacle '+num(room.roomR)+'R · '+esc(room.targetStatus)+'<br>'+esc(room.note)+'</p>';
+  }else h+='<p>Historical context unknown: these fields were not recorded. Current BTC conditions are never backfilled into old entries.</p>';
+  if(e&&e.version===1){h+='<p><b>Before-exit path (gross R)</b><br>Max favourable: '+num(e.favourableR)+(e.possibleFavourableR>e.favourableR+1e-9?'–'+num(e.possibleFavourableR):'')+'R<br>Max adverse: '+num(e.adverseR)+(e.possibleAdverseR>e.adverseR+1e-9?'–'+num(e.possibleAdverseR):'')+'R'+
+    '<br>+0.5R confirmed by candle close: '+(e.halfRAt?date(e.halfRAt):'not confirmed')+'<br>+1R confirmed by candle close: '+(e.oneRAt?date(e.oneRAt):'not confirmed')+
+    '<br>Through '+date(e.throughAt)+(e.terminalOrderUnknown?'<br>Bounds shown: terminal-candle high/low order is unknown. No post-exit extreme is assumed to precede exit.':'')+'</p>';
+  }else h+='<p>Price path unknown: tracking was not active from entry. Old outcomes are preserved.</p>';
+  if(s&&s.status==='sl')h+='<p>'+esc(buySweepSLPath(r))+'</p>';
+  return h+'</details>';
+}
+function buildBuySweepResearchPanel(allRows,rows){
+  var esc=confluenceEscape,v=buySweepLogView,stats=buySweepStats(rows);
+  function select(key,label,options){return '<label>'+label+' <select aria-label="'+label+'" onchange="setBuySweepLogView(\''+key+'\',this.value)">'+options.map(function(o){return '<option value="'+o[0]+'"'+(v[key]===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')+'</select></label>';}
+  function rate(s){return s.rate==null?'—':s.rate.toFixed(1)+'% ('+s.tp+'/'+s.resolved+')';}
+  function gross(s){return s.meanR==null?'—':(s.meanR>=0?'+':'')+s.meanR.toFixed(3)+'R';}
+  function tr(label,s){return '<tr>'+[esc(label),s.n+' / '+s.closes,s.tp+' / '+s.sl,s.open+' ('+s.dataWait+' data wait)',rate(s),gross(s)+' (n='+s.rCount+')'].map(function(x){return '<td style="padding:7px;border-top:1px solid var(--bd);white-space:nowrap">'+x+'</td>';}).join('')+'</tr>';}
+  function table(body){return '<div style="overflow-x:auto"><table style="width:100%;font-size:11px;text-align:left;border-collapse:collapse"><thead><tr>'+['Group','Signals / closes','TP / SL','Pending','TP rate','Avg gross R'].map(function(h){return '<th style="padding:7px;white-space:nowrap">'+h+'</th>';}).join('')+'</tr></thead><tbody>'+body+'</tbody></table></div>';}
+  var h='<div style="display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;font-size:12px">'+
+    select('tf','Timeframe',[['4h','4H'],['1d','1D'],['1w','1W records'],['1h','Old 1H records'],['all','All (mixed)']])+
+    select('detector','Detector',[['2','v2'],['1','Legacy v1'],['all','All versions (mixed)']])+
+    select('cohort','Evidence cohort',[['all','All selected records'],['new','Context v1 recorded'],['legacy','Old context unknown']])+'</div>';
+  h+='<strong>4H vs 1D · detector '+esc(v.detector==='all'?'all (mixed)':v.detector)+' · '+esc(v.cohort==='new'?'context v1':v.cohort==='legacy'?'old context unknown':'all evidence cohorts')+'</strong>';
+  h+=table(['4h','1d'].map(function(tf){return tr(tf.toUpperCase(),buySweepStats(allRows.filter(function(r){return r.tf===tf&&(v.detector==='all'||String(r.detectorVersion||1)===v.detector)&&(v.cohort==='all'||(v.cohort==='new'?!!(r.conditions&&r.conditions.version===1):!(r.conditions&&r.conditions.version===1)));})));}).join(''));
+  h+='<p style="font-size:12px"><b>Selected '+esc(v.tf.toUpperCase())+': '+stats.n+' records · '+stats.tp+' TP · '+stats.sl+' SL · '+stats.open+' pending ('+stats.dataWait+' data wait) · '+stats.expired+' timed out · '+stats.unclear+' unclear · '+stats.missing+' uninitialized</b><br>TP rate '+rate(stats)+' · average completed gross '+gross(stats)+' (n='+stats.rCount+'). '+(stats.resolved<30?'Small resolved sample. ':'')+'These outcomes are not independent trials; several coins can share one signal close.</p>';
+  h+='<details data-sweep-section="conditions"><summary>Which conditions accompanied the results?</summary><p style="font-size:12px">Exploratory associations, not entry filters or proof of cause. Unknown evidence stays separate; no condition changes the baseline strategy.</p>'+select('group','Group by',[['btc','BTC regime (signal TF)'],['btcPosition','BTC range position'],['coin','Coin regime'],['coinPosition','Coin range position'],['room','Room to 2R target'],['volume','Recorded volume ratio'],['level','Swept level type']]);
+  if(['4h','1d'].includes(v.tf)&&v.detector!=='all'){
+    var groups=Object.create(null);rows.forEach(function(r){var k=buySweepConditionKey(r,v.group);if(!Object.prototype.hasOwnProperty.call(groups,k))groups[k]=[];groups[k].push(r);});
+    h+=table(Object.keys(groups).sort().map(function(k){return tr(k,buySweepStats(groups[k]));}).join('')||'<tr><td colspan="6">No records in this selection.</td></tr>');
+  }else h+='<p>Select 4H or 1D and one detector version for condition comparisons. Mixed timeframes/versions cannot establish an effect.</p>';
+  h+='</details><details data-sweep-section="paths" style="margin-top:8px"><summary>Did stopped studies rebound first?</summary><p>Descriptive exit-path review, not an entry-time filter. Stops, entries and 2R targets remain unchanged.</p>';
+  var paths=Object.create(null);rows.forEach(function(r){var k=buySweepSLPath(r);if(k)paths[k]=(paths[k]||0)+1;});
+  h+=Object.keys(paths).length?'<ul>'+Object.keys(paths).map(function(k){return '<li>'+esc(k)+': <b>'+paths[k]+'</b></li>';}).join('')+'</ul>':'<p>No stopped studies in this selection.</p>';
+  h+='</details><details data-sweep-section="rules" style="margin-top:8px"><summary>Measurement rules · sweep research 2026.10.01-r1</summary><p style="font-size:11px;line-height:1.6">'+
+    'New 4H/1D entries reuse same-exchange, same-timeframe BTC and coin candles closed at the signal. Missing/stale/mismatched data stays unknown; the old “stable” label is not used as a range. '+
+    'Range-v1 uses the previous 40 bars, at least two rejection tests on each boundary separated by 3 bars and an intervening close away. A rejection needs a close away on the touch bar or within the next 3 prior-window bars; the signal bar cannot confirm a boundary test. '+
+    'Width must be 2–12 ATR, 20-bar efficiency ≤0.35 and absolute five-bar EMA20 change ≤0.5 ATR. Test tolerance is min(20% of width, max(0.35 ATR, 0.1% of price)). Latest close must remain inside. '+
+    'Up/downtrend requires price/EMA20/EMA50 alignment, EMA20 change above/below 0.5 ATR and efficiency ≥0.35; otherwise unknown. Range low/high means outer 25%. These thresholds are fixed heuristics, not validated optimal settings.'+
+    '<br>Target room uses the nearest active resistance-zone edge or confirmed range ceiling. Unknown does not mean clear. All studies still use the original fixed 2R rule.'+
+    '<br>Path tracking begins only on newly logged entries. Completed bars before exit are measured; exit-bar order ambiguity is retained as lower/upper bounds. +0.5R/+1R timestamps identify the confirmation candle close, not an exact intrabar time. Old records never gain invented context or path.'+
+    '<br>TP rate excludes open, unclear and timeouts. Average gross R includes finite TP/SL/timeout results, without costs; it is not a portfolio return. 48 bars = 8 days on 4H, 48 days on 1D. Compare equally mature cohorts; pending results can change conclusions. Context v1 does not identify every past scanner-code change. Export backs up all records, not just this selection.</p></details>';
+  return h;
+}
 function buildBuySweepLogPanel(){
-  var rows=loadBuySweepLog()||[];
+  var allRows=loadBuySweepLog()||[],rows=buySweepFilteredRows(allRows);
   function esc(v){return String(v==null?'—':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
   function date(v){return isFinite(v)&&v>0?new Date(v).toISOString().slice(0,16).replace('T',' ')+' UTC':'—';}
   function price(v){return typeof v==='number'&&isFinite(v)?esc(fmtPrice(v)):'—';}
   function pct(v){return typeof v==='number'&&isFinite(v)?(v>=0?'+':'')+v.toFixed(2)+'%':'—';}
-  var counts={tp:0,sl:0,open:0,expired:0,unclear:0};
-  rows.forEach(function(r){if(r.study&&counts[r.study.status]!=null)counts[r.study.status]++;});
-  var resolved=counts.tp+counts.sl;
   return '<section id="buy-sweep-log-panel" style="background:var(--card2);border:1px solid var(--bd);border-radius:var(--rad);padding:1rem;margin-bottom:1rem">'+
-    '<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px"><strong>🟢 Buy Sweeps · Paper entries ('+rows.length+')</strong><div><button class="btn" onclick="checkBuySweepOutcomes(true)" '+(buySweepCheckBusy?'disabled':'')+'>'+(buySweepCheckBusy?'Checking…':'↻ Check outcomes')+'</button> <button class="btn" onclick="exportBuySweepLog()">⬇ Export sweeps</button></div></div>'+
+    '<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px"><strong>🟢 Buy Sweeps · Research ('+allRows.length+' saved)</strong><div><button class="btn" onclick="checkBuySweepOutcomes(true)" '+(buySweepCheckBusy?'disabled':'')+'>'+(buySweepCheckBusy?'Checking…':'↻ Check outcomes')+'</button> <button class="btn" onclick="exportBuySweepLog()">⬇ Export sweeps</button></div></div>'+
     '<p style="font-size:12px;color:var(--t2);line-height:1.6"><strong>Entry = sweep close · SL = 0.1% below sweep low · TP = 2× risk (2R).</strong> Fixed study rules, not a trading recommendation. Levels never move after logging. Check up to 48 later candles on the signal timeframe; then close the study at that candle’s close.</p>'+
-    '<div style="font-size:12px;padding:8px;background:var(--card);border-radius:6px"><strong>'+counts.tp+' TP hit · '+counts.sl+' SL hit · '+counts.open+' Open / data wait · '+counts.expired+' Timed out · '+counts.unclear+' Unclear</strong><br>TP hit rate: '+(resolved?(counts.tp/resolved*100).toFixed(1)+'% ('+counts.tp+'/'+resolved+' TP-or-SL outcomes)':'—')+' · excludes open, unclear and timed-out studies. Small samples do not establish an edge.</div>'+
+    buildBuySweepResearchPanel(allRows,rows)+
     '<p style="font-size:11px;color:var(--t3);line-height:1.5">Hypothetical entry at the confirmed close—not an actual fill. Old observations are reconstructed from subsequent candles and are historical studies. No fees or normal slippage deducted; stop gaps use the opening price. If both levels are touched in one candle, the result is Unclear. Uses completed candles from the original exchange only; missing history is flagged, not guessed. Separate from your trade win rate and bot.</p>'+
     '<p style="font-size:11px;color:var(--t3)">Auto refresh finds new sweeps. Outcomes recheck every minute while this page is visible, on scans, and when opening this journal. Reopening checks saved entries; history outside the last 1,000 candles may be unavailable. Saved in this browser only; latest 1,500 retained. Details show the detector version; legacy records are preserved, and combined statistics mix different detector versions.</p>'+
     (buySweepLogError?'<p role="alert" style="color:var(--r)">'+esc(buySweepLogError)+'</p>':'')+
-    (!rows.length?'<p style="color:var(--t3)">No Buy Sweeps recorded yet. The next confirmed sweep found by the screener will appear here.</p>':
+    (!rows.length?'<p style="color:var(--t3)">No sweeps in this selection. Other timeframes and historical records remain available in the filters.</p>':
     '<div style="overflow:auto;max-height:440px"><table style="width:100%;font-size:11px;text-align:left;border-collapse:collapse"><thead><tr>'+['Coin / TF','Paper entry','Stop loss','Take profit','What happened?'].map(function(h){return '<th style="padding:8px;white-space:nowrap">'+h+'</th>';}).join('')+'</tr></thead><tbody>'+
     rows.slice(0,100).map(function(r){var s=r.study;
       var label=s?({tp:'✅ TP hit',sl:'❌ SL hit',open:'⏳ Open',expired:'⌛ Timed out',unclear:'⚠ Unclear — TP & SL same candle'}[s.status]||'Unknown'):'Waiting to initialize';
       var pending=s&&s.status==='open'&&/missing|unavailable|invalid|alternate/i.test(s.dataNote||'');
       if(pending)label='⚠ Data wait — outcome unknown';
       var change=s?(s.status==='open'?(s.lastPrice/s.entry-1)*100:s.resultPct):null;
-      var detail='<details><summary>Details / evidence</summary><div style="white-space:normal;min-width:190px;line-height:1.6">Sweep closed '+esc(date(r.closedAt))+'<br>First logged '+esc(date(r.observedAt))+'<br>Swept level '+price(r.sweptLevel)+' · Low '+price(r.low)+'<br>Detector v'+esc(r.detectorVersion||1)+(r.levelKind?' · '+esc(r.levelKind)+' · available '+esc(date(r.levelAvailableAt)):' · legacy observation')+'<br>RSI '+esc(r.rsi)+' · Volume '+esc(r.volR)+'×<br>BTC context '+esc(r.btcState)+' · '+esc(r.source)+(s?'<br>Checked '+esc(date(s.checkedAt))+'<br>'+esc(s.dataNote)+(s.exitBarAt?'<br>Outcome candle '+esc(date(s.exitBarAt))+' → '+esc(date(s.exitBarEnd)):'<br>Latest evaluated close '+esc(date(s.lastPriceAt)))+(s.gap?'<br>Level crossed at candle open.':''):'')+'</div></details>';
+      var detail='<details><summary>Details / evidence</summary><div style="white-space:normal;min-width:190px;line-height:1.6">Sweep closed '+esc(date(r.closedAt))+'<br>First logged '+esc(date(r.observedAt))+'<br>Swept level '+price(r.sweptLevel)+' · Low '+price(r.low)+'<br>Detector v'+esc(r.detectorVersion||1)+(r.levelKind?' · '+esc(r.levelKind)+' · available '+esc(date(r.levelAvailableAt)):' · legacy observation')+'<br>RSI '+esc(r.rsi)+' · Volume '+esc(r.volR)+'×<br>'+(r.btcStateMethod?'BTC closed state ('+esc(r.btcStateMethod)+')':'Legacy BTC label (not a range)')+' '+esc(r.btcState)+' · '+esc(r.btcStateMethod?r.btcStateSource:r.source)+(r.btcStateMethod?'<br>BTC '+esc(r.btcStateTimeframe)+' close '+esc(date(r.btcStateClosedAt)):'')+(s?'<br>Checked '+esc(date(s.checkedAt))+'<br>'+esc(s.dataNote)+(s.exitBarAt?'<br>Outcome candle '+esc(date(s.exitBarAt))+' → '+esc(date(s.exitBarEnd)):'<br>Latest evaluated close '+esc(date(s.lastPriceAt)))+(s.gap?'<br>Level crossed at candle open.':''):'')+'</div></details>';
+      detail+=buySweepConditionsHTML(r);
       return '<tr>'+[
       '<strong>'+esc(r.pair)+'</strong><br>'+esc(r.tf),
       price(s?s.entry:r.referenceClose)+'<br><small>'+esc(date(r.closedAt))+'</small>',
@@ -9906,11 +10146,13 @@ function buildBuySweepLogPanel(){
 // Auto-log defined setups when they fire (called from loadAll after data ready).
 // Logs SEVERAL setup types — each tracked separately — so the log fills faster AND
 // you learn which setup type actually works best. Dedupes per coin+type.
-function autoLogSignals(){
+function autoLogSignals(scanData,scanTF){
+  return logSignalsForContext(scanData||allData,scanTF||TF);
+}
+function logSignalsForContext(allData,TF){
   autoLogBuySweeps(allData);
   checkBuySweepOutcomes();
-  var sweepPanel=document.getElementById('buy-sweep-log-panel');
-  if(sweepPanel)sweepPanel.outerHTML=buildBuySweepLogPanel();
+  refreshBuySweepPanel();
   var log = loadSignalLog();
   // ── ONE-TIME CLEANUP — purge old signals logged with the broken TP/SL formula
   // (R:R below 1.5 = the buggy tiny-TP/huge-SL entries). Keeps the track record honest.
@@ -9932,6 +10174,8 @@ function autoLogSignals(){
   var added = 0;
 
   function logIt(d, setupType){
+    if(d._stale)return;
+    var loggedBtcContext=btcContextForSnapshot(d.btcContext,d.analysisSnapshot),btcState=loggedBtcContext.state;
     if(openKey[d.sym+'|'+setupType+'|'+TF]) return;  // already tracking this setup on this TF
     if(!d.price) return;
     // ── BTC-STATE GATE — only log ALT buy signals when BTC is stable or bullish ──
@@ -9948,7 +10192,9 @@ function autoLogSignals(){
     // a MEASURED setup ("Sweep reclaim") — logged separately so the Coach can
     // grade it. This is the one contrarian entry the evidence audit endorsed.
     var isSweepReclaim = (d.liq === 'buy_sweep' && d.volR >= 1.2);
-    if(!isBTC && !btcStateOK && !isSweepReclaim) return;
+    // Unknown is not adverse evidence: never pass it through the contrarian gate.
+    // The separate Buy Sweeps research log still records all observations.
+    if(!isBTC && (!btcContextIsCurrent(loggedBtcContext,TF)||(!btcStateOK&&!isSweepReclaim))) return;
     // ── MARKET-CONTEXT GATES — the fix for rule context-blindness ──
     // Suppress alt entries in alt-unfriendly weather, exactly the conditions you
     // flagged: ETH weakening, money fleeing to BTC (rising dominance), weak breadth.
@@ -10123,6 +10369,7 @@ function autoLogSignals(){
       })(),
       btcState: btcState,   // record BTC backdrop at log time for later analysis
       btcStateAtEntry: btcState, // snapshot for exit comparison
+      btcContext:loggedBtcContext,btcStateMethod:'btc-closed-v1',
       htfAligned: (TF==='1d'||TF==='1w') ? null : ((window._dailyTrend && window._dailyTrend[d.sym] != null) ? window._dailyTrend[d.sym] : null), // was the DAILY trend up at entry? (Murphy M6, recorded for the Coach to grade)
       mktContext: { ethVsBtc: Math.round(_ethVsBtc*10)/10, breadth: _breadth, domRising: _btcDominanceRising,
                     regime: _regime ? _regime.mode : null, btcD: _btcDom, usdtD: _usdtDom,
@@ -10309,7 +10556,6 @@ function backgroundLogAllTFs(){
   // Process one timeframe at a time, with a pause between, to stay gentle on proxies.
   function doNextTF(i){
     if(i >= todo.length){
-      TF = activeTF;        // restore the active timeframe
       _bgLogBusy = false;
       return;
     }
@@ -10317,19 +10563,18 @@ function backgroundLogAllTFs(){
     bybitTickers(syms).catch(function(){
       return bnFetch('/api/v3/ticker/24hr?symbols='+encodeURIComponent(JSON.stringify(syms)));
     }).then(function(tickers){
-      TF = tf;  // temporarily switch so processSymbol fetches THIS tf's klines
       var btcTicker = null;
       for(var bt=0; bt<tickers.length; bt++){
         if(tickers[bt].symbol === 'BTCUSDT' || tickers[bt].symbol === 'BTCJPY'){ btcTicker = tickers[bt]; break; }
       }
       if(!btcTicker) return Promise.all(tickers.map(function(t){
-        return processSymbol(t, btcReferenceSnapshot()).catch(function(){ return null; });
+        return processSymbol(t,{closes:null,bars:null,context:unknownBtcContext(tf,'BTC ticker unavailable')},tf).catch(function(){ return null; });
       }));
-      return processSymbol(btcTicker, null).then(function(btcData){
-        var snapshot = btcReferenceSnapshot();
+      return processSymbol(btcTicker, null, tf).then(function(btcData){
+        var snapshot = btcReferenceSnapshot(btcData);
         return Promise.all(tickers.map(function(t){
           if(t === btcTicker) return Promise.resolve(btcData);
-          return processSymbol(t, snapshot).catch(function(){ return null; });
+          return processSymbol(t, snapshot, tf).catch(function(){ return null; });
         }));
       });
     }).then(function(results){
@@ -10343,12 +10588,8 @@ function backgroundLogAllTFs(){
           window._dailyTrend[x.sym] = (x.ema20 > x.ema50 && x.ema50 > x.ema200 && x.price > x.ema20);
         });
       }
-      // Temporarily point allData at this TF's data so autoLogSignals logs for it,
-      // then restore. (autoLogSignals reads allData + global TF; both are set here.)
-      var savedData = allData;
-      allData = tfData;
-      try { autoLogSignals(); } catch(e){}
-      allData = savedData;
+      // No global timeframe, BTC context or visible row mutation during background work.
+      try { autoLogSignals(tfData,tf); } catch(e){}
       // Pause before the next timeframe to avoid rate-limiting
       setTimeout(function(){ doNextTF(i+1); }, 2500);
     }).catch(function(){
@@ -19791,7 +20032,7 @@ function buildCanonicalChartPlan(d) {
   var btcAsset=/^BTC(?:USDT|USDC|USD|BTC)?$/.test(d.sym);
   var btcRequired=!btcAsset&&!(typeof BTC_FILTER_ENABLED!=='undefined'&&BTC_FILTER_ENABLED===false);
   var btcEvidence=typeof chartBtcEvidence!=='undefined'?chartBtcEvidence:null;
-  var btcObserved=!!(btcEvidence&&btcEvidence.timeframe===TF&&Date.now()-btcEvidence.observedAt>=0&&Date.now()-btcEvidence.observedAt<=900000);
+  var btcObserved=!!(btcEvidence&&btcEvidence.timeframe===chartState.tf&&Date.now()-btcEvidence.observedAt>=0&&Date.now()-btcEvidence.observedAt<900000&&Date.now()<btcEvidence.closedAt+_chartTFDuration(chartState.tf));
   var btcScore=d.btcTrendScore!=null?Number(d.btcTrendScore):btcObserved?Number(btcEvidence.score):null;
   var btcKnown=btcScore!=null&&isFinite(btcScore);
   var btcOK = !btcRequired || (btcKnown && btcScore >= CONFIG.BTC_FILTER_THRESHOLD);
@@ -23287,51 +23528,39 @@ function togglePrecision() {
 function toggleBTCFilter() {
   BTC_FILTER_ENABLED = !BTC_FILTER_ENABLED;
   updateBTCFilterUI();
-  if (allData.length) {
-    var btcStateOK = (btcState === 'bullish' || btcState === 'stable');
-    allData.forEach(function(d) {
-      var isBTC2 = d.sym === 'BTCUSDT' || d.sym === 'BTCJPY';
-      var macroOK = isBTC2 || !BTC_FILTER_ENABLED || (btcStateOK && (btcTrendScore === 0 || btcTrendScore >= BTC_FILTER_THRESHOLD));
-      if (!macroOK) {
-        d.buySignal = false; d.strongBuy = false;
-        if (d.signal === 'buy') d.signal = 'neutral';
-      }
-    });
-    render();
-    renderBTCMacroBanner();
-  }
+  renderBTCMacroBanner();
+  // Recompute both directions; never restore previously suppressed/stale flags.
+  if(allData.length)loadAll();
 }
 
 function updateBTCFilterUI() {
+  expireBtcContext();
   var btn = document.getElementById('btc-filter-btn');
   if (!btn) return;
-  var isOn = BTC_FILTER_ENABLED;
-  // Show BTC state directly on the button
-  var stateIcon = {bullish:'🟢', stable:'🟢', falling:'🟡', dumping:'🔴'}[btcState] || '⚪';
-  var stateOK = (btcState === 'bullish' || btcState === 'stable');
-  btn.textContent = '₿ ' + stateIcon + ' ' + btcState + (isOn ? '' : ' (off)');
-  btn.style.color       = isOn ? (stateOK ? 'var(--g)' : 'var(--r)') : 'var(--t3)';
-  btn.style.borderColor = isOn ? (stateOK ? 'var(--g)' : 'var(--r)') : 'var(--bd)';
-  btn.title = 'BTC is ' + btcState + ' (score ' + btcTrendScore + '/97). ' +
-    (isOn ? (stateOK ? 'Alt buy signals ENABLED — BTC is supportive.' : 'Alt buy signals SUPPRESSED — BTC is weak, alts bleed harder. Click to override.')
-          : 'Filter OFF — showing all alt signals regardless of BTC.');
+  var e=btcActiveContext||unknownBtcContext(TF),isOn=BTC_FILTER_ENABLED;
+  var stateIcon={bullish:'🟢',stable:'🟢',bearish:'🔴',falling:'🟡',dumping:'🔴',mixed:'🟠',unknown:'⚪'}[e.state]||'⚪';
+  var stateOK=btcContextAllowsAlts(e,TF)&&Number.isFinite(e.score)&&e.score>=BTC_FILTER_THRESHOLD;
+  btn.textContent='₿ '+TF.toUpperCase()+' '+stateIcon+' '+e.state+(isOn?'':' (off)');
+  btn.style.color=isOn?(stateOK?'var(--g)':e.state==='unknown'?'var(--t3)':'var(--am)'):'var(--t3)';
+  btn.style.borderColor=isOn?btn.style.color:'var(--bd)';
+  var closed=e.closedAt?new Date(e.closedAt).toISOString().slice(0,16).replace('T',' ')+' UTC':'unknown';
+  btn.title='BTC '+e.state+' · '+TF+' · '+e.source+' · last close '+closed+'. '+e.reason+'. '+
+    (Number.isFinite(e.recentATR)?'3-bar move '+e.recentPct.toFixed(2)+'% / '+e.recentATR.toFixed(2)+' ATR ('+e.recentHours+'h); EMA trend '+e.trend+'. ':'')+
+    'Score '+(Number.isFinite(e.score)?e.score+'/97':'unknown')+'. '+
+    (isOn?(stateOK?'BTC macro gate passes; other entry rules still apply.':'Alt macro gate blocked: needs fresh Bullish or measured Stable and score ≥'+BTC_FILTER_THRESHOLD+'.'):'BTC filter OFF by user choice.')+
+    ' Closed-candle heuristic btc-closed-v1; not a forecast. Falling = 3-bar decline ≥1 ATR; Dumping ≥2 ATR. Stable requires range-v1 tests. Mixed is not stable. Expires on next candle or after 15 minutes without a refresh.';
 }
 
 function renderBTCMacroBanner() {
   var existing = document.getElementById('btc-macro-banner');
-  // Suppression is active when BTC is falling or dumping (not stable/bullish)
-  var altsSuppressed = BTC_FILTER_ENABLED && (btcState === 'falling' || btcState === 'dumping');
+  var e=btcActiveContext||unknownBtcContext(TF);
+  var altsSuppressed=BTC_FILTER_ENABLED&&!(btcContextAllowsAlts(e,TF)&&Number.isFinite(e.score)&&e.score>=BTC_FILTER_THRESHOLD);
   if (!altsSuppressed) { if (existing) existing.remove(); return; }
-  if (existing) { // update text in case state changed (falling↔dumping)
-    var lbl = existing.querySelector('[data-btc-state]');
-    if (lbl) lbl.textContent = btcState;
-  }
-  if (existing) return;
-  var banner = document.createElement('div');
+  var banner = existing||document.createElement('div');
   banner.id = 'btc-macro-banner';
   banner.style.cssText = 'background:rgba(242,54,69,.08);border:.5px solid rgba(242,54,69,.3);border-radius:var(--rad);padding:6px 14px;margin:0 0 8px;font-size:12px;color:var(--r);display:flex;align-items:center;gap:8px';
-  var stateWord = btcState === 'dumping' ? 'dumping sharply' : 'falling';
-  banner.innerHTML = '⚠️ <strong>BTC is <span data-btc-state>'+stateWord+'</span></strong> — alt buy signals are suppressed because alts bleed harder when BTC drops. Only BTC itself and sell signals show. Alt buys resume when BTC is stable or bullish. <button onclick="toggleBTCFilter()" style="margin-left:auto;font-size:11px;background:none;border:.5px solid var(--r);border-radius:4px;padding:1px 8px;cursor:pointer;color:var(--r);font-family:inherit">Override</button>';
+  banner.innerHTML='⚠️ <strong>BTC '+confluenceEscape(TF.toUpperCase())+' · '+confluenceEscape(e.state)+'</strong> — alt macro gate blocked. '+confluenceEscape(e.reason)+'. Requires fresh Bullish or measured Stable plus BTC score ≥'+BTC_FILTER_THRESHOLD+'. Sweep research still records observations; this is not an order instruction. <button onclick="toggleBTCFilter()" style="margin-left:auto;font-size:11px;background:none;border:.5px solid var(--r);border-radius:4px;padding:1px 8px;cursor:pointer;color:var(--r);font-family:inherit">Override</button>';
+  if(existing)return;
   var table = document.getElementById('screen-table') || document.querySelector('table');
   if (table && table.parentNode) table.parentNode.insertBefore(banner, table);
 }
@@ -23520,9 +23749,10 @@ function checkReclaim(data){
 }
 
 function classifyRegime(){
+  if(btcState==='unknown')return {mode:'neutral',why:'BTC context unknown; market alignment not confirmed',provisional:true};
   var up   = btcState === 'bullish';
   var flat = btcState === 'stable';
-  var down = btcState === 'falling' || btcState === 'dumping';
+  var down = btcState === 'bearish' || btcState === 'falling' || btcState === 'dumping';
   var bd = _btcDomChg, ud = _usdtDomChg;
   var known = (bd != null && ud != null);
   var mode, why;
@@ -25298,10 +25528,10 @@ function buildEarlyWatchPanel(){
   h += '<div style="font-size:11px;color:var(--t2);line-height:1.55;margin-bottom:.6rem">Finds coins that are genuinely <b>basing</b> — it locates the actual consolidation window, then scores its duration, tightness, position, and whether the lows are rising. Declines are excluded structurally (a dying coin has the same low-volatility, dead-volume signature as a coil), illiquid coins are filtered out, and relative strength counts double when BTC is weak. Compression predicts the SIZE of the next move, never its direction — so nothing here is called a pump.</div>';
   // Bases resolve with the market: alt returns are ~0.9 correlated, so a good
   // base in a dumping tape usually breaks DOWN. Say so instead of implying edge.
-  var regimeBad = (btcState==='dumping' || btcState==='falling' || _breadthWeak);
+  var regimeBad = (['bearish','falling','dumping','unknown','mixed'].includes(btcState) || _breadthWeak);
   if(regimeBad){
     h += '<div style="background:rgba(239,83,80,.10);border-left:3px solid var(--r);border-radius:6px;padding:7px 9px;margin-bottom:.6rem;font-size:11px;color:var(--t2)">'
-       + '⚠️ <b>Weak tape</b> (BTC '+btcState+', breadth '+_breadth+'%). Bases mostly resolve DOWNWARD when the market is falling — treat everything below as watchlist only, not entries.</div>';
+       + '⚠️ <b>Supportive context not confirmed</b> (BTC '+btcState+', breadth '+_breadth+'%). Unknown is missing evidence, not a bearish forecast. The rows below are watchlist observations, not entries.</div>';
   }
   if(!rows.length){ return h + '<div style="font-size:11px;color:var(--t3)">No coins are currently basing with enough quality and liquidity. On a weak or trending-down board that is the correct answer, not a failure.</div></div>'; }
   rows.slice(0,10).forEach(function(d){
@@ -25344,7 +25574,13 @@ function buildMarketRead(){
 
   // Trading conditions read (combines BTC state + setup availability)
   var tradingCond, tcColor, tcAction;
-  if(btcState==='dumping'){
+  if(btcState==='unknown'||btcState==='mixed'){
+    tradingCond=btcState==='unknown'?'Data wait':'Mixed context';tcColor='var(--t3)';
+    tcAction='BTC '+btcState+' — a supportive closed-candle backdrop is not confirmed. Check the BTC badge timeframe and evidence.';
+  } else if(btcState==='bearish'){
+    tradingCond='Bearish context';tcColor='var(--r)';
+    tcAction='BTC closed below falling EMA20 < EMA50. Alt macro gate is blocked when enabled; this is a trend description, not a forecast.';
+  } else if(btcState==='dumping'){
     tradingCond='Risk-off'; tcColor='var(--r)';
     tcAction='BTC is dumping — alts bleed hardest now. Trading conditions are poor; alt buys are suppressed. Best action is usually no action.';
   } else if(btcState==='falling'){
@@ -25392,7 +25628,7 @@ function renderMarketRead(){
   var m = buildMarketRead();
   if(!m){ body.innerHTML='<div style="font-size:11px;color:var(--t3)">Load coin data first…</div>'; return; }
 
-  var btcIcon = {bullish:'🟢',stable:'🟢',falling:'🟡',dumping:'🔴'}[m.btcState]||'⚪';
+  var btcIcon = {bullish:'🟢',stable:'🟢',bearish:'🔴',falling:'🟡',dumping:'🔴',mixed:'🟠',unknown:'⚪'}[m.btcState]||'⚪';
   var h='';
   try { h += buildSourcesPanel(); } catch(e){}
   try { h += buildCapitulationPanel(); } catch(e){}
@@ -26394,6 +26630,8 @@ function renderMoonPanel() {
 marketCapRestore();
 fetchDynamicRanks();   // refresh ranks with a labelled provider fallback
 setInterval(function(){if(!document.hidden)checkBuySweepOutcomes();},60000);
+setInterval(function(){if(expireBtcContext()){updateBTCFilterUI();renderBTCMacroBanner();if(!document.hidden)render();}},10000);
+document.addEventListener('visibilitychange',function(){if(!document.hidden&&expireBtcContext()){updateBTCFilterUI();renderBTCMacroBanner();render();}});
 setTimeout(function(){checkBuySweepOutcomes();},2000);
 fetchTopCoins();       // optionally expand coin list from CoinGecko (daily)
 loadAlPrefs();
