@@ -6,6 +6,7 @@
 <meta name="relationships-build" content="2026.09.24-returns-r1">
 <meta name="sweep-strategy-build" content="2026.09.27-4h-paper-v1">
 <meta name="scanner-build" content="2026.09.22-sweep-v2">
+<meta name="fvg-watch-build" content="2026.10.04-closed-v1">
 <meta name="agent-build" content="2026.09.07-keyless-r2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -833,6 +834,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
   <div class="intel-tabs">
     <button class="intel-tab active" id="it-macro" onclick="showIntel('macro')">🌍 Macro</button>
     <button class="intel-tab" id="it-charts" onclick="showIntel('charts')">📈 Market Charts</button>
+    <button class="intel-tab" id="it-fvg" onclick="showIntel('fvg')">🟩 Bullish FVG</button>
     <button class="intel-tab" id="it-macrotape" onclick="showIntel('macrotape')">Macro tape</button>
     <button class="intel-tab" id="it-spotstrategy" onclick="showIntel('spotstrategy')">Spot strategy</button>
     <button class="intel-tab" id="it-marketread" onclick="showIntel('marketread')">🧭 Market Read</button>
@@ -856,6 +858,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       <div class="macro-grid" id="macro-grid"><div style="font-size:12px;color:var(--t3)">Loading macro data…</div></div>
       <div id="btc-detail" style="margin-top:.8rem"></div>
     </div>
+    <div class="intel-panel" id="ip-fvg"><div id="fvg-watch-root">Open Bullish FVG to track 1H, 4H and 1D closed-candle zones.</div></div>
     <div class="intel-panel" id="ip-charts">
       <div class="market-chart-tools" role="group" aria-label="Crypto market chart">
         <button class="market-chart-btn" id="market-chart-btn-usdtd" data-market-chart="usdtd" aria-pressed="false" onclick="openMarketChart('usdtd')">₮ USDT.D</button>
@@ -17614,7 +17617,7 @@ function renderMarketChart(key,force){
   });
 }
 function showIntel(which){
-  var tabs = ['macro','charts','macrotape','spotstrategy','marketread','buyzone','regime','narr','sector','events','candle','moon','agent','beta'];
+  var tabs = ['macro','charts','fvg','macrotape','spotstrategy','marketread','buyzone','regime','narr','sector','events','candle','moon','agent','beta'];
   tabs.forEach(function(t){
     var tab = document.getElementById('it-'+t);
     var panel = document.getElementById('ip-'+t);
@@ -17633,6 +17636,7 @@ function showIntel(which){
   }
   if(which==='agent') renderAgent();
   if(which==='beta') renderBetaTab();
+  if(which==='fvg'&&typeof fvgWatchStart==='function') fvgWatchStart();
   // Make sure body is expanded when a tab is clicked
   var body = document.getElementById('intel-body');
   var btn = document.getElementById('intel-collapse-btn');
@@ -26703,5 +26707,6 @@ detectProxy().then(function(){}).catch(function(){}).then(function(){
   }, 15000);
 });
 </script>
+<script src="fvg-watchlist.js"></script>
 </body>
 </html>
