@@ -26722,8 +26722,743 @@ detectProxy().then(function(){}).catch(function(){}).then(function(){
   }, 15000);
 });
 </script>
-<script src="fvg-watchlist.js"></script>
-<script src="chart-kie.js"></script>
-<script src="swing-trading.js"></script>
+<script data-bundled-source="fvg-watchlist.js">
+'use strict';
+// Read-only spot research. Separate storage, scheduling and events from Buy Sweeps.
+// Formation is shared with calcChartFVG; all lifecycle decisions use closed bars.
+var FVG_WATCH_KEY = 'bullish_fvg_watch_v1';
+var fvgWatch = {loaded:false,started:false,busy:false,auto:true,records:[],jobs:{},alerts:[],scope:[],
+  tf:'all',filter:'active',search:'',limit:80,progress:'',error:'',storageBlocked:false,timer:null,unread:0};
+
+function fvgWatchID(source,sym,tf,at){return [source,sym,tf,at].join('|');}
+function fvgWatchValidRecord(r){
+  return !!(r&&r.version===1&&/^[A-Z0-9]{1,30}USDT$/.test(r.sym)&&['1h','4h','1d'].includes(r.tf)&&
+    ['Bybit','BingX','Binance'].includes(r.source)&&Number.isFinite(r.formedAt)&&r.formedAt>0&&
+    Number.isFinite(r.low)&&Number.isFinite(r.high)&&r.low>0&&r.high>r.low&&
+    Number.isFinite(r.throughAt)&&r.throughAt>=r.formedAt&&r.id===fvgWatchID(r.source,r.sym,r.tf,r.formedAt)&&
+    ['New','Testing','Held','Continuation','Failed','Unknown'].includes(r.state)&&Array.isArray(r.events)&&
+    Number.isFinite(r.formationClose)&&r.formationClose>0&&Number.isFinite(r.firstSeenAt)&&
+    Number.isFinite(r.lastClose)&&r.lastClose>0&&Number.isFinite(r.fill)&&r.fill>=0&&r.fill<=1&&
+    r.events.every(function(e){return e&&typeof e.type==='string'&&Number.isFinite(e.at);})&&
+    r.performance&&r.performance.formation&&r.performance.held&&r.conditions&&
+    ['formation','held'].every(function(k){var c=r.conditions[k];return !c||c.btc&&c.coin;}));
+}
+function fvgWatchRestore(){
+  if(fvgWatch.loaded)return;fvgWatch.loaded=true;
+  try{
+    var raw=localStorage.getItem(FVG_WATCH_KEY);if(!raw)return;var saved=JSON.parse(raw);
+    if(!saved||saved.version!==1||!Array.isArray(saved.records)||!saved.records.every(fvgWatchValidRecord)||
+      !saved.jobs||typeof saved.jobs!=='object'||!Array.isArray(saved.alerts))throw Error('Invalid saved schema');
+    fvgWatch.records=saved.records.slice(0,3000);fvgWatch.jobs=saved.jobs;fvgWatch.alerts=saved.alerts.slice(0,100);
+    fvgWatch.auto=saved.auto!==false;
+  }catch(e){fvgWatch.storageBlocked=true;fvgWatch.error='Saved FVG data could not be read. It has NOT been overwritten; this session is memory-only.';}
+}
+function fvgWatchSave(){
+  if(fvgWatch.storageBlocked)return;
+  fvgWatch.records.sort(function(a,b){return b.formedAt-a.formedAt||a.id.localeCompare(b.id);});
+  fvgWatch.records=fvgWatch.records.slice(0,3000);fvgWatch.alerts=fvgWatch.alerts.slice(0,100);
+  try{localStorage.setItem(FVG_WATCH_KEY,JSON.stringify({version:1,method:'fvg-watch-v1',auto:fvgWatch.auto,
+    records:fvgWatch.records,jobs:fvgWatch.jobs,alerts:fvgWatch.alerts}));}
+  catch(e){fvgWatch.error='FVG storage unavailable or full. New results are memory-only; export before closing.';}
+}
+function fvgWatchEvent(r,type,at,price){
+  if(r.events.some(function(e){return e.type===type;}))return;
+  r.events.push({type:type,at:at,price:price});
+}
+function fvgWatchCreate(z,closed,sym,tf,source,now){
+  var b=closed[z.confirmedIndex],middle=closed[z.confirmedIndex-1],dt=_chartTFDuration(tf),at=Number(b[0])+dt;
+  var vols=closed.slice(Math.max(0,z.confirmedIndex-21),z.confirmedIndex-1).map(function(k){return k[5]==null||k[5]===''?NaN:Number(k[5]);});
+  var avg=vols.length===20&&vols.every(function(v){return Number.isFinite(v)&&v>=0;})?vols.reduce(function(a,v){return a+v;},0)/20:null;
+  var volume=middle[5]==null||middle[5]===''?NaN:Number(middle[5]);
+  return {version:1,id:fvgWatchID(source,sym,tf,at),sym:sym,tf:tf,source:source,formedAt:at,firstSeenAt:now,
+    low:z.low,high:z.high,formationClose:Number(b[4]),atr:z.atr,gapATR:z.atr>0?(z.high-z.low)/z.atr:null,
+    bodyATR:z.atr>0?Math.abs(Number(middle[4])-Number(middle[1]))/z.atr:null,
+    impulseBullish:Number(middle[4])>Number(middle[1]),volumeRatio:avg>0&&Number.isFinite(volume)&&volume>=0?volume/avg:null,
+    state:'New',fill:0,firstTouchAt:null,heldAt:null,heldClose:null,retestHigh:null,failedAt:null,
+    throughAt:at,lastClose:Number(b[4]),health:'Current',events:[{type:'New',at:at,price:Number(b[4])}],
+    performance:{formation:{},held:{},maxRisePct:0,maxFallPct:0},conditions:{}};
+}
+function fvgWatchAdvance(record,closed,now){
+  var r=JSON.parse(JSON.stringify(record)),dt=_chartTFDuration(r.tf);
+  var later=closed.filter(function(k){return Number(k[0])+dt>r.throughAt&&Number(k[0])+dt<=now;});
+  for(var i=0;i<later.length;i++){
+    var b=later[i],at=Number(b[0])+dt;
+    if(Number(b[0])!==r.throughAt){r.health='Unknown';r.note='Missing candle history; tracking stopped. No path inferred.';return r;}
+    var hi=Number(b[2]),lo=Number(b[3]),c=Number(b[4]);
+    if(![hi,lo,c].every(Number.isFinite)||lo<=0||hi<Math.max(lo,c)||lo>c){r.health='Unknown';r.note='Invalid candle; tracking stopped.';return r;}
+    r.throughAt=at;r.lastClose=c;
+    var n=Math.round((at-r.formedAt)/dt),hn=r.heldAt?Math.round((at-r.heldAt)/dt):0;
+    if([3,6,12].includes(n))r.performance.formation[n]=(c/r.formationClose-1)*100;
+    if(r.heldAt&&[3,6,12].includes(hn))r.performance.held[hn]=(c/r.heldClose-1)*100;
+    r.performance.maxRisePct=Math.max(r.performance.maxRisePct,(hi/r.formationClose-1)*100);
+    r.performance.maxFallPct=Math.min(r.performance.maxFallPct,(lo/r.formationClose-1)*100);
+    // Keep collecting fixed-horizon research returns after failure, not a trade P&L.
+    if(r.state==='Failed')continue;
+    var touch=hi>=r.low&&lo<=r.high;
+    if(touch){
+      r.fill=Math.max(r.fill,Math.min(1,Math.max(0,(r.high-lo)/(r.high-r.low))));
+      if(!r.firstTouchAt){r.firstTouchAt=at;fvgWatchEvent(r,'First touch',at,c);}
+      // A new retest resets the continuation hurdle; never use a future high.
+      r.retestHigh=hi;r.testAt=at;
+    }
+    if(c<r.low){r.state='Failed';r.failedAt=at;fvgWatchEvent(r,'Failed',at,c);continue;}
+    if(!r.firstTouchAt){r.state='New';continue;}
+    if(c<=r.high){r.state='Testing';continue;}
+    if(!r.heldAt){r.heldAt=at;r.heldClose=c;fvgWatchEvent(r,'Held',at,c);}
+    // A touch/hold candle cannot also be its own continuation confirmation.
+    if(!touch&&at>r.testAt&&at>r.heldAt&&c>r.retestHigh){r.state='Continuation';fvgWatchEvent(r,'Continuation',at,c);}
+    else r.state='Held';
+  }
+  r.health='Current';r.note='';return r;
+}
+function fvgWatchContext(rows,sym,tf,at,source){
+  if(!rows||rows.dataSource!==source)return {state:'Unknown',reason:'BTC/coin venue mismatch or unavailable history'};
+  var frame=buildSweepContextFrame(rows,sym,tf,at);
+  if(frame.status!=='READY')return {state:'Unknown',reason:frame.reason};
+  var c=rows.filter(function(k){return Number(k[0])+_chartTFDuration(tf)<=at;}).map(function(k){return Number(k[4]);});
+  var pressure=frame.atr>0?(c[c.length-1]-c[c.length-4])/frame.atr:null;
+  var trend=frame.price>frame.ema20&&frame.ema20>frame.ema50&&frame.emaSlopeATR>0?'Bullish':
+    frame.price<frame.ema20&&frame.ema20<frame.ema50&&frame.emaSlopeATR<0?'Bearish':'Mixed';
+  var state=pressure<=-2?'Dumping':pressure<=-1?'Falling':frame.regime==='RANGE'?'Stable / range':trend;
+  return {state:state,trend:trend,source:source,asOf:at,method:'closed-history · BTC rules v1 / range-v1',
+    regime:frame.regime,rangePosition:frame.rangePosition,price:frame.price,
+    resistance:frame.resistance,roomPct:frame.resistance?Math.max(0,(frame.resistance.low/frame.price-1)*100):null};
+}
+function fvgWatchConditions(rows,btc,sym,tf,at,source){
+  var closed=rows.filter(function(k){return Number(k[0])+_chartTFDuration(tf)<=at;});
+  var price=closed.length?Number(closed[closed.length-1][4]):0;
+  var overhead=calcChartFVG(closed,.1,_chartTFDuration(tf)).filter(function(z){return z.side==='bearish'&&z.reaction!=='Failed'&&z.reaction!=='Unknown'&&z.fill<1&&z.high>price;})
+    .sort(function(a,b){return a.low-b.low;})[0];
+  return {asOf:at,basis:'Reconstructed using only candles closed by this event',
+    btc:fvgWatchContext(btc,'BTCUSDT',tf,at,source),coin:fvgWatchContext(rows,sym,tf,at,source),
+    bearishFVG:overhead?{low:overhead.low,high:overhead.high}:null};
+}
+function fvgWatchValidateRows(rows,sym,tf,now){
+  if(!['1h','4h','1d'].includes(tf)||!Array.isArray(rows)||rows.some(function(k){return !Array.isArray(k)||k.length<5;}))throw Error('Invalid candle response');
+  var s=chartSnapshot(rows,sym,tf,now);
+  if(!s.usable||!['Bybit','BingX','Binance'].includes(s.source))throw Error(s.message||'Unverified candle venue');
+  if(!Number.isFinite(rows.fetchedAt)||rows.fetchedAt>now||now-rows.fetchedAt>=900000)throw Error('Fetch is stale; fresh closed candles required');
+  return s;
+}
+function fvgWatchIngest(rows,btc,sym,tf,now){
+  var snap=fvgWatchValidateRows(rows,sym,tf,now),closed=rows.slice(0,-1),jobKey=sym+'|'+tf;
+  var prior=fvgWatch.jobs[jobKey],same=prior&&prior.source===snap.source&&Number.isFinite(prior.closedAt);
+  var zones=calcChartFVG(closed,.1,_chartTFDuration(tf)).filter(function(z){return z.side==='bullish';});
+  var byID={},detected={};fvgWatch.records.forEach(function(r){byID[r.id]=r;});
+  zones.forEach(function(z){var r=fvgWatchCreate(z,closed,sym,tf,snap.source,now);if(!byID[r.id]){
+    r.conditions.formation=fvgWatchConditions(rows,btc,sym,tf,r.formedAt,snap.source);
+    byID[r.id]=r;fvgWatch.records.push(r);
+  }detected[r.id]=r;});
+  var notifications=[];
+  fvgWatch.records=fvgWatch.records.map(function(old){
+    if(old.sym!==sym||old.tf!==tf)return old;
+    if(old.source!==snap.source){old.health='Unknown';old.note='Provider changed; this venue is not being updated.';return old;}
+    var firstDetectable=Number(closed[Math.max(17,closed.length-240)][0])+_chartTFDuration(tf),match=detected[old.id];
+    if(old.formedAt>=firstDetectable)old.revisionMismatch=!match||match.low!==old.low||match.high!==old.high;
+    if(old.revisionMismatch){old.health='Unknown';old.note='Provider revised formation candles. Original zone retained as history, not a current setup.';return old;}
+    var r=fvgWatchAdvance(old,closed,now);
+    if(r.throughAt!==snap.lastClosedTime){r.health='Unknown';r.note=r.note||'Latest closed candles unavailable';}
+    if(r.heldAt&&!r.conditions.held)r.conditions.held=fvgWatchConditions(rows,btc,sym,tf,r.heldAt,snap.source);
+    // The first scan/venue switch is a baseline, never a batch of historical alerts.
+    if(same&&r.health==='Current')r.events.forEach(function(e){
+      var id=r.id+'|'+e.type;
+      if(e.at>prior.closedAt&&e.at<=snap.lastClosedTime&&!fvgWatch.alerts.some(function(a){return a.id===id;})){
+        var a={id:id,zoneID:r.id,sym:sym,tf:tf,source:r.source,type:e.type,at:e.at,observedAt:now,
+          delayed:e.at<snap.lastClosedTime};notifications.push(a);fvgWatch.alerts.unshift(a);
+      }
+    });
+    return r;
+  });
+  fvgWatch.jobs[jobKey]={sym:sym,tf:tf,source:snap.source,closedAt:snap.lastClosedTime,checkedAt:now,ok:true,
+    baseline:!same,error:''};
+  fvgWatch.unread+=notifications.length;return notifications;
+}
+function fvgWatchScope(){
+  var rank=document.getElementById('f-cap'),range=rank?rank.value:'all';
+  return Array.from(new Set((SYM.USDT||[]).filter(function(sym){return /^[A-Z0-9]{1,30}USDT$/.test(sym)&&
+    marketCapMatches(sym,range)&&(range==='all'||marketCapUniverse.pairs.indexOf(sym)>=0);}))).sort();
+}
+function fvgWatchFetch(sym,tf,force){
+  var key=sym+'_'+tf+'_300',cache=_klCache[key],now=Date.now(),dt=_chartTFDuration(tf),rows=cache&&cache.data;
+  if(force||!rows||!rows.length||!Number.isFinite(rows.fetchedAt)||now-rows.fetchedAt>=900000||
+    Number(rows[rows.length-1][0])+dt<=now)delete _klCache[key];
+  return bybitKlines(sym,tf,300);
+}
+async function fvgWatchScan(force){
+  fvgWatchRestore();if(fvgWatch.busy||document.hidden)return;
+  var scope=fvgWatchScope();fvgWatch.scope=scope;
+  if(!scope.length){fvgWatch.progress='No USDT pairs in the selected market-cap universe. Refresh ranks or select All scanned coins.';fvgWatchRender();return;}
+  var now=Date.now(),jobs=[];
+  scope.forEach(function(sym){['1h','4h','1d'].forEach(function(tf){
+    var p=fvgWatch.jobs[sym+'|'+tf],due=!p||p.closedAt<Math.floor(now/_chartTFDuration(tf))*_chartTFDuration(tf)||!p.ok;
+    if(force||due&&(!p||p.ok||now-p.checkedAt>=300000))jobs.push({sym:sym,tf:tf});
+  });});
+  if(!jobs.length){fvgWatchRender();return;}
+  fvgWatch.busy=true;var total=jobs.length,done=0,failed=0,events=[],btc={};
+  fvgWatch.progress='Preparing BTC context · '+total+' coin/timeframe checks';fvgWatchRender();
+  try{
+    await Promise.all(['1h','4h','1d'].filter(function(tf){return jobs.some(function(j){return j.tf===tf;});}).map(async function(tf){
+      try{btc[tf]=await fvgWatchFetch('BTCUSDT',tf,force);}catch(e){btc[tf]=null;}
+    }));
+    async function worker(){
+      while(jobs.length&&!document.hidden){
+        var job=jobs.shift();
+        try{
+          var rows=job.sym==='BTCUSDT'&&btc[job.tf]?btc[job.tf]:await fvgWatchFetch(job.sym,job.tf,force);
+          events=events.concat(fvgWatchIngest(rows,btc[job.tf],job.sym,job.tf,Date.now()));
+        }catch(e){
+          failed++;var key=job.sym+'|'+job.tf,prior=fvgWatch.jobs[key]||{};
+          fvgWatch.jobs[key]=Object.assign({},prior,{sym:job.sym,tf:job.tf,ok:false,checkedAt:Date.now(),error:String(e.message||'Request failed')});
+          fvgWatch.records.forEach(function(r){if(r.sym===job.sym&&r.tf===job.tf){r.health='Unknown';r.note='Refresh unavailable; last known state only';}});
+        }
+        done++;fvgWatch.progress='Checked '+done+'/'+total+' · '+failed+' unavailable';
+        if(done%8===0){fvgWatchSave();fvgWatchRender();}
+      }
+    }
+    // Three bounded workers, never modify global scanner TF, Q, BTC state or logs.
+    await Promise.all([worker(),worker(),worker()]);
+    fvgWatch.progress=(jobs.length?'Paused while page hidden · ':'Scan complete · ')+done+'/'+total+' checked · '+failed+' unavailable · '+events.length+' new events';
+  }finally{fvgWatch.busy=false;fvgWatchSave();fvgWatchRender();}
+}
+function fvgWatchCurrent(r,now){
+  var j=fvgWatch.jobs[r.sym+'|'+r.tf];
+  return r.health==='Current'&&j&&j.ok&&j.source===r.source&&r.throughAt===j.closedAt&&
+    r.throughAt<=now&&now<r.throughAt+_chartTFDuration(r.tf);
+}
+function fvgWatchStart(){
+  fvgWatchRestore();fvgWatch.started=true;fvgWatch.unread=0;fvgWatchRender();fvgWatchScan(false);
+  if(!fvgWatch.timer)fvgWatch.timer=setInterval(function(){if(!document.hidden){if(fvgWatch.auto)fvgWatchScan(false);else fvgWatchRender();}},60000);
+}
+function fvgWatchSet(key,value){
+  if(key==='tf'&&['all','1h','4h','1d'].includes(value))fvgWatch.tf=value;
+  if(key==='filter'&&['active','all','New','Testing','Held','Continuation','Failed','Unknown'].includes(value))fvgWatch.filter=value;
+  if(key==='search')fvgWatch.search=String(value).toUpperCase().slice(0,40);
+  if(key==='auto'){fvgWatch.auto=!!value;fvgWatchSave();}
+  fvgWatch.limit=80;fvgWatchRender();
+}
+function fvgWatchSearch(value){
+  fvgWatch.search=String(value).toUpperCase().slice(0,40);fvgWatch.limit=80;
+  clearTimeout(fvgWatch.searchTimer);fvgWatch.searchTimer=setTimeout(fvgWatchRender,180);
+}
+function fvgWatchRows(now){
+  return fvgWatch.records.filter(function(r){
+    if(fvgWatch.scope.indexOf(r.sym)<0||fvgWatch.tf!=='all'&&r.tf!==fvgWatch.tf||r.sym.indexOf(fvgWatch.search)<0)return false;
+    var current=fvgWatchCurrent(r,now),filter=fvgWatch.filter;
+    return filter==='all'||filter==='Unknown'&&!current||current&&(filter==='active'?r.state!=='Failed':r.state===filter);
+  }).sort(function(a,b){
+    var order={Testing:0,Held:1,Continuation:2,New:3,Failed:4,Unknown:5};
+    return (order[a.state]-order[b.state])||b.formedAt-a.formedAt;
+  });
+}
+function fvgWatchFmt(n,suffix){return Number.isFinite(n)?n.toFixed(2)+(suffix||''):'Unknown';}
+function fvgWatchTime(at){return Number.isFinite(at)&&Number.isFinite(new Date(at).getTime())?new Date(at).toISOString().slice(0,16).replace('T',' ')+' UTC':'Unknown';}
+function fvgWatchEscape(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function fvgWatchEvidence(r){
+  var esc=fvgWatchEscape;
+  function condition(c,label){
+    if(!c)return '<p>'+label+': not observed yet</p>';
+    return '<p><b>'+label+'</b> · '+esc(fvgWatchTime(c.asOf))+'<br>BTC: '+esc(c.btc.state)+' · Coin: '+esc(c.coin.state)+
+      ' · Room to mapped resistance: '+fvgWatchFmt(c.coin.roomPct,'%')+
+      '<br>Bearish FVG overhead: '+(c.bearishFVG?esc(fmtPrice(c.bearishFVG.low)+'–'+fmtPrice(c.bearishFVG.high)):'None found in loaded history (not unlimited room)')+'</p>';
+  }
+  function horizons(v){return [3,6,12].map(function(n){return n+' bars: '+(Number.isFinite(v[n])?fvgWatchFmt(v[n],'%'):'pending / unavailable');}).join(' · ');}
+  return '<details><summary>Evidence / follow-through</summary><div class="fvg-evidence">'+
+    '<p>Formed '+esc(fvgWatchTime(r.formedAt))+' · First seen '+esc(fvgWatchTime(r.firstSeenAt))+
+    '<br>Fixed zone '+esc(fmtPrice(r.low)+'–'+fmtPrice(r.high))+' · Gap '+fvgWatchFmt(r.gapATR,' ATR')+
+    '<br>Middle-candle body '+fvgWatchFmt(r.bodyATR,' ATR')+' · '+(r.impulseBullish?'bullish':'not bullish')+' · Volume '+fvgWatchFmt(r.volumeRatio,'× prior 20')+'</p>'+
+    condition(r.conditions.formation,'At formation')+condition(r.conditions.held,'At first held close')+
+    '<p>Close return since formation: '+horizons(r.performance.formation)+'<br>Since first held close: '+horizons(r.performance.held)+
+    '<br>Post-formation high/low excursion: '+fvgWatchFmt(r.performance.maxRisePct,'%')+' / '+fvgWatchFmt(r.performance.maxFallPct,'%')+
+    '<br>Research returns include moves after failure. No entry, stop, fees or actual fill; not trade P&amp;L.</p><p>'+r.events.map(function(e){return esc(e.type)+' · '+esc(fvgWatchTime(e.at));}).join('<br>')+
+    '</p><p>Contexts are reconstructed as-of each event, without later candles. Held/continuation are rules, not forecasts.</p></div></details>';
+}
+function fvgWatchRender(){
+  var root=document.getElementById('fvg-watch-root');if(!root)return;
+  var tab=document.getElementById('it-fvg');if(tab)tab.textContent='🟩 Bullish FVG'+(fvgWatch.unread?' · '+fvgWatch.unread+' new':'');
+  if(!document.getElementById('fvg-watch-style')){
+    var style=document.createElement('style');style.id='fvg-watch-style';style.textContent=
+      '#fvg-watch-root{font-size:12px;line-height:1.6}.fvg-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0}.fvg-toolbar select,.fvg-toolbar input[type=search]{padding:7px;border:1px solid var(--bd);background:var(--card);color:var(--text);border-radius:6px}.fvg-counts{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.fvg-count{padding:8px 12px;background:var(--card2);border:1px solid var(--bd);border-radius:8px}.fvg-scroll{overflow:auto;max-height:620px;border:1px solid var(--bd);border-radius:8px}.fvg-table{border-collapse:collapse;width:100%;min-width:920px}.fvg-table th{position:sticky;top:0;background:var(--card2);z-index:1;text-align:left;font-size:11px}.fvg-table td,.fvg-table th{padding:10px;border-bottom:1px solid var(--bd);vertical-align:top}.fvg-table td,.fvg-table .btn{font-size:12px}.fvg-table small{display:block;color:var(--t2);font-size:11px}.fvg-state{font-weight:700;color:var(--g)}.fvg-muted{color:var(--t2)}.fvg-evidence{max-width:520px;min-width:300px;white-space:normal}.fvg-evidence p{margin:9px 0}.fvg-alerts{max-height:170px;overflow:auto}.fvg-warning{color:var(--am)}';document.head.appendChild(style);
+  }
+  // Preserve open evidence and scroll position during scheduled renders.
+  var open=Array.from(root.querySelectorAll('tr[data-fvg-id]')).filter(function(el){var d=el.querySelector('details');return d&&d.open;}).map(function(el){return el.dataset.fvgId;});
+  var input=root.querySelector('input[type=search]'),focused=input&&document.activeElement===input;
+  var selection=focused?[input.selectionStart,input.selectionEnd]:null;
+  var scroll=root.querySelector('.fvg-scroll'),top=scroll?scroll.scrollTop:0,left=scroll?scroll.scrollLeft:0;
+  var now=Date.now(),esc=fvgWatchEscape,rows=fvgWatchRows(now),counts={};
+  fvgWatch.records.filter(function(r){return fvgWatch.scope.indexOf(r.sym)>=0&&(fvgWatch.tf==='all'||r.tf===fvgWatch.tf);}).forEach(function(r){var k=fvgWatchCurrent(r,now)?r.state:'Unknown';counts[k]=(counts[k]||0)+1;});
+  function option(value,label,selected){return '<option value="'+value+'"'+(value===selected?' selected':'')+'>'+label+'</option>';}
+  var html='<div class="fvg-toolbar"><strong style="font-size:15px">Bullish FVG · Watchlist</strong><button class="btn" onclick="fvgWatchScan(true)" '+(fvgWatch.busy?'disabled':'')+'>'+(fvgWatch.busy?'Scanning…':'↻ Scan now')+'</button><button class="btn" onclick="fvgWatchExport()">Export research</button></div>'+
+    '<div class="fvg-muted">1H · 4H · 1D independently · Closed candles only · No buy signals or Buy Sweep entries</div>'+
+    '<div class="fvg-toolbar"><label>Timeframe <select aria-label="FVG timeframe" onchange="fvgWatchSet(\'tf\',this.value)">'+['all','1h','4h','1d'].map(function(v){return option(v,v==='all'?'All timeframes':v.toUpperCase(),fvgWatch.tf);}).join('')+'</select></label>'+
+    '<label>Status <select aria-label="FVG status" onchange="fvgWatchSet(\'filter\',this.value)">'+['active','New','Testing','Held','Continuation','Failed','Unknown','all'].map(function(v){return option(v,v==='active'?'Active zones':v==='all'?'All / history':v==='Unknown'?'Unavailable / stale':v,fvgWatch.filter);}).join('')+'</select></label>'+
+    '<label>Coin <input type="search" aria-label="FVG coin search" placeholder="SOL, ETH…" value="'+esc(fvgWatch.search)+'" oninput="fvgWatchSearch(this.value)"></label>'+
+    '<label><input type="checkbox" onchange="fvgWatchSet(\'auto\',this.checked)" '+(fvgWatch.auto?'checked':'')+'> Auto-check candle closes while page visible</label></div>'+
+    '<div role="status">'+esc(fvgWatch.progress||'Ready to scan')+'</div>'+
+    '<div class="fvg-muted">Scope: '+fvgWatch.scope.length+' USDT pairs from the market-cap selector (not row signal filters). Browser-only; closed tabs, sleep and background throttling interrupt tracking. Refresh failures retry after 5 minutes.</div>'+
+    (fvgWatch.error?'<p class="fvg-warning">'+esc(fvgWatch.error)+'</p>':'')+
+    '<div class="fvg-counts">'+['New','Testing','Held','Continuation','Failed','Unknown'].map(function(k){return '<div class="fvg-count">'+(k==='Unknown'?'Unavailable / stale':k)+' <b>'+(counts[k]||0)+'</b></div>';}).join('')+'</div>'+
+    '<div class="fvg-scroll"><table class="fvg-table"><thead><tr><th>Coin / TF</th><th>Stage / fill</th><th>Fixed FVG zone</th><th>Distance / age</th><th>Context / evidence</th></tr></thead><tbody>';
+  html+=rows.slice(0,fvgWatch.limit).map(function(r){
+    var current=fvgWatchCurrent(r,now),distance=r.lastClose>r.high?r.lastClose-r.high:r.lastClose<r.low?r.low-r.lastClose:0;
+    return '<tr data-fvg-id="'+esc(r.id)+'"><td><button class="btn" data-fvg-open="'+esc(r.id)+'">'+esc(r.sym.replace(/USDT$/,'/USDT'))+'</button><small>'+r.tf.toUpperCase()+' · '+esc(r.source)+'</small></td>'+
+      '<td><span class="fvg-state"'+(!current||r.state==='Failed'?' style="color:var(--am)"':'')+'>'+esc(current?r.state:'Unavailable / stale')+'</span>'+
+      '<small>'+(!current?'Last known: '+esc(r.state)+' · ':'')+Math.round(r.fill*100)+'% wick fill</small>'+
+      (r.testAt?'<small>Last retest '+Math.round((r.throughAt-r.testAt)/_chartTFDuration(r.tf))+' bars ago</small>':'')+
+      (!current?'<small>'+esc(r.note||'Waiting for the latest closed candle')+'</small>':'')+'</td>'+
+      '<td>'+esc(fmtPrice(r.low))+' – '+esc(fmtPrice(r.high))+'<small>Formed '+esc(fvgWatchTime(r.formedAt))+'</small></td>'+
+      '<td>'+fvgWatchFmt(distance/r.lastClose*100,'%')+' '+(r.lastClose>r.high?'above':r.lastClose<r.low?'below':'inside')+'<small>'+Math.round((r.throughAt-r.formedAt)/_chartTFDuration(r.tf))+' bars since formation</small><small>Close '+esc(fmtPrice(r.lastClose))+' · '+esc(fvgWatchTime(r.throughAt))+'</small></td>'+
+      '<td>BTC at formation: '+esc(r.conditions.formation?r.conditions.formation.btc.state:'Unknown')+fvgWatchEvidence(r)+'</td></tr>';
+  }).join('');
+  html+='</tbody></table>'+(rows.length?'':'<p style="padding:18px">No zones match this view. Try All / history or Unavailable / stale; this is not evidence of missing support.</p>')+'</div><div class="fvg-toolbar">Showing '+Math.min(rows.length,fvgWatch.limit)+' / '+rows.length+' zones'+(rows.length>fvgWatch.limit?' <button class="btn" onclick="fvgWatch.limit+=80;fvgWatchRender()">Show more</button>':'')+'</div>';
+  html+='<details><summary>Recent FVG alerts ('+fvgWatch.alerts.length+') · on-page only</summary><div class="fvg-alerts">'+(fvgWatch.alerts.length?fvgWatch.alerts.slice(0,30).map(function(a){return '<div>'+esc(a.sym+' · '+a.tf+' · '+a.source+' · '+a.type)+' — '+esc(fvgWatchTime(a.at))+(a.delayed?' · caught up from history':'')+'</div>';}).join(''):'No new events after baseline yet.')+'</div></details>'+
+    '<details><summary>Rules, coverage &amp; limits</summary><p>New = candle 3 low above candle 1 high after candle 3 closes; middle candle must span the gap. Minimum size 0.1 prior ATR (a noise filter, not a proven edge). First touch = a later completed candle overlaps the zone. Held = after a touch, a close above the upper edge. Continuation = a later non-touch candle closes above the most recent retest high. Failed = close below the lower edge; terminal. A wick fill is not automatically failure.</p>'+
+    '<p>Each alert type occurs once per zone / venue / timeframe. First scans and provider switches load historical baselines silently. “New” means not retested, not necessarily just formed; check its age. Missing history and stale/provider-mismatched data never count as current. Gap bounds never move. Formation searches the last 240 closed candles; saved zones continue when contiguous history is available. Retain newest 3,000 zones and 100 alerts in this browser only. Export for longer studies.</p>'+
+    '<p>Open chart loads that coin and timeframe; check the chart venue if exchange failover occurs. FVGs are descriptive patterns, not proof of orders or guaranteed continuation. Returns omit fees/slippage and are not trade outcomes. Keep timeframe cohorts separate when comparing.</p>'+
+    '<p>Unavailable checks: '+esc(Object.keys(fvgWatch.jobs).filter(function(k){var j=fvgWatch.jobs[k];return !j.ok&&fvgWatch.scope.indexOf(j.sym)>=0;}).map(function(k){var j=fvgWatch.jobs[k];return j.sym+' '+j.tf+': '+j.error;}).join(' · ')||'None')+'</p></details>';
+  root.innerHTML=html;
+  root.querySelectorAll('[data-fvg-open]').forEach(function(b){b.onclick=function(){fvgWatchOpen(b.dataset.fvgOpen);};});
+  root.querySelectorAll('tr[data-fvg-id]').forEach(function(el){if(open.includes(el.dataset.fvgId)){var d=el.querySelector('details');if(d)d.open=true;}});
+  scroll=root.querySelector('.fvg-scroll');if(scroll){scroll.scrollTop=top;scroll.scrollLeft=left;}
+  if(focused){input=root.querySelector('input[type=search]');input.focus({preventScroll:true});if(selection&&selection[0]!=null)input.setSelectionRange(selection[0],selection[1]);}
+}
+async function fvgWatchOpen(id){
+  var r=fvgWatch.records.find(function(v){return v.id===id;});if(!r)return;
+  var token=fvgWatch.openToken=(fvgWatch.openToken||0)+1;curSym=r.sym;
+  try{
+    var d=allData.find(function(v){return v.sym===r.sym;});
+    if(!d){var tickers=await bybitTickers([r.sym]);if(!tickers.length)throw Error('Ticker unavailable');d=await processSymbol(tickers[0],null,r.tf);}
+    if(token!==fvgWatch.openToken||curSym!==r.sym)return;if(!d)throw Error('Chart data unavailable');
+    window._d=d;modalTF=r.tf;document.getElementById('mpair').textContent=d.pair+' · '+r.tf+' · FVG watchlist';
+    document.getElementById('msnap').textContent='Watchlist zone: '+fmtPrice(r.low)+'–'+fmtPrice(r.high)+' · '+r.source+' · '+fvgWatchTime(r.formedAt)+'. Verify the chart venue before comparing levels.';
+    showOv('coin-ov');switchMTab('chart');chartState.fvgMode='all';chartState.fvgMinAtr=.1;chartState.sideTab='evidence';
+    if(chartState.btcFocus&&typeof setBTCFocus==='function')setBTCFocus(false);syncChartProUI();
+  }catch(e){fvgWatch.progress='Could not open '+r.sym+': '+String(e.message||e);fvgWatchRender();}
+}
+function fvgWatchExport(){
+  fvgWatchRestore();var blob=new Blob([JSON.stringify({version:1,method:'fvg-watch-v1',exportedAt:new Date().toISOString(),
+    note:'Closed-candle descriptive research, not trades. Contexts reconstructed as-of events. Returns omit costs; history/provider gaps may limit coverage.',
+    records:fvgWatch.records,jobs:fvgWatch.jobs,alerts:fvgWatch.alerts},null,2)],{type:'application/json'});
+  var url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='bullish_fvg_'+new Date().toISOString().slice(0,10)+'.json';
+  a.click();setTimeout(function(){URL.revokeObjectURL(url);},1000);
+}
+document.addEventListener('visibilitychange',function(){if(!document.hidden&&fvgWatch.started){if(fvgWatch.auto)fvgWatchScan(false);else fvgWatchRender();}});
+
+</script>
+<script data-bundled-source="chart-kie.js">
+'use strict';
+// Optional chart provider. No automatic requests, multi-provider fan-out or key migration.
+// Endpoint contracts checked against docs.kie.ai, 2026-10-04.
+var CHART_KIE_MODELS = Object.freeze({
+  'gemini-3.1-pro':{label:'Gemini 3.1 Pro via Kie',path:'/gemini-3.1-pro/v1/chat/completions'},
+  'gemini-3.8-flash':{label:'Gemini 3.8 Flash via Kie',path:'/gemini-3-8-flash-openai/v1/chat/completions'}
+});
+var chartKieSession = {direct:'',proxy:''};
+function chartKieConfigError(message){var e=Error(message);e.code='KIE_CONFIG';return e;}
+function chartKieStorageKey(mode){return mode==='direct'?'chart_kie_api_key':'chart_kie_proxy_token';}
+function chartKieConnection(){
+  var mode='proxy',model='gemini-3.1-pro',endpoint='',key='';
+  try{
+    mode=localStorage.getItem('chart_kie_mode')==='direct'?'direct':'proxy';
+    var saved=localStorage.getItem('chart_kie_model');if(Object.hasOwn(CHART_KIE_MODELS,saved))model=saved;
+    endpoint=(localStorage.getItem('chart_kie_proxy_url')||'').trim();
+    key=(chartKieSession[mode]||localStorage.getItem(chartKieStorageKey(mode))||'').trim();
+  }catch(e){key=chartKieSession[mode]||'';}
+  return {provider:'kie',mode:mode,model:model,endpoint:endpoint,key:key};
+}
+function chartKieProxyURL(value){
+  var u;try{u=new URL(value);}catch(e){throw chartKieConfigError('Enter your own HTTPS Kie proxy URL.');}
+  if(u.protocol!=='https:'||u.username||u.password||u.search||u.hash||u.hostname==='api.kie.ai')
+    throw chartKieConfigError('Proxy must be your own HTTPS URL, without credentials, query parameters or a fragment. Do not use the Kie API URL here.');
+  return u.href;
+}
+function chartKieMountSettings(){
+  var root=document.getElementById('chart-kie-settings');if(!root)return;
+  var c=chartKieConnection();root.hidden=false;
+  root.innerHTML='<p><label>Kie model <select id="chart-kie-model">'+Object.keys(CHART_KIE_MODELS).map(function(k){return '<option value="'+k+'">'+CHART_KIE_MODELS[k].label+'</option>';}).join('')+'</select></label></p>'+
+    '<p><label>Connection <select id="chart-kie-mode" onchange="chartKieModeChanged()"><option value="proxy">Protected proxy · recommended</option><option value="direct">Personal browser · key exposed to this page</option></select></label></p>'+
+    '<p id="chart-kie-proxy-row"><label>Your HTTPS proxy URL <input id="chart-kie-proxy-url" type="url" autocomplete="off" placeholder="https://your-worker.example/chart-ai" style="width:100%;box-sizing:border-box"></label></p>'+
+    '<p><label><input id="chart-kie-remember" type="checkbox"> Remember this credential on this device</label><br><small>Unchecked: memory only until reload. Neither choice hides credentials from scripts running on this page.</small></p>'+
+    '<p id="chart-kie-note" style="color:#ffcd72"></p><small>Kie is a third-party model gateway, not a source of live exchange data. Chat drawing/commentary only; other research panels remain Gemini / Groq. Set spending caps in your Kie dashboard. A browser timeout does not guarantee billing has stopped.</small>';
+  root.querySelector('#chart-kie-model').value=c.model;root.querySelector('#chart-kie-mode').value=c.mode;
+  root.querySelector('#chart-kie-proxy-url').value=c.endpoint;chartKieModeChanged();
+}
+function chartKieModeChanged(){
+  var mode=document.getElementById('chart-kie-mode').value,proxy=mode==='proxy',key='',remember=false;
+  try{remember=!!localStorage.getItem(chartKieStorageKey(mode));key=chartKieSession[mode]||localStorage.getItem(chartKieStorageKey(mode))||'';}catch(e){}
+  document.getElementById('chart-ai-saved-key').value='';document.getElementById('chart-kie-remember').checked=remember;
+  document.getElementById('chart-ai-key-label').textContent=proxy?'Proxy access token (not the Kie API key)':'Replacement Kie API key';
+  document.getElementById('chart-kie-proxy-row').hidden=!proxy;
+  document.getElementById('chart-kie-note').textContent=proxy?
+    'Your Kie API key stays on your server. Enter only that proxy’s separate access token below. Use a proxy you own and trust; it receives chart evidence. A deployable example is included in server/kie-worker.mjs.':
+    'Personal use only: this sends your key directly to api.kie.ai. Kie recommends server-side secrets. Never embed a shared key in the public site. Browser CORS may block direct requests; use the protected proxy if that happens. Revoke the key exposed in your screenshot first.';
+  document.getElementById('chart-ai-settings-status').textContent='Kie · '+(key?(remember?'credential saved on device (hidden)':'credential in memory (hidden)'):'no credential for this connection')+'. Save to select this provider.';
+}
+function chartKieSaveSettings(remove){
+  var mode=document.getElementById('chart-kie-mode').value,model=document.getElementById('chart-kie-model').value;
+  if(!['direct','proxy'].includes(mode)||!Object.hasOwn(CHART_KIE_MODELS,model))throw chartKieConfigError('Select a supported Kie connection and model.');
+  var name=chartKieStorageKey(mode),input=document.getElementById('chart-ai-saved-key').value.trim();
+  if(remove){localStorage.removeItem(name);chartKieSession[mode]='';return 'Selected Kie credential removed from memory and this device. Other providers are unchanged.';}
+  var url=mode==='proxy'?chartKieProxyURL(document.getElementById('chart-kie-proxy-url').value.trim()):'';
+  var key=input||chartKieSession[mode]||localStorage.getItem(name)||'';
+  if(!/^[A-Za-z0-9._~\-]{16,256}$/.test(key))throw chartKieConfigError('Enter a valid replacement Kie key or a separate proxy access token (16–256 characters, no spaces).');
+  var remember=document.getElementById('chart-kie-remember').checked;
+  // Validate everything before writes. API key and proxy token use separate slots.
+  localStorage.setItem('chart_kie_model',model);localStorage.setItem('chart_kie_mode',mode);
+  if(mode==='proxy')localStorage.setItem('chart_kie_proxy_url',url);
+  if(remember)localStorage.setItem(name,key);else localStorage.removeItem(name);
+  chartKieSession[mode]=key;localStorage.setItem('chart_ai_provider','kie');
+  return 'Kie selected · '+CHART_KIE_MODELS[model].label+' · '+(mode==='proxy'?'your protected proxy':'personal direct connection')+'. Credential '+(remember?'saved on this device.':'kept in memory only; re-enter after reload.');
+}
+function chartKieSettingsDirty(c){
+  var m=document.getElementById('chart-kie-mode'),model=document.getElementById('chart-kie-model'),url=document.getElementById('chart-kie-proxy-url');
+  if(!m||!model)return false;
+  return m.value!==c.mode||model.value!==c.model||c.mode==='proxy'&&url&&url.value.trim()!==c.endpoint;
+}
+function chartKieBody(body){
+  if(!body||!Array.isArray(body.messages)||!body.messages.length||body.messages.length>8)throw chartKieConfigError('Invalid Kie chart request.');
+  var messages=body.messages.map(function(m){
+    if(!m||!['system','user','assistant'].includes(m.role)||typeof m.content!=='string')throw chartKieConfigError('Kie accepts text chart evidence only.');
+    return {role:m.role,content:[{type:'text',text:m.content}]};
+  });
+  // Only documented model fields; do not forward Groq-specific parameters/tools.
+  if(body.response_format)messages.unshift({role:'system',content:[{type:'text',text:'Return only a JSON object in the requested schema. No markdown, invented IDs, tools or extra text.'}]});
+  var out={messages:messages,stream:false,include_thoughts:false,reasoning_effort:'low'};
+  if(new TextEncoder().encode(JSON.stringify(out)).length>22000)throw Error('Kie evidence exceeds the local size budget');
+  return out;
+}
+function chartKieResult(j,model){
+  var text='',finish='',choice=j&&j.choices&&j.choices[0],candidate=j&&j.candidates&&j.candidates[0];
+  if(choice){
+    var m=choice.message;if(!m||m.tool_calls||m.function_call||m.refusal)throw Error('Invalid Kie response: no answer text');
+    text=typeof m.content==='string'?m.content:'';finish=choice.finish_reason;
+  }else if(candidate){
+    var parts=candidate.content&&candidate.content.parts||[];
+    if(parts.some(function(p){return p.functionCall;}))throw Error('Invalid Kie response: unexpected tools');
+    text=parts.filter(function(p){return !p.thought&&typeof p.text==='string';}).map(function(p){return p.text;}).join('\n');
+    finish=candidate.finishReason==='STOP'?'stop':candidate.finishReason==='MAX_TOKENS'?'length':'invalid';
+  }
+  if(j&&j.error||!text.trim()||text.length>18000||!['stop','length'].includes(finish))throw Error('Invalid Kie response or no answer text');
+  return {provider:'kie',model:model,text:text,finishReason:finish,sources:[],searched:false,visited:false};
+}
+async function chartKieRequest(body,c,timeout,signal){
+  if(!c||c.provider!=='kie'||!['direct','proxy'].includes(c.mode)||!Object.hasOwn(CHART_KIE_MODELS,c.model))throw chartKieConfigError('Select a supported Kie model and connection.');
+  if(!c.key||!/^[A-Za-z0-9._~\-]{16,256}$/.test(c.key))throw chartKieConfigError('Add the selected Kie credential in AI settings.');
+  var direct=c.mode==='direct',url=direct?'https://api.kie.ai'+CHART_KIE_MODELS[c.model].path:chartKieProxyURL(c.endpoint);
+  var request=chartKieBody(body),payload=JSON.stringify(direct?request:{model:c.model,request:request});
+  if(signal&&signal.aborted){var cancelled=Error('Kie request cancelled');cancelled.name='AbortError';throw cancelled;}
+  var controller=new AbortController(),timer,onAbort;
+  try{return await Promise.race([
+    (async function(){
+      var response=await fetch(url,{method:'POST',credentials:'omit',redirect:'error',referrerPolicy:'no-referrer',signal:controller.signal,
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+c.key},body:payload});
+      // Never surface raw provider errors or URLs. They may echo credentials/evidence.
+      if(!response.ok){var error=Error('Kie HTTP '+response.status);error.status=response.status;throw error;}
+      var raw=await response.text();if(raw.length>100000)throw Error('Invalid Kie response: too large');
+      var j;try{j=JSON.parse(raw);}catch(e){throw Error('Invalid Kie response JSON');}
+      if(j&&Number(j.code)>=400){var rejected=Error('Kie HTTP '+Number(j.code));rejected.status=Number(j.code);throw rejected;}
+      return chartKieResult(j,c.model);
+    })(),
+    new Promise(function(resolve,reject){
+      timer=setTimeout(function(){controller.abort();reject(Error('Kie request timed out'));},Math.min(60000,Math.max(1000,timeout||45000)));
+      if(signal){onAbort=function(){controller.abort();var e=Error('Kie request cancelled');e.name='AbortError';reject(e);};signal.addEventListener('abort',onAbort,{once:true});}
+    })
+  ]);}catch(e){
+    if(e&&e.code==='KIE_CONFIG'||e&&e.name==='AbortError'||e&&e.status||/^(Invalid Kie response|Kie request timed out)/.test(String(e&&e.message)))throw e;
+    throw Error('Kie network request failed; check connectivity, CORS or proxy configuration');
+  }finally{clearTimeout(timer);if(signal&&onAbort)signal.removeEventListener('abort',onAbort);}
+}
+
+</script>
+<script data-bundled-source="swing-trading.js">
+'use strict';
+// Independent, deterministic spot research. No exchange orders or AI requests.
+var SWING_VERSION='swing-1.0', SWING_STORE='swing_paper_v1', _swingMode=false;
+var swing={tf:'4h',setup:'sweep',filter:'all',search:'',limit:50,auto:false,busy:false,checking:false,
+  rows:[],journal:[],loaded:false,storageError:'',progress:'Choose a setup, then scan.',costs:{fee:.1,slip:.1},timer:null,lastScan:0};
+function swingEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function swingPrice(v){return Number.isFinite(v)?Number(v).toLocaleString('en-US',{maximumSignificantDigits:7}):'Unknown';}
+function swingTime(v){return Number.isFinite(v)?new Date(v).toISOString().slice(0,16).replace('T',' ')+' UTC':'Unknown';}
+function setScreenerMode(mode){
+  if(!['trading','swing','investing'].includes(mode))return;
+  _swingMode=mode==='swing';_investMode=mode==='investing';applyTradeMode();
+}
+function swingSyncMode(){
+  document.body.classList.toggle('swing-mode',_swingMode);
+  var select=document.getElementById('trade-mode-select');if(select)select.value=_swingMode?'swing':_investMode?'investing':'trading';
+  var root=document.getElementById('swing-root');if(root)root.hidden=!_swingMode;
+  var hint=document.getElementById('m-mode-hint');if(hint&&_swingMode)hint.textContent='🌊 Swing: weekly context, daily direction and closed 4H/1D setups. Separate paper studies; no 1H sweep entries.';
+  ['trade','swing','invest'].forEach(function(k){var el=document.getElementById('m-mode-'+k);if(el){var active=k===(_swingMode?'swing':_investMode?'invest':'trade');el.setAttribute('aria-pressed',String(active));el.style.borderColor=active?'var(--bl)':'var(--bd)';el.style.color=active?'var(--bl)':'var(--t3)';}});
+  if(_swingMode){swingRestore();swingRender();}
+  if(!swing.timer)swing.timer=setInterval(function(){
+    if(!_swingMode||document.hidden)return;
+    if(swing.auto&&!swing.busy&&Date.now()-swing.lastScan>=300000)swingScan(false);else if(!document.activeElement||!document.activeElement.closest('#swing-root input'))swingRender();
+  },60000);
+}
+function swingFrame(rows,sym,tf,now){
+  var a=confluenceAnalyze(rows||[],sym,tf,now);
+  if(a.health!=='ready')return a;
+  if(!chartSnapshot(rows,sym,tf,now).volumeValid)return Object.assign(a,{health:'unknown',reason:'Missing or invalid completed-candle volume'});
+  var closed=rows.slice(0,-1),c=closed.map(function(b){return Number(b[4]);}),h=closed.map(function(b){return Number(b[2]);}),l=closed.map(function(b){return Number(b[3]);});
+  var forming=rows[rows.length-1];
+  return Object.assign(a,{closed:closed,atr:calcATR(h,l,c,14),sr:calcSR(h,l,c),live:Number(forming[4]),liveLow:Number(forming[3]),liveHigh:Number(forming[2])});
+}
+function swingRelative(coin,btc,days){
+  if(!coin||!btc||coin.health!=='ready'||btc.health!=='ready'||coin.source!==btc.source)return null;
+  var at=coin.closedAt-86400000,prior=at-days*86400000;
+  function prices(f){return [at,prior].map(function(t){var b=f.closed.find(function(b){return Number(b[0])===t;});return b&&Number(b[4]);});}
+  var a=prices(coin),b=prices(btc);if(!a.concat(b).every(function(p){return Number.isFinite(p)&&p>0;}))return null;
+  return ((a[0]/a[1]-1)-(b[0]/b[1]-1))*100;
+}
+function swingRegime(f){
+  if(!f||f.health!=='ready')return 'UNKNOWN';
+  var b=f.closed;
+  // Same descriptive market-regime rules as the sweep study, evaluated at this close.
+  var rows=b.slice();rows.dataSource=f.source;
+  return buildSweepContextFrame(rows,'BTCUSDT',f.tf,f.closedAt).regime;
+}
+function swingCosts(entry,stop,target,costs){
+  if(![entry,stop,target].every(Number.isFinite)||!(target>entry&&entry>stop&&stop>0)||
+    !costs||![costs.fee,costs.slip].every(function(v){return Number.isFinite(v)&&v>=0&&v<=2;}))return null;
+  var fee=costs.fee/100,slip=costs.slip/100,buy=entry*(1+slip)*(1+fee),sell=target*(1-slip)*(1-fee),loss=buy-stop*(1-slip)*(1-fee);
+  return loss>0?{debit:buy,risk:loss,reward:sell-buy,netR:(sell-buy)/loss}:null;
+}
+function swingDetect(frame,sym,tf,type){
+  var b=frame.closed,n=b.length,last=b[n-1],h=b.map(function(k){return Number(k[2]);}),l=b.map(function(k){return Number(k[3]);}),c=b.map(function(k){return Number(k[4]);});
+  var atr=frame.atr,entry=c[n-1];if(!(atr>0))return null;
+  if(type==='sweep'){
+    var copy=b.slice();copy.dataSource=frame.source;var ev=calcScannerLiquidity(copy,n-1,tf);
+    if(ev.valid&&ev.tag==='buy_sweep'&&ev.level>0)return {kind:'Sweep + reclaim',level:ev.level,low:ev.level-atr*.25,high:ev.level+atr*.25,entry:entry,stop:l[n-1]-atr*.25,evidence:ev.selected||null};
+  }
+  if(type==='pullback'){
+    var sr=calcSR(h.slice(0,-1),l.slice(0,-1),c.slice(0,-1));
+    var zone=(sr.supports||[]).slice().sort(function(a,b){return b.price-a.price;}).find(function(z){return l[n-1]<=z.high&&h[n-1]>=z.low&&entry>z.high&&entry>Number(last[1]);});
+    if(zone){
+      var fvgs=calcChartFVG(b,.1,_chartTFDuration(tf)).filter(function(z){return z.side==='bullish'&&z.reaction==='Held'&&z.high>=zone.low&&z.low<=zone.high;});
+      return {kind:'Support pullback',level:zone.price,low:zone.low,high:zone.high,entry:entry,stop:Math.min(zone.low,l[n-1])-atr*.25,fvg:fvgs.length>0};
+    }
+  }
+  if(type==='retest'){
+    for(var j=Math.max(55,n-7);j<n-1;j++){
+      var piv=confirmedStructurePivots(h.slice(0,j),l.slice(0,j),3,60).highs,ref=piv[piv.length-1];if(!ref)continue;
+      var a=calcATR(h.slice(0,j),l.slice(0,j),c.slice(0,j),14),level=ref.p;
+      var vs=b.slice(j-20,j).map(function(k){return Number(k[5]);});if(!vs.every(function(v){return Number.isFinite(v)&&v>=0;}))continue;
+      var avg=vs.reduce(function(s,v){return s+v;},0)/20;
+      if(!(a>0&&avg>0&&Number(b[j][5])/avg>=1.5&&c[j]>Number(b[j][1])&&c[j]>level+.1*a&&c[j-1]<=level+.1*a))continue;
+      for(var i=j+1;i<n;i++){
+        if(c[i]<level-.1*a)break;
+        if(l[i]<=level+.25*a&&h[i]>=level-.25*a&&c[i]>level&&c[i]>Number(b[i][1])){
+          if(i===n-1)return {kind:'Breakout + first retest',level:level,low:level-.25*a,high:level+.25*a,entry:entry,stop:Math.min.apply(null,l.slice(j+1,i+1))-.25*a,breakAt:Number(b[j][0])+_chartTFDuration(tf)};
+          break; // Do not reissue an already-confirmed first retest.
+        }
+      }
+    }
+  }
+  return null;
+}
+function swingAssess(sym,frames,btc,tf,type,costs,now,turnover){
+  var r={sym:sym,tf:tf,type:type,version:SWING_VERSION,checkedAt:now,status:'Data unavailable',reason:'Missing closed history',warnings:[],costs:Object.assign({},costs)};
+  var w=frames['1w'],d=frames['1d'],s=frames[tf],bd=btc['1d'],bt=btc[tf];
+  if([w,d,s,bd,bt].some(function(f){return !f||f.health!=='ready';})){r.reason=[['1W',w],['1D',d],[tf,s],['BTC 1D',bd],['BTC '+tf,bt]].filter(function(x){return !x[1]||x[1].health!=='ready';}).map(function(x){return x[0]+': '+(x[1]&&x[1].reason||'Unavailable');}).join(' · ');return r;}
+  r.source=s.source;r.signalAt=s.closedAt;r.until=s.closedAt+_chartTFDuration(tf);r.daily=d.structure.side+'/'+d.trend;r.weekly=w.structure.side+'/'+w.trend;
+  if(new Set([w,d,s,bd,bt].map(function(f){return f.source;})).size!==1){r.reason='Mixed exchanges; context cannot be combined.';return r;}
+  if(!Number.isFinite(turnover)||turnover<5000000){r.reason='Need a fresh reported 24h USDT turnover ≥5M; order-book depth still requires review.';return r;}
+  r.btc=swingRegime(bd);r.btcSetup=swingRegime(bt);r.rs7=swingRelative(d,bd,7);r.rs30=swingRelative(d,bd,30);
+  r.status='Watching';r.reason='Waiting for a fresh closed '+tf+' '+type+' confirmation.';
+  if(w.structure.side!=='bull'||w.trend!=='bull')r.warnings.push('Weekly not fully aligned');
+  if(r.btc==='RANGE')r.warnings.push('BTC daily range: trend continuation is less clear; review range location');
+  if(r.rs7!=null&&r.rs7<0)r.warnings.push('Underperforming BTC over 7 days');
+  var setup=swingDetect(s,sym,tf,type);if(setup){r.plan=setup;r.signalBar=s.closed[s.closed.length-1].slice(0,6).map(Number);r.id=[SWING_VERSION,s.source,sym,tf,type,s.closedAt].join('|');
+    var obstacles=(s.sr.resistances||[]).concat(d.sr.resistances||[],w.sr.resistances||[]).filter(function(z){return z.high>setup.entry;}).sort(function(a,b){return a.low-b.low;});
+    setup.target=obstacles.length?obstacles[0].low:null;setup.atr=s.atr;r.risk=swingCosts(setup.entry,setup.stop,setup.target,costs);
+  }
+  if(r.btc==='UNKNOWN'||r.btcSetup==='UNKNOWN'){r.status='Waiting';r.reason='BTC regime mixed/unknown by closed-candle rules; no automatic readiness.';return r;}
+  if(r.btc==='DOWNTREND'||r.btcSetup==='DOWNTREND'||w.structure.side==='bear'||w.trend==='bear'){
+    r.status='Waiting';r.reason='BTC downtrend or bearish weekly context opposes this spot-long study.';return r;
+  }
+  if(d.structure.side!=='bull'||d.trend!=='bull'){r.status='Waiting';r.reason='Daily confirmed higher highs/higher lows and EMA20/50 are not both bullish.';return r;}
+  if(!setup)return r;
+  if(!(setup.stop>0&&setup.entry>setup.stop)){r.status='Invalidated';r.reason='No valid structural stop.';return r;}
+  if(!r.risk||r.risk.netR<2){r.status='Waiting';r.reason=setup.target==null?'No verified resistance target; room is unknown.':'Nearest mapped resistance does not offer 2R after estimated costs.';return r;}
+  if(s.live<=setup.stop||s.liveLow<=setup.stop){r.status='Invalidated';r.reason='The current forming candle has reached the planned stop; not a fresh entry.';return r;}
+  if(s.live>setup.entry+.25*s.atr||s.live>=setup.target||s.liveHigh>=setup.target){r.status='Late';r.reason='Price is more than 0.25 ATR above confirmation, or the forming candle already reached target. Do not chase.';return r;}
+  r.status='Ready for review';r.reason='Closed-candle rules met. Check current spread/depth, events and risk. No fill or order is implied.';return r;
+}
+function swingFresh(r,now){return r&&Number.isFinite(r.checkedAt)&&now>=r.checkedAt&&now-r.checkedAt<900000&&Number.isFinite(r.until)&&now<r.until;}
+function swingScope(){
+  var rank=(document.getElementById('f-cap')||{}).value||'all';
+  var excluded=new Set(['USDTUSDT','USDCUSDT','DAIUSDT','FDUSDUSDT','TUSDUSDT','USDEUSDT','USDSUSDT','PYUSDUSDT']);
+  return Array.from(new Set(SYM.USDT||[])).filter(function(s){return /^[A-Z0-9]{1,30}USDT$/.test(s)&&!excluded.has(s)&&!/(UP|DOWN|BULL|BEAR|[235][LS])USDT$/.test(s)&&marketCapMatches(s,rank);})
+    .sort(function(a,b){return ((RANK[a]||99999)-(RANK[b]||99999))||a.localeCompare(b);}).slice(0,swing.limit);
+}
+function swingFetch(sym,tf,force){
+  var key=sym+'_'+tf+'_300',v=_klCache[key],now=Date.now();
+  if(force||!v||!v.data||now-(v.data.fetchedAt||0)>=900000||!chartSnapshot(v.data,sym,tf,now).usable)delete _klCache[key];
+  return bybitKlines(sym,tf,300);
+}
+async function swingScan(force){
+  if(swing.busy||document.hidden||!_swingMode)return;
+  swingRestore();swing.busy=true;var tf=swing.tf,type=swing.setup,costs=Object.assign({},swing.costs),scope=swingScope(),jobs=scope.slice(),done=0,btc={};
+  swing.rows=[];swing.progress='Loading BTC context · '+scope.length+' spot pairs';swingRender();
+  try{
+    for(var bt of ['1d','4h'])try{btc[bt]=swingFrame(await swingFetch('BTCUSDT',bt,force),'BTCUSDT',bt,Date.now());}catch(e){btc[bt]={health:'unknown',reason:'BTC feed unavailable'};}
+    async function worker(){
+      while(jobs.length&&_swingMode&&!document.hidden){
+        var sym=jobs.shift(),frames={};
+        for(var frame of ['1w','1d','4h'])try{frames[frame]=swingFrame(await swingFetch(sym,frame,force),sym,frame,Date.now());}catch(e){frames[frame]={health:'unknown',reason:'Candle request unavailable'};}
+        // Recheck cached context against current clock; a scan can cross a candle boundary.
+        var now=Date.now();Object.keys(btc).forEach(function(t){var f=btc[t];if(f.health==='ready'&&now>=f.closedAt+_chartTFDuration(t))btc[t]={health:'unknown',reason:'BTC context crossed a candle boundary; rescan'};});
+        Object.keys(frames).forEach(function(t){var f=frames[t];if(f.health==='ready'&&now>=f.closedAt+_chartTFDuration(t))frames[t]={health:'unknown',reason:'Candle boundary crossed; rescan'};});
+        var d=allData.find(function(d){return d.sym===sym&&!d._stale;});
+        swing.rows.push(swingAssess(sym,frames,btc,tf,type,costs,now,d&&Number.isFinite(d.vol24usd)?d.vol24usd:null));
+        done++;swing.progress='Checked '+done+'/'+scope.length+' · '+tf+' '+type;if(done%5===0)swingRender();
+      }
+    }
+    await Promise.all([worker(),worker(),worker()]);
+    swing.progress=(jobs.length?'Paused · ':'Scan complete · ')+done+'/'+scope.length+' pairs · '+swingTime(Date.now());
+    if(!scope.length)swing.progress='No pairs in this market-cap universe. Refresh ranks or select All scanned coins.';
+  }finally{swing.busy=false;swing.lastScan=Date.now();swingRender();}
+}
+function swingValidRecord(r){
+  return r&&r.version===SWING_VERSION&&typeof r.id==='string'&&/^[A-Z0-9]{1,30}USDT$/.test(r.sym)&&['4h','1d'].includes(r.tf)&&['sweep','pullback','retest'].includes(r.type)&&
+    ['Bybit','Binance','BingX'].includes(r.source)&&Number.isFinite(r.signalAt)&&Number.isFinite(r.observedAt)&&Number.isFinite(r.throughAt)&&r.throughAt>=r.signalAt&&Array.isArray(r.signalBar)&&r.signalBar.length===6&&r.signalBar.every(Number.isFinite)&&r.plan&&!!swingCosts(r.plan.entry,r.plan.stop,r.plan.target,r.costs)&&
+    ['Open','TP hit','SL hit','Timed out','Unclear'].includes(r.outcome)&&Number.isInteger(r.bars)&&r.bars>=0&&r.bars<=126;
+}
+function swingRestore(){
+  if(swing.loaded)return;swing.loaded=true;
+  try{var raw=JSON.parse(localStorage.getItem(SWING_STORE)||'[]');if(!Array.isArray(raw)||raw.length>2000||raw.some(function(r){return !swingValidRecord(r);})||new Set(raw.map(function(r){return r.id;})).size!==raw.length)throw Error('Invalid journal');swing.journal=raw;}
+  catch(e){swing.storageError='Swing journal unreadable. Existing storage is preserved; recording is disabled. Export/recover the original browser storage before replacing it.';}
+}
+function swingSave(){
+  if(swing.storageError)return false;
+  try{localStorage.setItem(SWING_STORE,JSON.stringify(swing.journal));return true;}catch(e){swing.storageError='Browser storage write failed. Export the in-memory journal now; these changes may not survive reload.';return false;}
+}
+function swingRecord(id){
+  swingRestore();var r=swing.rows.find(function(r){return r.id===id;});
+  if(swing.storageError||!r||r.status!=='Ready for review'||!swingFresh(r,Date.now())||swing.journal.some(function(x){return x.id===id;}))return;
+  if(swing.journal.length>=2000){swing.progress='Journal full (2,000); export it. No records were deleted.';swingRender();return;}
+  var copy=JSON.parse(JSON.stringify(r));copy.observedAt=Date.now();copy.throughAt=r.signalAt;copy.outcome='Open';copy.bars=0;copy.mfeR=0;copy.maeR=0;copy.netR=null;copy.health='Awaiting later closed candles';
+  swing.journal.unshift(copy);swingSave();swingRender();
+}
+function swingStudy(record,rows,now){
+  var r=JSON.parse(JSON.stringify(record));if(r.outcome!=='Open')return r;
+  var snap=chartSnapshot(rows||[],r.sym,r.tf,now);
+  if(!snap.usable||snap.source!==r.source){r.health='Unknown: missing, stale, gapped or different-venue history';return r;}
+  var dt=_chartTFDuration(r.tf),closed=rows.slice(0,-1),entryBar=closed.find(function(k){return Number(k[0])+dt===r.signalAt;});
+  if(!entryBar){r.health='Unknown: original signal candle is outside available history';return r;}
+  if(Number(entryBar[4])!==r.plan.entry||entryBar.slice(0,6).some(function(v,i){return Number(v)!==r.signalBar[i];})){r.health='Unknown: source revised the original signal candle';return r;}
+  var later=closed.filter(function(k){return Number(k[0])>=r.throughAt;});
+  if(later.length&&Number(later[0][0])!==r.throughAt){r.health='Unknown: outcome history has a gap';return r;}
+  var costs=swingCosts(r.plan.entry,r.plan.stop,r.plan.target,r.costs),f=r.costs.fee/100,s=r.costs.slip/100,maxBars=r.tf==='4h'?126:21;
+  function net(p){return (p*(1-s)*(1-f)-costs.debit)/costs.risk;}
+  for(var k of later){
+    var o=Number(k[1]),h=Number(k[2]),l=Number(k[3]),c=Number(k[4]),stop=l<=r.plan.stop,tp=h>=r.plan.target;
+    r.bars++;r.throughAt=Number(k[0])+dt;
+    var exit=null;
+    if(o<=r.plan.stop){r.outcome='SL hit';exit=o;}
+    else if(o>=r.plan.target){r.outcome='TP hit';exit=r.plan.target;}
+    else if(stop&&tp){r.outcome='Unclear';}
+    else if(stop){r.outcome='SL hit';exit=r.plan.stop;}
+    else if(tp){r.outcome='TP hit';exit=r.plan.target;}
+    else if(r.bars>=maxBars){r.outcome='Timed out';exit=c;}
+    // Only complete pre-exit bars: terminal-bar path is not observable from OHLC.
+    if(r.outcome==='Open'){r.mfeR=Math.max(r.mfeR,net(h));r.maeR=Math.max(r.maeR,-net(l));r.markR=net(c);}
+    if(r.outcome!=='Open'){r.netR=exit==null?null:net(exit);r.exit=exit;r.exitedAt=r.throughAt;break;}
+  }
+  r.health=r.outcome==='Unclear'?'Both levels touched; intrabar order unknown':'Verified same-venue closed history';return r;
+}
+async function swingCheckOutcomes(){
+  swingRestore();if(swing.checking||swing.storageError)return;swing.checking=true;swingRender();
+  try{
+    var groups={};swing.journal.filter(function(r){return r.outcome==='Open';}).forEach(function(r){var k=r.source+'|'+r.sym+'|'+r.tf;(groups[k]||(groups[k]=[])).push(r);});
+    for(var key of Object.keys(groups)){
+      var g=groups[key],sample=g[0];try{var rows=await swingFetch(sample.sym,sample.tf,true);g.forEach(function(r){var ix=swing.journal.findIndex(function(x){return x.id===r.id;});swing.journal[ix]=swingStudy(r,rows,Date.now());});}
+      catch(e){g.forEach(function(r){r.health='Unknown: outcome feed unavailable';});}
+    }
+    swingSave();
+  }finally{swing.checking=false;swingRender();}
+}
+function swingStats(rows){
+  var decided=rows.filter(function(r){return ['TP hit','SL hit'].includes(r.outcome);}),exits=rows.filter(function(r){return ['TP hit','SL hit','Timed out'].includes(r.outcome)&&Number.isFinite(r.netR);});
+  var seq=exits.slice().sort(function(a,b){return a.exitedAt-b.exitedAt;}),sum=0,peak=0,dd=0;
+  seq.forEach(function(r){sum+=r.netR;peak=Math.max(peak,sum);dd=Math.max(dd,peak-sum);});
+  return {count:rows.length,resolved:exits.length,decided:decided.length,wins:decided.filter(function(r){return r.outcome==='TP hit';}).length,
+    average:exits.length?sum/exits.length:null,drawdown:exits.length?dd:null,hold:exits.length?exits.reduce(function(s,r){return s+(r.exitedAt-r.signalAt)/86400000;},0)/exits.length:null};
+}
+function swingChange(key,value){
+  if(swing.busy&&['tf','setup','limit','fee','slip'].includes(key))return;
+  if(key==='tf'&&['4h','1d'].includes(value)||key==='setup'&&['sweep','pullback','retest'].includes(value)){swing[key]=value;swing.rows=[];}
+  else if(key==='limit'&&[50,100,200].includes(Number(value))){swing.limit=Number(value);swing.rows=[];}
+  else if(key==='filter'&&['all','ready','journal'].includes(value))swing.filter=value;
+  else if(key==='search')swing.search=String(value).toUpperCase().slice(0,30);
+  else if(key==='auto')swing.auto=!!value;
+  else if(['fee','slip'].includes(key)){
+    var n=Number(value);if(value===''||!Number.isFinite(n)||n<0||n>2){swing.progress='Costs must be 0–2% per side.';swingRender(true);return;}
+    swing.costs[key]=n;swing.rows=[];
+  }
+  swingRender(true);
+}
+function swingExport(){
+  swingRestore();var a=document.createElement('a'),url=URL.createObjectURL(new Blob([JSON.stringify({version:SWING_VERSION,exportedAt:Date.now(),journal:swing.journal,latestScan:swing.rows},null,2)],{type:'application/json'}));
+  a.href=url;a.download='swing_study_'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(function(){URL.revokeObjectURL(url);},1000);
+}
+function swingOpenChart(sym,tf){
+  if(!/^[A-Z0-9]{1,30}USDT$/.test(sym)||!['4h','1d'].includes(tf))return;
+  var d=allData.find(function(d){return d.sym===sym;});if(!d){swing.progress='Refresh the main scanner for this pair before opening its chart.';swingRender();return;}
+  openModal(sym);modalTF=tf;
+  document.querySelectorAll('.modal-tf-btn').forEach(function(b){b.classList.toggle('active',b.id==='mtf-'+tf);});
+  document.getElementById('mpair').textContent=d.pair+' · '+tf+' · Swing study';
+  document.getElementById('msnap').textContent='Swing study: verify chart venue against the saved setup. Main scanner metrics are not this timeframe. See Swing watchlist for frozen entry, stop and target.';
+  switchMTab('chart');
+  if(chartState.btcFocus&&typeof setBTCFocus==='function')setBTCFocus(false);
+}
+function swingDetailKey(el){
+  var summary=el.querySelector('summary'),owner=el.closest('article, tr'),label=owner&&owner.querySelector('strong, td');
+  return (summary?summary.textContent:'')+'|'+(label?label.textContent:'');
+}
+function swingRender(force){
+  var root=document.getElementById('swing-root');if(!root)return;root.hidden=!_swingMode;if(!_swingMode)return;
+  // Main ticker renders must not discard edits or close evidence being read.
+  var focus=document.activeElement;
+  if(!force&&root.contains&&root.contains(focus)&&['INPUT','SELECT'].includes(focus.tagName))return;
+  var expanded=root.querySelectorAll?Array.from(root.querySelectorAll('details[open]')).map(swingDetailKey):[];
+  var scrolls=root.querySelectorAll?Array.from(root.querySelectorAll('.sw-scroll')).map(function(x){return x.scrollLeft;}):[];
+  swingRestore();var busy=swing.busy?' disabled':'',now=Date.now();
+  function select(key,items){return '<select aria-label="Swing '+key+'" onchange="swingChange(\''+key+'\',this.value)"'+(['setup','tf','limit'].includes(key)?busy:'')+'>'+items.map(function(x){return '<option value="'+x[0]+'"'+(String(swing[key])===String(x[0])?' selected':'')+'>'+x[1]+'</option>';}).join('')+'</select>';}
+  var h='<style>body.swing-mode .tbl-wrap,body.swing-mode #m-sort-bar,body.swing-mode #m-cards-body{display:none!important}#swing-root{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin:12px 0;color:var(--text)}#swing-root [hidden]{display:none!important}.sw-head,.sw-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.sw-head{justify-content:space-between}.sw-controls{margin:12px 0}.sw-controls label{font-size:12px}.sw-controls select,.sw-controls input{padding:7px;background:var(--card);color:var(--text);border:1px solid var(--bd);border-radius:6px}.sw-note{font-size:12px;line-height:1.65;color:var(--t2);margin:8px 0}.sw-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:12px;margin:14px 0}.sw-item{background:var(--card2);border:1px solid var(--bd);border-radius:10px;padding:14px;line-height:1.6}.sw-badge{border:1px solid var(--bd);border-radius:12px;padding:3px 8px;font-size:11px}.sw-levels{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0;font-size:12px}.sw-item summary{cursor:pointer;font-size:12px}.sw-scroll{overflow:auto}.sw-scroll table{width:100%;min-width:650px;font-size:12px}.sw-scroll td,.sw-scroll th{padding:9px;text-align:left;border-bottom:1px solid var(--bd)}.sw-error{color:var(--r)}#swing-root button{min-height:32px}</style>';
+  h+='<div class="sw-head"><div><h3>🌊 Swing Trading · spot watchlist</h3><div class="sw-note">Weekly context → daily direction → 4H / daily confirmation · '+SWING_VERSION+'</div></div><div><button class="btn" onclick="swingScan(true)"'+busy+'>'+(swing.busy?'Scanning…':'↻ Scan swing setups')+'</button> <button class="btn" onclick="swingExport()">Export study</button></div></div>';
+  h+='<div class="sw-controls"><label>Setup '+select('setup',[['sweep','Sweep + reclaim'],['pullback','Support pullback'],['retest','Breakout + first retest']])+'</label><label>Confirmation '+select('tf',[['4h','4H'],['1d','1D']])+'</label><label>Max pairs '+select('limit',[[50,50],[100,100],[200,200]])+'</label><label>View '+select('filter',[['all','All states'],['ready','Ready for review'],['journal','Paper journal']])+'</label><label>Find coin <input aria-label="Swing coin search" placeholder="BTC, ETH, SOL…" value="'+swingEsc(swing.search)+'" onchange="swingChange(\'search\',this.value)"></label><label><input type="checkbox" onchange="swingChange(\'auto\',this.checked)"'+(swing.auto?' checked':'')+'> Auto · while visible</label></div>';
+  h+='<div class="sw-controls"><label>Fee % / side <input aria-label="Swing fee per side" type="number" min="0" max="2" step="0.01" value="'+swing.costs.fee+'" onchange="swingChange(\'fee\',this.value)"'+busy+' style="width:80px"></label><label>Slippage % / side <input aria-label="Swing slippage per side" type="number" min="0" max="2" step="0.01" value="'+swing.costs.slip+'" onchange="swingChange(\'slip\',this.value)"'+busy+' style="width:80px"></label><span class="sw-note">Assumptions, not measured execution costs. Existing journal levels/costs never change.</span></div>';
+  h+='<p class="sw-note">Uses the market-cap filter above, up to the selected number of ranked USDT pairs. Other Trading filters and scanner TF do not apply. Stablecoin/leveraged-token exclusions are heuristic. Requires fresh main-scan turnover ≥5M USDT; turnover does not prove order-book liquidity. No 1H sweep entries.</p><p role="status" class="sw-note">'+swingEsc(swing.progress)+'</p>';
+  h+='<details><summary>Rules, limitations & risk</summary><div class="sw-note">Paper research, not trade advice or execution. Requires closed same-venue candles, bullish daily confirmed structure + EMA20/50, no bearish weekly context and no BTC daily/setup downtrend. Mixed/unknown BTC regime blocks readiness; a weekly mixed trend is a warning. Sweep uses the existing confirmed detector. Pullback must touch a previously mapped support and close green above it; FVG is evidence only. Retest requires a closed green breakout with ≥1.5× prior-20-bar volume and +0.1 ATR clearance, then the first green retest within six later bars; a close below level −0.1 ATR cancels it. Stop is below the setup low/support minus 0.25 ATR; target is nearest mapped setup/daily/weekly resistance. Require ≥2R net; missing target never means unlimited room. Live price >0.25 ATR above confirmation is Late. ATR settings are test parameters, not a validated edge.<br>1H refinement is optional via the normal chart; it cannot create a Swing signal. Check depth/spread and events manually. Use a separately chosen risk budget, never widen stops, and account for correlated alt positions. Stops may slip. This browser cannot monitor while closed.<br>Paper studies assume entry at signal close, possibly before you discovered it—not an actual fill or forward-live entry. Follow up for 21 days maximum. Outcomes use later completed candles only; same-bar TP/SL without an opening gap is Unclear. MFE/MAE omit the exit candle because its price path is unknown. Reports exclude open/unclear results from mean R; sample sizes and selection bias matter. Test unchanged rules on later data.</div></details>';
+  var rows=swing.rows.filter(function(r){return (!swing.search||r.sym.includes(swing.search))&&(swing.filter!=='ready'||r.status==='Ready for review'&&swingFresh(r,now));});
+  rows.sort(function(a,b){return (b.status==='Ready for review'?1:0)-(a.status==='Ready for review'?1:0)||(b.risk?b.risk.netR:-1)-(a.risk?a.risk.netR:-1);});
+  if(swing.filter!=='journal'){
+    h+='<div class="sw-grid">';
+    rows.forEach(function(r){var fresh=swingFresh(r,now),state=fresh||r.status==='Data unavailable'?r.status:'Refresh required',p=r.plan,recorded=swing.journal.some(function(x){return x.id===r.id;});
+      h+='<article class="sw-item"><div class="sw-head"><strong>'+swingEsc(r.sym.replace(/USDT$/,'/USDT'))+' · '+r.tf+'</strong><span class="sw-badge" style="color:'+(state==='Ready for review'?'var(--g)':'var(--am)')+'">'+state+'</span></div><p class="sw-note">'+swingEsc(r.reason)+'</p>';
+      if(r.source)h+='<div class="sw-note">'+swingEsc(r.source)+' · Signal close '+swingTime(r.signalAt)+'<br>Daily '+swingEsc(r.daily)+' · Weekly '+swingEsc(r.weekly)+'<br>BTC daily '+swingEsc(r.btc||'UNKNOWN')+' / '+r.tf+' '+swingEsc(r.btcSetup||'UNKNOWN')+'<br>vs BTC 7d / 30d: '+(r.rs7==null?'Unknown':r.rs7.toFixed(2)+' pp')+' / '+(r.rs30==null?'Unknown':r.rs30.toFixed(2)+' pp')+'</div>';
+      if(p)h+='<div class="sw-levels"><div>Confirmation entry<br><strong>'+swingPrice(p.entry)+'</strong></div><div>Structural stop<br><strong>'+swingPrice(p.stop)+'</strong></div><div>Resistance target<br><strong>'+swingPrice(p.target)+'</strong></div><div>After costs<br><strong>'+(r.risk?r.risk.netR.toFixed(2)+'R':'Unknown')+'</strong></div></div><details><summary>Setup evidence</summary><div class="sw-note">'+swingEsc(p.kind)+' · support/retest zone '+swingPrice(p.low)+'–'+swingPrice(p.high)+(p.fvg?' · Overlapping held bullish FVG':'')+'<br>Reference close only; no fill. '+swingEsc(r.warnings.join(' · '))+'</div></details>';
+      h+='<button class="btn" onclick="swingOpenChart(\''+r.sym+'\',\''+r.tf+'\')">Open '+r.tf+' chart</button> ';
+      if(p)h+='<button class="btn" onclick="swingRecord(\''+swingEsc(r.id)+'\')"'+(state!=='Ready for review'||recorded||swing.storageError?' disabled':'')+'>'+(recorded?'Recorded':'Record paper study')+'</button>';
+      h+='</article>';
+    });h+='</div>';if(!rows.length)h+='<p class="sw-note">No matching setups. Scan first, or review All states for waiting/data reasons.</p>';
+  }
+  h+=swingJournalHTML();root.innerHTML=h;
+  if(root.querySelectorAll){root.querySelectorAll('details').forEach(function(d){if(expanded.includes(swingDetailKey(d)))d.open=true;});root.querySelectorAll('.sw-scroll').forEach(function(x,i){x.scrollLeft=scrolls[i]||0;});}
+}
+function swingJournalHTML(){
+  var rows=swing.journal.filter(function(r){return !swing.search||r.sym.includes(swing.search);}),stats=swingStats(rows);
+  var h='<h3>Separate Swing paper journal</h3><p class="sw-note">'+rows.length+' studies · '+stats.resolved+' resolved including time-outs · '+(stats.decided?(100*stats.wins/stats.decided).toFixed(1)+'% TP hit ('+stats.wins+'/'+stats.decided+' TP-or-SL)':'TP rate unavailable')+' · Mean net R '+(stats.average==null?'Unknown':stats.average.toFixed(2))+' · Closed-study drawdown '+(stats.drawdown==null?'Unknown':stats.drawdown.toFixed(2)+'R')+' · Mean hold '+(stats.hold==null?'Unknown':stats.hold.toFixed(1)+'d')+'</p><p class="sw-note">Equal-risk closed-study sequence, not portfolio equity. These are manually selected historical-close studies, not your actual trading win rate.</p><button class="btn" onclick="swingCheckOutcomes()"'+(swing.checking||swing.storageError?' disabled':'')+'>'+(swing.checking?'Checking…':'Check outcomes')+'</button>';
+  if(swing.storageError)h+='<p class="sw-error">'+swingEsc(swing.storageError)+'</p>';
+  var groups={};rows.forEach(function(r){var key=r.tf+' · '+r.type+' · BTC '+r.btc+' · Weekly '+r.weekly;(groups[key]||(groups[key]=[])).push(r);});
+  h+='<details><summary>Compare timeframe, setup, BTC regime & weekly alignment</summary><div class="sw-scroll"><table><thead><tr><th>Condition at signal</th><th>Studies / resolved</th><th>TP / decided</th><th>Mean net R</th></tr></thead><tbody>';
+  Object.keys(groups).forEach(function(k){var s=swingStats(groups[k]);h+='<tr><td>'+swingEsc(k)+'</td><td>'+s.count+' / '+s.resolved+'</td><td>'+s.wins+' / '+s.decided+'</td><td>'+(s.average==null?'Unknown':s.average.toFixed(2))+'</td></tr>';});
+  h+='</tbody></table></div></details><div class="sw-scroll"><table><thead><tr><th>Coin / setup</th><th>Frozen entry / stop / target</th><th>Outcome</th><th>Evidence</th></tr></thead><tbody>';
+  rows.slice(0,100).forEach(function(r){h+='<tr><td>'+swingEsc(r.sym)+' · '+r.tf+'<br>'+swingEsc(r.type)+'<br>'+swingTime(r.signalAt)+'</td><td>'+swingPrice(r.plan.entry)+' / '+swingPrice(r.plan.stop)+' / '+swingPrice(r.plan.target)+'</td><td>'+swingEsc(r.outcome)+(Number.isFinite(r.netR)?' · '+r.netR.toFixed(2)+'R':'')+'</td><td><details><summary>History / costs</summary>'+swingEsc(r.health)+'<br>Observed '+swingTime(r.observedAt)+'<br>Checked through '+swingTime(r.throughAt)+'<br>'+swingEsc(r.source)+' · BTC '+swingEsc(r.btc)+'<br>Fee '+r.costs.fee+'% + slip '+r.costs.slip+'% each side<br>Pre-exit-bar MFE / MAE '+Number(r.mfeR||0).toFixed(2)+'R / '+Number(r.maeR||0).toFixed(2)+'R</details></td></tr>';});
+  return h+'</tbody></table></div><p class="sw-note">Showing latest '+Math.min(rows.length,100)+' of '+rows.length+' matching studies; export contains all. Local browser only. Original Buy Sweep, FVG and Investing logs are untouched.</p>';
+}
+document.addEventListener('visibilitychange',function(){if(!document.hidden&&_swingMode){if(swing.auto)swingScan(false);else swingRender();}});
+
+</script>
 </body>
 </html>
