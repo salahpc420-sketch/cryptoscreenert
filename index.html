@@ -796,7 +796,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
     <button id="btc-filter-btn" class="btn" onclick="toggleBTCFilter()" title="BTC Trend Filter — only show buy signals when BTC score ≥ 52" style="color:var(--g);border-color:var(--g)">₿ ON</button>
     <button id="precision-btn" class="btn" onclick="togglePrecision()" title="Precision Mode — tighter experimental filter. No validated win rate. Test separately on real, later data after costs." style="color:var(--t3)">🎯 Precision: OFF</button>
     <button class="btn" id="auto-btn" onclick="toggleAuto()">⏱ Auto Off</button>
-    <button class="btn" id="trade-mode-btn" onclick="toggleTradeMode()" title="Trading = short-term setups. Investing = separate closed daily/weekly technical watchlist, not a valuation or buy signal." style="color:var(--g);border-color:var(--g);font-weight:700">🎯 Trading</button>
+    <select class="btn" id="trade-mode-select" aria-label="Scanner mode" onchange="setScreenerMode(this.value)"><option value="trading">🎯 Trading</option><option value="swing">🌊 Swing Trading</option><option value="investing">💎 Investing</option></select>
     <button class="btn" id="view-mode-btn" onclick="toggleViewMode()" title="Basic shows just the essentials; Advanced shows every metric column." style="color:var(--t3)">📊 Basic view</button>
     <span class="lupd" id="lupd"></span>
     <span id="data-source-badge" style="font-size:10px;color:var(--t3);background:var(--card3);padding:2px 8px;border-radius:99px;margin-left:6px"></span>
@@ -1099,6 +1099,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 <div class="toast-wrap" id="toast-wrap"></div>
 <!-- TABLE -->
 <details style="padding:8px 12px;font-size:12px;color:var(--t2)"><summary style="cursor:pointer">Row metrics · 2026.09.13-r3 · Base Q replaces Accum</summary><p>Volume ratio = average of the last 3 closed candles ÷ average of the preceding 18, using quote turnover. Hover over a price or volume cell, or open the coin’s score details, for timeframe, source and last-close time. Estimated turnover is labelled. Missing observations are Unknown and block signal eligibility.</p><p>Base Q measures candle-based range/volume contraction and relative strength; it does not establish wallet buying. Declining bases receive no base-quality credit. T+B combines uptrend and base quality; neither is a probability. Quiet ranges do not imply an upward breakout.</p></details>
+<section id="swing-root" hidden aria-label="Swing trading watchlist"></section>
 <div class="tbl-wrap">
   <table>
     <thead><tr>
@@ -1132,6 +1133,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
   <!-- Mobile mode switcher — big, thumb-friendly -->
   <div id="m-mode-switch" style="display:flex;gap:6px;margin-bottom:8px">
     <button id="m-mode-trade" onclick="setMobileMode(false)" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid var(--g);background:rgba(38,166,154,.12);color:var(--g);font-weight:800;font-size:13px;font-family:inherit;cursor:pointer">🎯 Trading</button>
+    <button class="btn" id="m-mode-swing" onclick="setScreenerMode('swing')" style="flex:1">🌊 Swing</button>
     <button id="m-mode-invest" onclick="setMobileMode(true)" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid var(--bd);background:var(--card);color:var(--t3);font-weight:800;font-size:13px;font-family:inherit;cursor:pointer">💎 Investing</button>
   </div>
   <div id="m-mode-hint" style="font-size:10px;color:var(--t3);margin-bottom:8px;line-height:1.4;padding:0 2px"></div>
@@ -5242,13 +5244,11 @@ function exportInvestmentJournal(){
   var url=URL.createObjectURL(new Blob([JSON.stringify({version:1,purchases:rows,riskNotes:risks},null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='investing-journal-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(function(){URL.revokeObjectURL(url);},1000);
 }
 function toggleTradeMode(){
-  _investMode = !_investMode;
-  applyTradeMode();
+  setScreenerMode(_swingMode?'investing':_investMode?'trading':'swing');
 }
 // Mobile entry point — sets mode directly (not toggle) from the two buttons
 function setMobileMode(invest){
-  _investMode = invest;
-  applyTradeMode();
+  setScreenerMode(invest?'investing':'trading');
 }
 function applyTradeMode(){
   var btn = document.getElementById('trade-mode-btn');
@@ -5285,12 +5285,14 @@ function applyTradeMode(){
   renderModeBanner();
   if(_investMode)refreshInvestmentData();
   if(allData.length) render();
+  if(typeof swingSyncMode==='function')swingSyncMode();
 }
 
 function renderModeBanner(){
   var id='mode-banner';
   var existing=document.getElementById(id);
   if(existing) existing.remove();
+  if(typeof _swingMode!=='undefined'&&_swingMode){swingRender();return;}
   var banner=document.createElement('div');
   banner.id=id;
   if(_investMode){
@@ -5330,6 +5332,7 @@ function sc2(label, val, col){
 }
 
 function render() {
+  if(typeof _swingMode!=='undefined'&&_swingMode)swingRender();
   applyInvestmentSnapshots();
   var sf=document.getElementById('f-sig').value;
   var cf=document.getElementById('f-cat').value;
@@ -18902,24 +18905,32 @@ function chartAIResearchGuideHTML(){
   return '<details id="chart-ai-rulebook"><summary>Chart brain · research rules · 2026.10.01-r2</summary><p>Enabled for Ask AI · draw and chart explanations with Gemini or Groq. Each manual request checks independent weekly, daily and 4H closed candles on the same exchange (up to three extra market-data requests; still one AI call). Optional 15m is used only when selected. Missing, stale or different-exchange data cannot confirm alignment.</p><p>Open AI levels for source timestamps, original zone bounds, confirming/break/retest candles, 4H sweep stages and levels outside the viewport. Inactive unfilled plans are hidden by default but can be inspected there. Recorded positions remain unchanged.</p><p>Zones first; fixed confirmed anchors; failure conditions before targets. This combines deterministic display rules with prompt guidance, not model training or a backtested edge. No orders or automatic plan changes.</p><p>Sources: <a href="https://www.cmegroup.com/education/courses/technical-analysis/support-and-resistance" target="_blank" rel="noopener noreferrer">CME zones</a> · <a href="https://www.fidelity.com/learning-center/trading-investing/technical-analysis/basic-concepts-trend" target="_blank" rel="noopener noreferrer">Fidelity trends</a> · <a href="https://www.smbtraining.com/blog/reading-the-tape-in-multiple-time-frames" target="_blank" rel="noopener noreferrer">SMB timeframes</a> · <a href="https://www.smbtraining.com/blog/wp-content/uploads/2024/03/Technical-Analysis-Range-Break-Trading-Cheat-Sheet.pdf" target="_blank" rel="noopener noreferrer">SMB ranges</a> · <a href="https://www.cmegroup.com/education/courses/building-a-trade-plan/trading-strategies-in-your-trade-plan" target="_blank" rel="noopener noreferrer">CME risk planning</a></p></details>';
 }
 function chartAIConnection(){
-  var provider='groq',key='';try{provider=localStorage.getItem('chart_ai_provider')==='gemini'?'gemini':'groq';key=(localStorage.getItem(provider==='gemini'?'gemini_research_key':'groq_key')||'').trim();}catch(e){}
+  var provider='groq',key='';try{var selected=localStorage.getItem('chart_ai_provider');provider=['gemini','groq','kie'].includes(selected)?selected:'groq';if(provider==='kie')return chartKieConnection();key=(localStorage.getItem(provider==='gemini'?'gemini_research_key':'groq_key')||'').trim();}catch(e){}
   return {provider:provider,key:key};
 }
 function openChartAISettings(){
   var old=document.getElementById('chart-ai-settings');if(old)old.remove();
   var panel=document.createElement('section');panel.id='chart-ai-settings';panel.style.cssText='position:fixed;z-index:100002;top:90px;right:18px;width:min(390px,calc(100vw - 36px));max-height:75vh;overflow:auto;padding:16px;background:#17232d;color:#d1d4dc;border:1px solid #8195ae;border-radius:9px;font:13px/1.6 sans-serif';
-  panel.innerHTML='<button class="btn" style="float:right" onclick="document.getElementById(\'chart-ai-settings\').remove()">Close</button><h3>Chart AI settings</h3><p>Keys are saved on this browser/device only, not in public HTML. Scripts or extensions can access browser storage. Do not use a shared device. These keys are shared with existing Groq / Gemini research settings.</p><label>Provider <select id="chart-ai-provider" onchange="chartAISettingsStatus()"><option value="gemini">Gemini</option><option value="groq">Groq</option></select></label><p><label>API key <input id="chart-ai-saved-key" type="password" autocomplete="off" placeholder="Enter a new key to save" style="width:100%;box-sizing:border-box"></label></p><button class="btn" onclick="saveChartAISettings(false)">Save</button> <button class="btn" onclick="saveChartAISettings(true)">Remove selected key</button> <button class="btn" id="chart-ai-test" onclick="testChartAIConnection()">Test saved connection</button><p id="chart-ai-settings-status" role="status"></p><small>Requests go directly to the selected provider. Each test or analysis may use quota. No automatic provider fallback.</small>';
+  panel.innerHTML='<button class="btn" style="float:right" onclick="document.getElementById(\'chart-ai-settings\').remove()">Close</button><h3>Chart AI settings</h3><p>Choose one provider for chart drawing and commentary. Gemini / Groq keys remain shared with their research settings; Kie credentials are separate. Browser-held credentials can be accessed by scripts or extensions. Never publish a key in HTML.</p><label>Provider <select id="chart-ai-provider" onchange="chartAISettingsStatus()"><option value="gemini">Gemini</option><option value="groq">Groq</option><option value="kie">Kie</option></select></label><div id="chart-kie-settings" hidden></div><p><label><span id="chart-ai-key-label">API key</span> <input id="chart-ai-saved-key" type="password" autocomplete="off" placeholder="Enter a new credential" style="width:100%;box-sizing:border-box"></label></p><button class="btn" onclick="saveChartAISettings(false)">Save</button> <button class="btn" onclick="saveChartAISettings(true)">Remove selected key</button> <button class="btn" id="chart-ai-test" onclick="testChartAIConnection()">Test saved connection</button><p id="chart-ai-settings-status" role="status"></p><small>One provider per request. Each test or analysis may use paid quota. No automatic retry or provider fallback. Configure spending limits with your provider.</small>';
   panel.innerHTML+=chartAIResearchGuideHTML();
   (document.getElementById('coin-ov')||document.body).appendChild(panel);panel.querySelector('select').value=chartAIConnection().provider;chartAISettingsStatus();
 }
 function chartAISettingsStatus(){
   var p=document.getElementById('chart-ai-provider');if(!p)return;
+  var kie=document.getElementById('chart-kie-settings');if(kie)kie.hidden=p.value!=='kie';
+  if(p.value==='kie'){chartKieMountSettings();return;}
+  var label=document.getElementById('chart-ai-key-label');if(label)label.textContent='API key';
   var key='';try{key=localStorage.getItem(p.value==='gemini'?'gemini_research_key':'groq_key')||'';}catch(e){}
   document.getElementById('chart-ai-saved-key').value='';
   document.getElementById('chart-ai-settings-status').textContent=(p.value==='gemini'?'Gemini':'Groq')+': '+(key?'key saved (hidden)':'no saved key')+'. Save to select this provider.';
 }
 function saveChartAISettings(remove){
   var provider=document.getElementById('chart-ai-provider').value,key=document.getElementById('chart-ai-saved-key').value.trim(),name=provider==='gemini'?'gemini_research_key':'groq_key',status=document.getElementById('chart-ai-settings-status');
+  if(provider==='kie'){
+    try{var message=chartKieSaveSettings(remove);chartAI.key='';closeChartAI();resetChartAIDrawing();drawChart();chartAISettingsStatus();status.textContent=message;}
+    catch(e){status.textContent=e&&e.code==='KIE_CONFIG'?e.message:'Kie settings could not be saved. Existing Gemini / Groq settings are unchanged.';}
+    return;
+  }
   try{
     if(remove)localStorage.removeItem(name);else if(key)localStorage.setItem(name,key);
     localStorage.setItem('chart_ai_provider',provider);chartAI.key='';closeChartAI();resetChartAIDrawing();drawChart();chartAISettingsStatus();
@@ -18927,6 +18938,7 @@ function saveChartAISettings(remove){
   }catch(e){status.textContent='Browser storage unavailable. Settings were not fully saved.';}
 }
 async function chartAIProviderRequest(body,connection,timeout,signal){
+  if(connection.provider==='kie')return chartKieRequest(body,connection,timeout,signal);
   if(!connection.key)throw Error('No saved API key');
   if(connection.provider==='gemini'){
     var request={systemInstruction:{parts:[{text:body.messages.filter(function(m){return m.role==='system';}).map(function(m){return m.content;}).join('\n')}]},contents:body.messages.filter(function(m){return m.role!=='system';}).map(function(m){return {role:'user',parts:[{text:m.content}]};}),generationConfig:{temperature:.1,maxOutputTokens:body.max_completion_tokens||1600,thinkingConfig:{thinkingBudget:0}}};
@@ -18975,7 +18987,8 @@ function chartAIFailure(error,provider,stage){
   var code='INTERNAL',title='Chart calculation failed',help='Retry once. If it repeats, report this code and the request stage; do not share your API key.';
   if(error&&error.name==='AbortError'||/cancelled/i.test(msg)){code='CANCELLED';title='AI request cancelled';help='Press Ask AI · draw when ready.';}
   else if(/size budget|payload.*large/i.test(msg)||status===413){code='PAYLOAD';title='AI evidence exceeds the request limit';help='Reload the updated scanner. Full history should stay local while compact evidence is sent.';}
-  else if(status===401||status===403||/API.?key.*(invalid|expired)|invalid.*API.?key/i.test(msg)){code='AUTH';title='AI provider rejected access';help='Check the selected Gemini/Groq key, API permissions and availability in AI settings.';}
+  else if(error&&error.code==='KIE_CONFIG'){code='CONFIG';title='Kie connection needs configuration';help='Open AI settings, choose Kie, and save the model and connection. Proxy mode requires your own HTTPS endpoint and its access token; personal mode requires a replacement Kie key.';}
+  else if(status===401||status===403||/API.?key.*(invalid|expired)|invalid.*API.?key/i.test(msg)){code='AUTH';title='AI provider rejected access';help='Check the selected provider credential, permissions and availability in AI settings. Kie proxy tokens and Kie API keys are different credentials.';}
   else if(status===429||/quota|rate.limit/i.test(msg)){code='QUOTA';title='AI provider quota or rate limit reached';help='Wait for your provider limit to reset, or manually select another configured provider. No automatic retry or provider switch.';}
   else if(/timed out|timeout/i.test(msg)){code='TIMEOUT';title='AI request timed out';help='Retry when the provider or candle service is reachable.';}
   else if(/Chart changed|context expired|boundary crossed|Context unavailable|candles unavailable|could not be verified|fresh closed candles/i.test(msg)){code='DATA';title='Chart evidence changed or is not ready';help='Refresh closed candles and retry. A different coin/timeframe or expired snapshot cannot reuse old drawings.';}
@@ -18983,10 +18996,12 @@ function chartAIFailure(error,provider,stage){
   else if(/Failed to fetch|NetworkError|network|fetch failed|Load failed/i.test(msg)){code='NETWORK';title='Cannot reach the AI provider';help='Check browser/network access. The request may be blocked by connectivity or CORS.';}
   else if(status){code='HTTP_'+status;title='AI provider rejected the request (HTTP '+status+')';help='Check provider availability and selected model/key settings, then retry.';}
   // Deliberately do not expose raw provider bodies, request text, URLs, keys or stack traces.
-  return {code:code,title:title,help:help,provider:provider==='gemini'?'Gemini':'Groq',stage:stage||'unknown',httpStatus:status};
+  return {code:code,title:title,help:help,provider:provider==='kie'?'Kie':provider==='gemini'?'Gemini':'Groq',stage:stage||'unknown',httpStatus:status};
 }
 async function testChartAIConnection(){
   var status=document.getElementById('chart-ai-settings-status'),button=document.getElementById('chart-ai-test'),connection=chartAIConnection();
+  var selected=document.getElementById('chart-ai-provider'),pendingKey=document.getElementById('chart-ai-saved-key');
+  if(selected&&selected.value!==connection.provider||pendingKey&&pendingKey.value.trim()||connection.provider==='kie'&&chartKieSettingsDirty(connection)){status.textContent='Save your selected provider and settings before testing. No request sent.';return;}
   if(!connection.key){status.textContent='Save a key first.';return;}
   button.disabled=true;status.textContent='Testing saved '+connection.provider+' connection…';
   try{await chartAIProviderRequest({model:'openai/gpt-oss-20b',messages:[{role:'user',content:'Reply OK.'}],max_completion_tokens:100},connection,15000);status.textContent=connection.provider+' connection successful.';}
@@ -19291,7 +19306,7 @@ function openChartAI(){
   var panel=document.createElement('section');panel.id='chart-ai-panel';panel.setAttribute('aria-label','Chart AI assistant');
   panel.style.cssText='position:fixed;right:12px;top:80px;bottom:20px;width:min(440px,calc(100vw - 24px));z-index:100000;background:#17232d;color:#d1d4dc;border:1px solid #4d6379;border-radius:10px;padding:14px;overflow:auto;box-shadow:0 8px 40px #0009;font:13px/1.6 sans-serif';
   panel.innerHTML='<button class="btn" style="float:right" onclick="closeChartAI()">Close AI</button><h3>Chart AI · read-only</h3><p>Groq receives the selected chart candles, levels and plan prices when you press Analyze. No orders, account size, API key in chart data, or automatic plan changes.</p><details><summary>Connection / privacy</summary><p>A browser key is not a secret from scripts or extensions on this device. Never publish it in your HTML. Existing Groq settings are used if present; this password field is kept only in memory until reload.</p><label>Groq API key <input id="chart-ai-key" type="password" autocomplete="off" placeholder="Session key, or use existing Groq settings" style="width:100%;box-sizing:border-box"></label><button class="btn" onclick="chartAI.key=\'\';document.getElementById(\'chart-ai-key\').value=\'\'">Clear session key</button></details><p><button class="btn" data-chart-ai-action onclick="runChartAI(\'explain\')">Explain chart</button> <button class="btn" data-chart-ai-action onclick="runChartAI(\'entry\')">Check entry</button> <button class="btn" data-chart-ai-action onclick="runChartAI(\'sweep\')">Analyze 4h sweep</button></p><label>Your question (optional)<textarea id="chart-ai-question" maxlength="500" rows="2" style="width:100%;box-sizing:border-box" placeholder="What remains unconfirmed?"></textarea></label><button class="btn" onclick="if(chartAI.controller)chartAI.controller.abort()">Cancel request</button><p id="chart-ai-status" role="status">Choose an analysis. Requests are manual and may use your provider quota.</p><div id="chart-ai-answer" style="white-space:pre-wrap;overflow-wrap:anywhere"></div><p><small>AI commentary may be wrong. Numeric levels below are the deterministic reference; AI text is not a verified signal. Answers describe a timestamped snapshot, not continuous monitoring.</small></p><details><summary>Exact evidence sent</summary><pre id="chart-ai-evidence" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>';
-  var connectionDetails=panel.querySelector('details');if(connectionDetails)connectionDetails.innerHTML='<summary>Connection / privacy</summary><p>Uses the provider selected in AI settings. Keys are saved in this browser and shared with research settings; never embedded in public HTML.</p><button class="btn" onclick="openChartAISettings()">Gemini / Groq settings</button>';
+  var connectionDetails=panel.querySelector('details');if(connectionDetails)connectionDetails.innerHTML='<summary>Connection / privacy</summary><p>Only the provider selected in AI settings receives the compact chart evidence. Gemini / Groq keys are shared with their research settings; Kie uses separate credentials and can use your protected proxy. No automatic provider fallback.</p><button class="btn" onclick="openChartAISettings()">Gemini / Groq / Kie settings</button>';
   var intro=panel.querySelector('p');if(intro)intro.textContent='The selected Gemini or Groq provider receives chart evidence only when requested. No orders, account size or automatic plan changes.';
   host.appendChild(panel);
 }
@@ -19313,7 +19328,7 @@ async function runChartAI(mode){
   var panel=document.getElementById('chart-ai-panel');if(!panel||chartAI.controller)return;
   var status=panel.querySelector('#chart-ai-status'),answer=panel.querySelector('#chart-ai-answer');
   var connection=chartAIConnection();
-  if(!connection.key){status.textContent='Add a Gemini or Groq key in AI settings. No request sent.';openChartAISettings();return;}
+  if(!connection.key){status.textContent='Configure Gemini, Groq or Kie in AI settings. No request sent.';openChartAISettings();return;}
   if(chartState.marketMode||!chartState.klines||!chartState.d){status.textContent='Open a loaded coin chart first.';return;}
   var id=++chartAI.serial,controller=new AbortController(),sym=chartState.sym,originalTF=chartState.tf,signature=chartState.snapshot&&chartState.snapshot.signature;
   chartAI.controller=controller;panel.querySelectorAll('[data-chart-ai-action]').forEach(function(b){b.disabled=true;});answer.textContent='';status.textContent='Preparing timestamped chart evidence…';
@@ -26708,5 +26723,7 @@ detectProxy().then(function(){}).catch(function(){}).then(function(){
 });
 </script>
 <script src="fvg-watchlist.js"></script>
+<script src="chart-kie.js"></script>
+<script src="swing-trading.js"></script>
 </body>
 </html>
