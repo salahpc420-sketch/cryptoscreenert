@@ -1359,6 +1359,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       <button class="mtab" id="sc-buy"               onclick="setScanTab('buy')">✅ Buy Signal</button>
       <button class="mtab" id="sc-confirmed_bo"      onclick="setScanTab('confirmed_bo')">🚀 Confirmed BO</button>
       <button class="mtab" id="sc-ema_retest"        onclick="setScanTab('ema_retest')">🔄 EMA Retest</button>
+      <button class="mtab" id="sc-support_hold"      onclick="setScanTab('support_hold')">🛡 Support Holding</button>
       <button class="mtab" id="sc-sweep_buy"         onclick="setScanTab('sweep_buy')">🟢 Sweep Buy</button>
       <button class="mtab" id="sc-sweep_sell"        onclick="setScanTab('sweep_sell')">🔴 Sweep Sell</button>
       <button class="mtab" id="sc-breakout"          onclick="setScanTab('breakout')">🚀 Breakout</button>
@@ -3733,6 +3734,7 @@ function processSymbol(ticker, btcReferenceOverride, requestTF) {
       invScore:invScore, ddHigh:ddHigh, distE200:distE200pct,
       invEligible:invEligible, invReason:invReason, e200Rising:e200Rising, coinRank:coinRank,
       struct:st, liq:liq, liqEvidence:liqEvidence, sup:sr.sup, res:sr.res, sDist:sr.sDist, rDist:sr.rDist,
+      supportHolding:calcSupportHolding(klines,sym,catalystTF,Date.now()),
       // Research only: frozen closed-candle context; never a signal/entry gate.
       sweepContextFrame:['4h','1d'].includes(catalystTF)&&(sym==='BTCUSDT'||liq==='buy_sweep')
         ? buildSweepContextFrame(klines,sym,catalystTF,analysisSnapshot.lastClosedTime):null,
@@ -8672,8 +8674,69 @@ function renderNarrative(data){
 // ═══════════════════════════════════════════════════════════
 var scanTF = TF; // scanner can use its own TF independently
 
+function calcSupportHolding(rows,sym,tf,now){
+  var out={version:1,sym:sym,tf:tf,state:'Unknown',reason:'Use 4H, 1D or 1W',matches:[]};
+  if(!['4h','1d','1w'].includes(tf))return out;
+  var snap=chartSnapshot(rows,sym,tf,now);
+  out.source=snap.source;out.closedAt=snap.lastClosedTime;out.signature=snap.signature;
+  if(!snap.usable){out.reason=snap.message;return out;}
+  var bars=rows.slice(0,-1),n=bars.length,dt=_chartTFDuration(tf);
+  var h=bars.map(function(k){return Number(k[2]);}),l=bars.map(function(k){return Number(k[3]);}),c=bars.map(function(k){return Number(k[4]);});
+  out.state='Not holding';out.reason='No held support retest in the latest three completed candles';out.close=c[n-1];
+  // Freeze each zone BEFORE the retest starts. Never let the test create its own support.
+  for(var i=n-1;i>=Math.max(7,n-3);i--){
+    var prior=calcSR(h.slice(0,i),l.slice(0,i),c.slice(0,i));
+    (prior.supports||[]).forEach(function(z){
+      if(l[i]>z.high||h[i]<z.low||c[i]<=z.high)return;
+      // A later completed close in/below the zone ends this holding observation.
+      if(c.slice(i+1).some(function(p){return p<=z.high;}))return;
+      if(out.matches.some(function(m){return m.originAt===Number(bars[z.originIndex][0]);}))return;
+      out.matches.push({price:z.price,low:z.low,high:z.high,testsBeforeRetest:z.touches,
+        originAt:Number(bars[z.originIndex][0]),availableAt:Number(bars[Math.max(z.confirmedIndex,z.retestIndex||0)][0])+dt,
+        heldAt:Number(bars[i][0])+dt,barsAgo:n-1-i,retestLow:l[i],retestClose:c[i],
+        distancePct:(c[n-1]/z.high-1)*100});
+    });
+  }
+  out.matches.sort(function(a,b){return a.barsAgo-b.barsAgo||a.distancePct-b.distancePct;});
+  if(out.matches.length){out.state='Holding';out.reason='Closed retest above an established support zone';out.selected=out.matches[0];}
+  return out;
+}
+function supportHoldingCurrent(d,tf,now){
+  var e=d&&d.supportHolding,s=d&&d.analysisSnapshot,dt=_chartTFDuration(tf);
+  return !!(d&&!d._stale&&e&&e.version===1&&e.state!=='Unknown'&&e.sym===d.sym&&e.tf===tf&&
+    s&&s.usable&&s.symbol===d.sym&&s.timeframe===tf&&e.source===s.source&&e.signature===s.signature&&e.closedAt===s.lastClosedTime&&
+    Number.isFinite(e.closedAt)&&now>=e.closedAt&&now<e.closedAt+dt);
+}
+function renderSupportHolding(data){
+  var body=document.getElementById('scan-body'),sub=document.getElementById('scan-sub'),upd=document.getElementById('scan-upd'),now=Date.now();
+  if(!body)return;
+  var eligible=data.filter(function(d){return supportHoldingCurrent(d,scanTF,now);});
+  var hits=eligible.filter(function(d){return d.supportHolding.state==='Holding';}).sort(function(a,b){return a.supportHolding.selected.barsAgo-b.supportHolding.selected.barsAgo||a.supportHolding.selected.distancePct-b.supportHolding.selected.distancePct;});
+  if(sub)sub.textContent=hits.length+' coins — '+scanTF.toUpperCase()+' Support Holding · '+eligible.length+'/'+data.length+' verified';
+  if(upd)upd.textContent='Checked '+confluenceTime(now)+' · '+(data.length-eligible.length)+' unavailable / stale / different timeframe';
+  var esc=confluenceEscape;
+  var html='<div style="padding:12px 16px;font-size:11px;line-height:1.6;color:var(--t2)">Choose <b>4H, 1D or 1W</b> above. A candle in the latest three completed bars must touch a previously confirmed support zone and close above its upper edge; all subsequent closed candles must remain above it. A wick below the zone is allowed. This is support evidence, not a buy signal or entry recommendation. Weekly observations can be weeks old; see the retest date. Current price may have moved since confirmation.</div>';
+  if(!hits.length)html+='<div class="msg" style="padding:2rem">'+(eligible.length?'No recent confirmed support holds on '+scanTF.toUpperCase()+'.':'No verified '+scanTF.toUpperCase()+' support data yet. Select this timeframe and Re-scan.')+'</div>';
+  hits.forEach(function(d){var e=d.supportHolding,z=e.selected,price=Number(d.price),below=Number.isFinite(price)&&price<=z.high;
+    html+='<div class="sc-item" style="align-items:flex-start"><div style="flex:1;min-width:0"><b>'+esc(d.pair)+' · '+esc(scanTF.toUpperCase())+'</b><div style="font-size:12px;margin:5px 0">Support zone <b>'+esc(fE(z.low))+' – '+esc(fE(z.high))+'</b></div><div style="font-size:11px;line-height:1.7;color:var(--t2)">Held '+esc(confluenceTime(z.heldAt))+' · '+z.barsAgo+' closed bars ago<br>Latest closed price '+esc(fE(e.close))+' · '+z.distancePct.toFixed(2)+'% above zone<br>'+esc(e.source)+' · '+z.testsBeforeRetest+' prior pivot/tests · '+e.matches.length+' held zone(s)</div>'+
+      (below?'<div style="font-size:11px;color:var(--am)">Live quote is now in/below the zone — closed hold is historical; review the chart.</div>':'')+
+      '<details style="font-size:11px;margin-top:6px"><summary>Evidence / limits</summary>Support confirmed '+esc(confluenceTime(z.availableAt))+' before the retest. Retest low '+esc(fE(z.retestLow))+'; close '+esc(fE(z.retestClose))+'. Zone boundaries are frozen before that test. No invented targets, stop orders or R:R. A holding zone can fail.</details></div><button class="btn" data-support-open="'+esc(d.sym)+'">Open '+esc(scanTF.toUpperCase())+' chart</button></div>';
+  });
+  body.innerHTML=html;
+  body.querySelectorAll('[data-support-open]').forEach(function(button){button.onclick=function(){openSupportHoldingChart(button.dataset.supportOpen,scanTF);};});
+}
+function openSupportHoldingChart(sym,tf){
+  if(!['4h','1d','1w'].includes(tf)||!allData.some(function(d){return d.sym===sym;}))return;
+  closeOv('scan-ov');openModal(sym);modalTF=tf;
+  document.querySelectorAll('.modal-tf-btn').forEach(function(b){b.classList.toggle('active',b.id==='mtf-'+tf);});
+  var title=document.getElementById('mpair');if(title)title.textContent=sym+' · '+tf+' · Support Holding';
+  var snap=document.getElementById('msnap');if(snap)snap.textContent='Historical support-hold observation. Check the chart exchange and retest date; not an entry signal.';
+  switchMTab('chart');chartState.indicators.sr=true;
+  if(chartState.btcFocus&&typeof setBTCFocus==='function')setBTCFocus(false);
+}
 function setScanTF(tf) {
   if(scanTab==='sweep_buy'&&!['4h','1d','1w'].includes(tf))tf='4h';
+  if(scanTab==='support_hold'&&!['4h','1d','1w'].includes(tf))tf='4h';
   scanTF = tf;
   TF = tf; // make this the ACTIVE timeframe so the main scan + logging follow it
   document.querySelectorAll('[id^="sc-tf-"]').forEach(function(b) {
@@ -8684,7 +8747,7 @@ function setScanTF(tf) {
   // on a non-default timeframe were never logged.)
   var body = document.getElementById('scan-body');
   if (body) body.innerHTML = '<div class="msg" style="padding:2rem">🔄 Fetching ' + tf + ' data…</div>';
-  loadAll(); // full scan on the new TF — this calls autoLogSignals() internally
+  loadAll().then(function(){scanData=null;runScanner();}).catch(function(){runScanner();}); // also refresh the open scanner after loading
 }
 
 var scanData = null; // cache for current scanner results (may differ from allData if TF differs)
@@ -8711,12 +8774,14 @@ function setSectorFilter(cat){
 function setScanTab(t){
   scanTab=t;
   ['15m','1h'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=t==='sweep_buy';b.title=t==='sweep_buy'?'Buy sweeps use 4h, 1d and 1w only':'';}});
-  ['aplus','tierA','tierB','tierC','opportunity','strong','buy','confirmed_bo','ema_retest','sweep_buy','sweep_sell','breakout','accum','oversold','rsiDiv','choch','bos','sector'].forEach(function(x){
+  if(t==='support_hold')['15m','1h'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=true;b.title='Support Holding uses 4H, 1D and 1W';}});
+  ['aplus','tierA','tierB','tierC','opportunity','strong','buy','confirmed_bo','ema_retest','support_hold','sweep_buy','sweep_sell','breakout','accum','oversold','rsiDiv','choch','bos','sector'].forEach(function(x){
     var el=document.getElementById('sc-'+x);if(el)el.classList.toggle('active',x===t);
   });
   var row=document.getElementById('scan-sector-row');
   if(row)row.style.display=t==='sector'?'flex':'none';
   if(t==='sweep_buy'&&!['4h','1d','1w'].includes(TF)){setScanTF('4h');return;}
+  if(t==='support_hold'&&!['4h','1d','1w'].includes(TF)){setScanTF('4h');return;}
   runScanner();
 }
 // Re-scan button — actually FETCH fresh data, then re-display (not just re-filter)
@@ -8740,6 +8805,7 @@ function runScanner(){
   var body=document.getElementById("scan-body");
   if(!body) return;
   var data=(scanData&&scanData.length)?scanData:allData;
+  if(scanTab==='support_hold'){renderSupportHolding(data||[]);return;}
   if(!data||!data.length){
     body.innerHTML="<div class=\"msg\" style=\"padding:2rem;text-align:center;color:var(--t3)\">No data. Wait for screener to load.</div>";
     return;
