@@ -18965,6 +18965,7 @@ function chartAIResearchRules(){
     '4H SWEEP: when actual 4h evidence is supplied, distinguish the pre-existing level, excursion beyond it, closed reclaim, later retest and invalidation. Report each missing step as unconfirmed; a retest is not mandatory unless the deterministic strategy says so. Never relabel another timeframe as a 4h setup. High/low liquidity drawings are possible stop locations inferred from price, not measured hidden orders or guaranteed stop hunts. '+
     'CONFIRMATION: use supplied volume and RSI divergence only as supporting context, not standalone entry signals or independent votes for the same price event. Closed and forming candles must remain distinct. No measured exchange volume or actual volume-at-price can be inferred from an estimated profile. '+
     'RISK AND ROUTE: retain authoritative plan status, unfilled/filled distinction, invalidation and nearest overhead obstacle. Conditional scenarios only, never a predicted path. Do not invent stops, targets, risk/reward, fees, fills or order-book depth. Synthetic targets and illustrative level routes are not historical resistance or executable orders. Do not upgrade LATE, BLOCKED, INVALID or WAITING plans, or recommend chasing outside the supplied entry zone. '+
+    'TIMEFRAME SL: stopReference is a separate illustrative spot-long risk reference from the selected timeframe only: confirmed support lower edge minus 0.1 ATR(14), using closed candles of that same timeframe. This existing route heuristic is not an optimized stop. Preserve its exact price, formula, timeframe and timestamp. It is not the canonical plan stop, a position stop, an order, or entry approval. Never substitute a higher/lower timeframe stop, widen a recorded stop, or invent a reference when it is unavailable. A close below support invalidates the supporting structure; the buffered price is a separate hypothetical price-touch stop, with no guaranteed fill. '+
     'CLEAN PRESENTATION: select fewer useful drawings rather than filling a quota. Prioritize location and failure conditions over remote targets and old lines. Prefer supplied support/resistance zones and then a relevant active trend or sweep reference; historical lines are secondary. If selecting a proposed entry, also select its supplied stop and relevant obstacle/target when available, keeping all labels UNFILLED and the original status. An empty selection is valid. This rulebook cannot modify the deterministic scanner or guarantee results.';
 }
 function chartAIResearchGuideHTML(){
@@ -19017,7 +19018,7 @@ function chartAICompactPayload(packet,candidates,question,small){
   // Provider transport only. Keep full precision and full history in the local inspector.
   // Whitelist fields: never duplicate entire S/R histories, or send account/key data.
   function pick(obj,keys){var out={};keys.split(' ').forEach(function(k){if(obj&&obj[k]!=null)out[k]=typeof obj[k]==='string'?obj[k].slice(0,240):obj[k];});return out;}
-  function zone(z){return pick(z,'id kind label role state price low high timeframe source tests confirmedAt originTime lastTestTime breakAt retestAt historical essential proposal inactive t1 p1 t2 p2 endTime');}
+  function zone(z){return pick(z,'id kind label role state price low high timeframe source tests confirmedAt originTime lastTestTime breakAt retestAt historical essential proposal inactive t1 p1 t2 p2 endTime stopReference anchorLow anchorHigh atr buffer closedAt');}
   function sweep(s){var out=pick(s,'tag valid level timeframe source openTime closeTime status levelConfirmedAt takenAt takenLow reclaimAt reclaimClose retestAt invalidatedAt barsSinceTake invalidationLevel buySweepEnabled policyNote note');if(s&&s.selected)out.selected=pick(s.selected,'kind side price tag availableAt penetrationATR wickRatio');return out;}
   var e=pick(packet,'task symbol timeframe source asOf lastClosedAt historyBars ema20 ema50 atr note');
   e.chartReading=packet.chartReading;e.candles=(packet.candles||[]).slice(small?-4:-12).map(function(k){return pick(k,'time open high low close volume');});
@@ -19026,6 +19027,7 @@ function chartAICompactPayload(packet,candidates,question,small){
     Object.keys(m.frames||{}).forEach(function(tf){var f=m.frames[tf],r=pick(f,'timeframe status source closedAt reason bars price emaTrend structure structureSide volumeRatio rsi');
       // Drawing levels are already in candidates; commentary gets compact independent zones.
       if(!candidates)r.zones=(f.zones||[]).slice(0,6).map(zone);
+      if(!candidates&&tf===packet.timeframe&&f.stopReference)r.stopReference=zone(f.stopReference);
       if(f.sweep)r.sweep=sweep(f.sweep);if(f.sweepSequence)r.sweepSequence=sweep(f.sweepSequence);e.multiTimeframe.frames[tf]=r;
     });
   }
@@ -19100,6 +19102,18 @@ function chartAISweepSequence(rows){
     level:L.price,levelConfirmedAt:stamp(L.confirmedIndex),takenAt:stamp(L.takenIndex),takenLow:Number(bars[L.takenIndex][3]),reclaimAt:stamp(reclaim),reclaimClose:reclaim==null?null:Number(bars[reclaim][4]),retestAt:stamp(retest),invalidatedAt:stamp(lost),barsSinceTake:bars.length-1-L.takenIndex,
     invalidationLevel:L.price-L.tolerance,note:'Historical 4H price-action sequence; not measured stop orders, not necessarily a current scanner-qualified sweep. First reclaim lifecycle; later reclaims do not erase an observed invalidation.'};
 }
+function chartAIStopReference(sr,bars,tf,source,closedAt){
+  if(!bars||bars.length<15)return null;
+  var h=bars.map(function(k){return Number(k[2]);}),l=bars.map(function(k){return Number(k[3]);}),c=bars.map(function(k){return Number(k[4]);});
+  var atr=calcATR(h,l,c,14),price=c[c.length-1];
+  if(!Number.isFinite(atr)||atr<=0||!Number.isFinite(price)||price<=0)return null;
+  var z=(sr.supports||[]).filter(function(z){return z.role==='support'&&z.state!=='broken'&&Number.isFinite(z.low)&&Number.isFinite(z.high)&&z.low>0&&z.high>=z.low&&z.high<price&&Number.isInteger(z.confirmedIndex)&&z.confirmedIndex>=0&&z.confirmedIndex<bars.length;}).sort(function(a,b){return b.high-a.high;})[0];
+  if(!z)return null;
+  var stop=z.low-atr*.1;if(!Number.isFinite(stop)||stop<=0||stop>=price)return null;
+  var item=chartAIZone(z,bars,tf,source);
+  return Object.assign(item,{kind:'level',role:null,label:'SL reference · not an order',price:stop,stopReference:true,essential:true,time:closedAt,anchorLow:z.low,anchorHigh:z.high,atr:atr,buffer:atr*.1,closedAt:closedAt,
+    invalidation:tf+' closed-candle reference: support lower edge '+fmtPrice(z.low)+' minus 0.1 × '+tf+' ATR(14) '+fmtPrice(atr)+'. A '+tf+' close below support invalidates the structure; the buffered SL is a separate hypothetical price-touch exit. Snapshot only; not entry approval, a recorded position stop, or an order. Fees/slippage are not included; fills are not guaranteed. Refreshing can change this reference, never a tracked trade stop.'});
+}
 function chartAIFrame(rows,sym,tf,source,now){
   var snap=chartSnapshot(rows,sym,tf,now),base={timeframe:tf,source:snap.source,closedAt:snap.lastClosedTime,signature:snap.signature,status:'UNAVAILABLE',reason:snap.message,zones:[]};
   if(!snap.usable)return base;
@@ -19107,6 +19121,7 @@ function chartAIFrame(rows,sym,tf,source,now){
   var bars=rows.slice(0,-1),a=confluenceAnalyze(rows,sym,tf,now),h=bars.map(function(k){return Number(k[2]);}),l=bars.map(function(k){return Number(k[3]);}),c=bars.map(function(k){return Number(k[4]);}),sr=calcSR(h,l,c);
   return Object.assign(base,{status:'READY',reason:'Verified closed candles',bars:bars.length,price:c[c.length-1],emaTrend:a.trend,structure:a.structure.label,structureSide:a.structure.side,volumeRatio:a.volR,rsi:a.rsi,
     zones:(sr.supports||[]).slice(0,3).concat((sr.resistances||[]).slice(0,3)).map(function(z){return chartAIZone(z,bars,tf,snap.source);}),
+    stopReference:chartAIStopReference(sr,bars,tf,snap.source,snap.lastClosedTime),
     sweep:tf==='4h'?calcScannerLiquidity(rows,rows.length-2,tf):null,sweepSequence:tf==='4h'?chartAISweepSequence(rows):null});
 }
 function chartAIContextFresh(context,now){
@@ -19207,6 +19222,8 @@ function chartAIDrawingCandidates(context){
   var rows=chartState.klines||[],bars=rows.slice(0,-1),m=chartMetrics(chartState.d),sr=m.srHistory||calcSR(bars.map(function(k){return Number(k[2]);}),bars.map(function(k){return Number(k[3]);}),bars.map(function(k){return Number(k[4]);})),items=[];
   function add(x){x=Object.assign({},x);x.id='D'+items.length;x.timeframe=x.timeframe||chartState.tf;x.source=x.source||(chartState.snapshot&&chartState.snapshot.source);items.push(x);}
   if(context){
+    var activeFrame=context.frames[chartState.tf];
+    if(activeFrame&&activeFrame.status==='READY'&&activeFrame.stopReference)add(activeFrame.stopReference);
     ['1w','1d','4h',chartState.tf].filter(function(t,i,a){return a.indexOf(t)===i;}).forEach(function(t){
       var f=context.frames[t];if(!f||f.status!=='READY'||_chartTFDuration(t)<_chartTFDuration(chartState.tf))return;
       ['support','resistance'].forEach(function(role){f.zones.filter(function(z){return z.role===role;}).slice(0,2).forEach(function(z,i){add(Object.assign({},z,{essential:i===0}));});});
@@ -19279,9 +19296,10 @@ function chartAIDrawingStyle(item,compact){
   var label=String(item.label||''),role=item.role||(/^support/i.test(label)?'support':/^resistance/i.test(label)?'resistance':null);
   var historical=item.kind==='trend'&&(item.historical===true||item.historical==null&&/CLOSED|BROKEN|FAILED/i.test(label));
   var proposal=/^Proposed/i.test(label),inactive=proposal&&/LATE|INVALID|MISSING|BLOCKED|WAIT/i.test(label);
-  var col=historical||inactive?'#8893a6':role==='support'?'#4dd7b0':role==='resistance'?'#ff8994':proposal?'#ffc66d':'#83bfff';
+  var col=item.stopReference?'#ffad66':historical||inactive?'#8893a6':role==='support'?'#4dd7b0':role==='resistance'?'#ff8994':proposal?'#ffc66d':'#83bfff';
   var title=historical?'Past trend · inactive':item.kind==='trend'?(role==='support'?'Support trend':'Resistance trend'):proposal?label.replace('Proposed ','').replace(' · UNFILLED','')+' · unfilled':role?(role==='support'?'Support':'Resistance')+(compact?'':' · '+label.split(' · ').slice(1).join(' · ')):/Unswept low/i.test(label)?'Low reference':/Unswept high/i.test(label)?'High reference':label;
   var frames=[item.timeframe].concat((item.relatedZones||[]).map(function(z){return z.timeframe;})).filter(Boolean).filter(function(t,i,a){return a.indexOf(t)===i;});
+  if(item.stopReference)title='SL reference · not an order';
   if(frames.length)title=frames.join('/')+' · '+title;
   return {color:col,title:title,historical:historical,alpha:historical||inactive?.5:1,width:historical?1:1.5,dash:historical?[3,6]:proposal?[6,4]:item.kind==='zone'?[]:[4,3]};
 }
@@ -19297,6 +19315,8 @@ function chartAIEvidenceHTML(s,stale){
   if(s.busy)return '<p>Checking closed candles and selecting evidence. No new levels confirmed yet.</p>';
   var h='<p><strong>'+(stale?'STALE · refresh AI drawing':esc(s.context&&s.context.alignment||'NOT ASSESSED'))+'</strong> · snapshot only, not an entry signal.</p>';
   var frames=s.context&&s.context.frames||{};
+  var active=frames[s.tf],stop=active&&active.stopReference;
+  h+='<p><strong>'+esc((s.tf||'Selected').toUpperCase())+' SL reference</strong> · '+(stop?fmt(stop.price)+'<br>'+esc(stop.invalidation):'Unavailable: fresh same-timeframe support fully below the last close and valid ATR are required. No stop is invented.')+'</p>';
   ['1w','1d','4h'].forEach(function(tf){var f=frames[tf];h+='<p><strong>'+tf.toUpperCase()+'</strong> · '+esc(f?f.status:'NOT ASSESSED')+(f&&f.status==='READY'?' · '+esc(f.source)+'<br>'+esc(f.structure)+' · EMA '+esc(f.emaTrend)+'<br>Last closed '+time(f.closedAt):' · '+esc(f&&f.reason||'Not supplied'))+'</p>';});
   var seq=frames['4h']&&frames['4h'].sweepSequence;
   if(seq)h+='<details><summary>4H sweep sequence · '+esc(seq.status)+'</summary><p>Historical observation'+(seq.barsSinceTake!=null?' · taken '+esc(seq.barsSinceTake)+' closed 4H bars ago':'')+'<br>Level '+fmt(seq.level)+' · known '+time(seq.levelConfirmedAt)+'<br>Taken '+time(seq.takenAt)+' · low '+fmt(seq.takenLow)+'<br>Reclaim '+time(seq.reclaimAt)+' · close '+fmt(seq.reclaimClose)+'<br>Retest '+time(seq.retestAt)+'<br>Invalidation '+time(seq.invalidatedAt)+' · close below '+fmt(seq.invalidationLevel)+'</p><p>'+esc(seq.note)+'</p></details>';
@@ -19326,10 +19346,11 @@ function drawChartAIOverlay(ctx,g){
   var focus=Number(chartState.livePrice)||(chartState.klines&&Number(chartState.klines[chartState.klines.length-2][4]))||0;
   var ranked=s.items.concat(s.showInactive?s.hiddenPlan||[]:[]).sort(function(a,b){
     var ah=chartAIDrawingStyle(a,compact).historical,bh=chartAIDrawingStyle(b,compact).historical;
-    return Number(ah)-Number(bh)||Math.abs((a.price||a.p2)-focus)-Math.abs((b.price||b.p2)-focus);
+    return Number(!!b.stopReference)-Number(!!a.stopReference)||Number(ah)-Number(bh)||Math.abs((a.price||a.p2)-focus)-Math.abs((b.price||b.p2)-focus);
   });
   if(s.enabled&&!stale&&!s.busy)ranked.forEach(function(x,i){
     var style=chartAIDrawingStyle(x,compact),col=style.color,y=g.pY(x.price),start=0,anchorX=g.width-12;
+    if(x.stopReference&&focus>0){var basis=Number(chartState.livePrice)>0?'quote':'last close';style.title+=' · '+(focus<=x.price?basis+' at/below SL':focus<x.anchorLow?basis+' below support':((x.price/focus-1)*100).toFixed(2)+'% vs '+basis);}
     ctx.strokeStyle=col;ctx.fillStyle=col;ctx.lineWidth=style.width;ctx.globalAlpha=style.alpha;ctx.setLineDash(style.dash);
     if(x.kind==='trend'){
       var a=g.timeX(x.t1),b=g.timeX(x.t2);if(a==null||b==null)return;
@@ -19439,7 +19460,7 @@ function installChartProUI(){
     '<span class="cp-context-switch" role="group" aria-label="Chart viewing range"><button onclick="chartFit(\'recent\')" title="Last 60 candles; 42 on mobile. Analysis anchors stay fixed.">Recent structure</button><button onclick="chartFit(\'all\')">Full context</button></span>'+
     '<button onclick="editChartExecution()">Execution</button><button onclick="recordChartDecision()" title="Save the current data, settings and decision for later review">Record decision</button>'+
     '<details class="cp-ind-menu"><summary>Edit lines</summary><div><button onclick="toggleDrawMode()">Draw two anchors</button><button data-chart-magnet onclick="toggleChartMagnet()">Snap to candle</button><button onclick="editSelectedDrawing(\'lock\')">Lock / unlock selected</button><button onclick="editSelectedDrawing(\'extend\')">Extend selected right</button><button onclick="editSelectedDrawing(\'delete\')">Delete selected</button><small>Click a manual line to select. Drag an unlocked anchor. Manual lines are visual only.</small></div></details>';
-    el.innerHTML+='<span class="cp-build" title="Compact AI transport and safe request diagnostics">Chart 2026.10.01-ai-draw-r3</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
+    el.innerHTML+='<span class="cp-build" title="Timeframe-specific structural SL references">Chart 2026.10.06-ai-sl-r1</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
     var toolsMenu=document.createElement('details');toolsMenu.className='cp-ind-menu cp-tools-menu';
     toolsMenu.innerHTML='<summary>Tools</summary><div></div>';
     Array.from(el.children).forEach(function(node){
@@ -22396,15 +22417,7 @@ function _drawChartNow() {
       ctx.beginPath(); ctx.moveTo(0, cyp); ctx.lineTo(chartW, cyp); ctx.stroke();
       ctx.setLineDash([]);
       var cprice2 = pMin + pRange * (1 - (cyp - TOP_PAD) / CANDLE_H);
-      ctx.font = 'bold 11px -apple-system,sans-serif';
-      var cpW2 = Math.max(ctx.measureText(fmtPrice(cprice2)).width + 12, RIGHT_PAD - 2);
-      ctx.fillStyle = '#2962ff';
-      ctx.beginPath();                      // FIX: without this, the tag appended to
-      if (ctx.roundRect) ctx.roundRect(chartW, cyp - 10, cpW2, 20, 2);   // the open
-      else ctx.rect(chartW, cyp - 10, cpW2, 20);                          // crosshair
-      ctx.fill();                                                          // path
-      ctx.fillStyle = '#fff'; ctx.textAlign = 'left';
-      ctx.fillText(fmtPrice(cprice2), chartW + 6, cyp + 4);
+      drawChartCursorPriceBadge(ctx, cprice2, chartState, klines, chartW, cyp, RIGHT_PAD, TOP_PAD, CANDLE_H);
     } else if(btcPanelMap&&cyp>=btcPanelMap.top&&cyp<=btcPanelMap.top+btcPanelMap.height){
       ctx.beginPath();ctx.moveTo(0,cyp);ctx.lineTo(chartW,cyp);ctx.stroke();ctx.setLineDash([]);
       var btcCursorPrice=btcPanelMap.min+btcPanelMap.range*(1-(cyp-btcPanelMap.top)/btcPanelMap.height);
@@ -22576,6 +22589,36 @@ function nicePriceStep(range, targetLines) {
   if (norm < 3.5) return 2 * mag;
   if (norm < 7.5) return 5 * mag;
   return 10 * mag;
+}
+// Compare with the latest quote, never the hovered or last visible candle.
+// Market/delayed charts without a quote explicitly use the latest candle close.
+function chartCursorPriceChange(price, state, rows) {
+  var ref = Number(state && state.livePrice), fallback = false;
+  if (!Number.isFinite(ref) || ref <= 0) {
+    ref = rows && rows.length ? Number(rows[rows.length - 1][4]) : NaN;
+    fallback = true;
+  }
+  var pct = Number.isFinite(price) && Number.isFinite(ref) && ref > 0 ? (price / ref - 1) * 100 : NaN;
+  if (!Number.isFinite(pct)) return {text: 'Change n/a', reference: null};
+  var rounded = Number(pct.toFixed(2)); // Do not display negative zero.
+  return {text: (rounded > 0 ? '+' : '') + rounded.toFixed(2) + '%' + (fallback ? ' last' : ''), reference: ref};
+}
+function drawChartCursorPriceBadge(ctx, price, state, rows, x, y, width, top, height) {
+  var change = chartCursorPriceChange(price, state, rows);
+  var badgeH = 34, badgeW = Math.max(1, width - 2);
+  var badgeY = Math.max(top, Math.min(y - badgeH / 2, top + height - badgeH));
+  ctx.save();
+  ctx.fillStyle = '#2962ff';
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, badgeY, badgeW, badgeH, 2);
+  else ctx.rect(x, badgeY, badgeW, badgeH);
+  ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.font = 'bold 11px -apple-system,sans-serif';
+  ctx.fillText(fmtPrice(price), x + 5, badgeY + 13, Math.max(1, badgeW - 10));
+  ctx.font = '10px -apple-system,sans-serif';
+  ctx.fillText(change.text, x + 5, badgeY + 27, Math.max(1, badgeW - 10));
+  ctx.restore();
 }
 function fmtPrice(p) {
   if (p >= 10000) return p.toLocaleString('en', {maximumFractionDigits: 0});
