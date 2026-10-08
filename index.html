@@ -8721,10 +8721,7 @@ function refreshScanGainers(force){
 }
 function openScanGainerChart(sym,tf){
   if(!['1h','4h','1d'].includes(tf)||!allData.some(function(d){return d.sym===sym;}))return;
-  closeOv('scan-ov');openModal(sym);modalTF=tf;
-  document.querySelectorAll('.modal-tf-btn').forEach(function(b){b.classList.toggle('active',b.id==='mtf-'+tf);});
-  var title=document.getElementById('mpair');if(title)title.textContent=sym+' · '+tf+' · Top Gainers';
-  switchMTab('chart');
+  openModal(sym,{tab:'chart',timeframe:tf,replaceOverlay:'scan-ov'});
 }
 
 function calcSupportHolding(rows,sym,tf,now){
@@ -8959,7 +8956,10 @@ function runScanner(){
 // ═══════════════════════════════════════════════════════════
 // COIN MODAL
 // ═══════════════════════════════════════════════════════════
-function openModal(sym){
+function openModal(sym,options){
+  options=options||{};
+  var initialTab=options.tab==='chart'?'chart':'entry';
+  var initialTF=['15m','1h','4h','1d','1w'].includes(options.timeframe)?options.timeframe:TF;
   _confluenceRequest++;
   curSym=sym;
   var d=allData.find(function(x){return x.sym===sym;}); if(!d)return;
@@ -8978,12 +8978,16 @@ function openModal(sym){
     sn('Sup',fE(d.sup),'var(--g)')+sn('Res',fE(d.res),'var(--r)')+
     (d.strongBuy?sn('Signal','⚡ STRONG','var(--am)'):d.buySignal?sn('Signal','✅ BUY','var(--g)'):d.sellSignal?sn('Signal','🔴 SELL','var(--r)'):sn('Signal',d.signal.toUpperCase(),'var(--t2)'));
   // set active tab
-  ['entry','chart','conf','pos','news','ai'].forEach(function(t){var el=document.getElementById('mt-'+t);if(el)el.classList.toggle('active',t==='entry');});
+  ['entry','chart','conf','pos','news','ai'].forEach(function(t){var el=document.getElementById('mt-'+t);if(el)el.classList.toggle('active',t===initialTab);});
   // sync TF buttons to global TF
-  modalTF=TF;
-  document.querySelectorAll('.modal-tf-btn').forEach(function(b){b.classList.toggle('active',b.id==='mtf-'+TF);});
-  showOv('coin-ov');
-  buildEntryTab(d);
+  modalTF=initialTF;
+  document.querySelectorAll('.modal-tf-btn').forEach(function(b){b.classList.toggle('active',b.id==='mtf-'+initialTF);});
+  if(initialTab==='chart'){
+    document.getElementById('mpair').textContent=d.pair+' · '+initialTF+' · Chart';
+    if(initialTF!==TF)document.getElementById('msnap').textContent='Loading '+initialTF+' chart. Main scanner metrics use '+TF+'; see the chart for selected-timeframe evidence.';
+  }
+  showOv('coin-ov',options.replaceOverlay);
+  if(initialTab==='chart')switchMTab('chart');else buildEntryTab(d);
   // Pre-fetch news silently so it's ready when user taps News tab
   if (!newsCache || !newsCache.length) loadNews();
 }
@@ -16943,8 +16947,16 @@ function _ovHide(id){
   o.classList.remove('show');
   setTimeout(function(){o.style.display='none';},200);
 }
-function showOv(id){
+function showOv(id,replaceOverlay){
   var o=document.getElementById(id);o.style.display='flex';setTimeout(function(){o.classList.add('show');},10);
+  // Swap the current modal in-place. history.back() is asynchronous and would
+  // otherwise pop the newly opened modal instead of the scanner being closed.
+  if(replaceOverlay&&replaceOverlay!==id&&_ovStack[_ovStack.length-1]===replaceOverlay){
+    _ovHide(replaceOverlay);_ovStack[_ovStack.length-1]=id;
+    try{history.replaceState({ov:_ovStack.length},'');}catch(e){}
+    return;
+  }
+  if(replaceOverlay&&_ovStack[_ovStack.length-1]===id)return; // rapid second click
   _ovStack.push(id);
   try{ history.pushState({ov:_ovStack.length}, ''); }catch(e){}
 }
