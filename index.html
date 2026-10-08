@@ -1360,6 +1360,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       <button class="mtab" id="sc-confirmed_bo"      onclick="setScanTab('confirmed_bo')">🚀 Confirmed BO</button>
       <button class="mtab" id="sc-ema_retest"        onclick="setScanTab('ema_retest')">🔄 EMA Retest</button>
       <button class="mtab" id="sc-support_hold"      onclick="setScanTab('support_hold')">🛡 Support Holding</button>
+      <button class="mtab" id="sc-gainers" onclick="setScanTab('gainers')">📈 Top Gainers</button>
       <button class="mtab" id="sc-sweep_buy"         onclick="setScanTab('sweep_buy')">🟢 Sweep Buy</button>
       <button class="mtab" id="sc-sweep_sell"        onclick="setScanTab('sweep_sell')">🔴 Sweep Sell</button>
       <button class="mtab" id="sc-breakout"          onclick="setScanTab('breakout')">🚀 Breakout</button>
@@ -8673,6 +8674,58 @@ function renderNarrative(data){
 // SIGNAL SCANNER
 // ═══════════════════════════════════════════════════════════
 var scanTF = TF; // scanner can use its own TF independently
+var scanGainers={tf:'1h',snapshot:null,key:null,at:0,promise:null,done:0,total:0};
+function scanGainerUniverse(data){
+  return Array.from(new Set((data||[]).map(function(d){return d.sym;}).filter(function(s){return typeof s==='string'&&/^[A-Z0-9]+USDT$/.test(s);}))).sort();
+}
+function scanGainerSnapshot(histories,symbols,end){
+  return {end:end,total:symbols.length,coins:symbols.map(function(sym){
+    var row=marketPerformanceCloses(histories[sym],end);
+    return {sym:sym,source:row.source,returns:row.returns};
+  })};
+}
+function scanGainerRanking(snapshot,tf,now){
+  var hours={'1h':1,'4h':4,'1d':24}[tf];
+  if(!snapshot||!hours||now<snapshot.end||now>=snapshot.end+3600000)return {stale:!!snapshot,covered:0,hits:[]};
+  var covered=snapshot.coins.filter(function(x){return x.source!=='Unknown source'&&Number.isFinite(x.returns[hours]);});
+  return {stale:false,covered:covered.length,hits:covered.filter(function(x){return x.returns[hours]>0;}).sort(function(a,b){return b.returns[hours]-a.returns[hours]||a.sym.localeCompare(b.sym);})};
+}
+function renderScanGainers(){
+  if(scanTab!=='gainers')return;
+  var body=document.getElementById('scan-body');if(!body)return;
+  var s=scanGainers,snap=s.snapshot,r=scanGainerRanking(snap,s.tf,Date.now()),hours={'1h':1,'4h':4,'1d':24}[s.tf],esc=confluenceEscape;
+  var sub=document.getElementById('scan-sub'),upd=document.getElementById('scan-upd');
+  if(sub)sub.textContent='Top Gainers · '+s.tf.toUpperCase()+' · '+r.hits.length+' positive coins';
+  if(upd)upd.textContent=s.promise?'Loading hourly candles · '+s.done+'/'+s.total:snap?r.covered+'/'+snap.total+' coins covered · '+(r.stale?'STALE — Re-scan':'ends '+confluenceTime(snap.end)):'No hourly data yet';
+  var html='<div style="padding:12px 16px;font-size:12px;line-height:1.7"><b>Biggest positive change · '+s.tf.toUpperCase()+'</b><br>Use 1H, 4H or 1D above. Ranked within scanned USDT coins, not the entire market. Change = last completed hourly close / close '+hours+' hours earlier − 1. All coins use the same cutoff; forming candles are excluded. Price performance, not a buy signal.'+(snap?'<br>Window: '+esc(confluenceTime(snap.end-hours*3600000))+' → '+esc(confluenceTime(snap.end))+'<br>'+r.covered+'/'+snap.total+' valid histories; missing, gapped or unknown-source data excluded.':'')+'</div>';
+  if(s.promise)html+='<div class="msg">Loading '+s.done+'/'+s.total+' coins…</div>';
+  if(!s.promise&&!r.hits.length)html+='<div class="msg" style="padding:2rem">'+(r.stale?'Snapshot expired. Re-scan for the current closed-hour window.':r.covered?'No coins have a positive change in this window.':'No verified hourly history available. Try Re-scan.')+'</div>';
+  if(!s.promise)r.hits.forEach(function(x,i){html+='<div class="sc-item"><div style="min-width:28px;color:var(--t3)">'+(i+1)+'</div><div style="flex:1"><b>'+esc(x.sym.replace(/USDT$/,'/USDT'))+'</b><div style="font-size:11px;color:var(--t2)">'+esc(x.source)+' · '+s.tf.toUpperCase()+' closed window</div></div><strong style="color:var(--g);font-size:18px;margin-right:12px">+'+x.returns[hours].toFixed(2)+'%</strong><button class="btn" data-gainer-open="'+esc(x.sym)+'">Chart</button></div>';});
+  body.innerHTML=html;
+  body.querySelectorAll('[data-gainer-open]').forEach(function(b){b.onclick=function(){openScanGainerChart(b.dataset.gainerOpen,s.tf);};});
+}
+function refreshScanGainers(force){
+  var s=scanGainers;if(s.promise){renderScanGainers();return s.promise;}
+  var symbols=scanGainerUniverse(allData),end=Math.floor(Date.now()/3600000)*3600000,key=end+':'+symbols.join(',');
+  if(!force&&s.key===key&&Date.now()-s.at<180000){renderScanGainers();return Promise.resolve(s.snapshot);}
+  var histories={},next=0;s.done=0;s.total=symbols.length;s.snapshot=null;
+  async function worker(){while(next<symbols.length){var sym=symbols[next++];try{
+    var cacheKey=sym+'_1h_30',cached=_klCache[cacheKey];if(force||cached&&cached.ts<end)delete _klCache[cacheKey];
+    histories[sym]=await bybitKlines(sym,'1h',30);
+  }catch(e){histories[sym]=null;}s.done++;renderScanGainers();}}
+  // Defer work until promise is set so progress never renders a partial ranking.
+  s.promise=Promise.resolve().then(function(){return Promise.all([worker(),worker(),worker()]);}).then(function(){
+    s.snapshot=scanGainerSnapshot(histories,symbols,end);s.key=key;s.at=Date.now();return s.snapshot;
+  }).finally(function(){s.promise=null;renderScanGainers();});
+  renderScanGainers();return s.promise;
+}
+function openScanGainerChart(sym,tf){
+  if(!['1h','4h','1d'].includes(tf)||!allData.some(function(d){return d.sym===sym;}))return;
+  closeOv('scan-ov');openModal(sym);modalTF=tf;
+  document.querySelectorAll('.modal-tf-btn').forEach(function(b){b.classList.toggle('active',b.id==='mtf-'+tf);});
+  var title=document.getElementById('mpair');if(title)title.textContent=sym+' · '+tf+' · Top Gainers';
+  switchMTab('chart');
+}
 
 function calcSupportHolding(rows,sym,tf,now){
   var out={version:1,sym:sym,tf:tf,state:'Unknown',reason:'Use 4H, 1D or 1W',matches:[]};
@@ -8735,6 +8788,12 @@ function openSupportHoldingChart(sym,tf){
   if(chartState.btcFocus&&typeof setBTCFocus==='function')setBTCFocus(false);
 }
 function setScanTF(tf) {
+  if(scanTab==='gainers'){
+    if(!['1h','4h','1d'].includes(tf))return;
+    scanGainers.tf=tf;
+    document.querySelectorAll('[id^="sc-tf-"]').forEach(function(b){b.classList.toggle('active',b.id==='sc-tf-'+tf);});
+    refreshScanGainers(false);return;
+  }
   if(scanTab==='sweep_buy'&&!['4h','1d','1w'].includes(tf))tf='4h';
   if(scanTab==='support_hold'&&!['4h','1d','1w'].includes(tf))tf='4h';
   scanTF = tf;
@@ -8773,19 +8832,22 @@ function setSectorFilter(cat){
 }
 function setScanTab(t){
   scanTab=t;
+  ['15m','1h','4h','1d','1w'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=false;b.title='';b.classList.toggle('active',tf===(t==='gainers'?scanGainers.tf:TF));}});
   ['15m','1h'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=t==='sweep_buy';b.title=t==='sweep_buy'?'Buy sweeps use 4h, 1d and 1w only':'';}});
   if(t==='support_hold')['15m','1h'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=true;b.title='Support Holding uses 4H, 1D and 1W';}});
-  ['aplus','tierA','tierB','tierC','opportunity','strong','buy','confirmed_bo','ema_retest','support_hold','sweep_buy','sweep_sell','breakout','accum','oversold','rsiDiv','choch','bos','sector'].forEach(function(x){
+  ['aplus','tierA','tierB','tierC','opportunity','strong','buy','confirmed_bo','ema_retest','support_hold','gainers','sweep_buy','sweep_sell','breakout','accum','oversold','rsiDiv','choch','bos','sector'].forEach(function(x){
     var el=document.getElementById('sc-'+x);if(el)el.classList.toggle('active',x===t);
   });
   var row=document.getElementById('scan-sector-row');
   if(row)row.style.display=t==='sector'?'flex':'none';
+  if(t==='gainers')['15m','1w'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=true;b.title='Top Gainers uses 1H, 4H and 1D';}});
   if(t==='sweep_buy'&&!['4h','1d','1w'].includes(TF)){setScanTF('4h');return;}
   if(t==='support_hold'&&!['4h','1d','1w'].includes(TF)){setScanTF('4h');return;}
   runScanner();
 }
 // Re-scan button — actually FETCH fresh data, then re-display (not just re-filter)
 function reScanFresh(){
+  if(scanTab==='gainers'){refreshScanGainers(true);return;}
   var body=document.getElementById("scan-body");
   var btn=document.getElementById("rescan-btn");
   if(btn){btn.textContent='⏳ Scanning…';btn.disabled=true;}
@@ -8802,6 +8864,7 @@ function reScanFresh(){
 }
 
 function runScanner(){
+  if(scanTab==='gainers'){refreshScanGainers(false);return;}
   var body=document.getElementById("scan-body");
   if(!body) return;
   var data=(scanData&&scanData.length)?scanData:allData;
