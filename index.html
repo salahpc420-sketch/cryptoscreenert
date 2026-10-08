@@ -8720,8 +8720,13 @@ function refreshScanGainers(force){
   renderScanGainers();return s.promise;
 }
 function openScanGainerChart(sym,tf){
-  if(!['1h','4h','1d'].includes(tf)||!allData.some(function(d){return d.sym===sym;}))return;
+  if(!['1h','4h','1d'].includes(tf))return;
+  openScannerChart(sym,tf);
+}
+function openScannerChart(sym,tf){
+  if(!['15m','1h','4h','1d','1w'].includes(tf)||!allData.some(function(d){return d.sym===sym;}))return false;
   openModal(sym,{tab:'chart',timeframe:tf,replaceOverlay:'scan-ov'});
+  return true;
 }
 
 function calcSupportHolding(rows,sym,tf,now){
@@ -8776,12 +8781,10 @@ function renderSupportHolding(data){
   body.querySelectorAll('[data-support-open]').forEach(function(button){button.onclick=function(){openSupportHoldingChart(button.dataset.supportOpen,scanTF);};});
 }
 function openSupportHoldingChart(sym,tf){
-  if(!['4h','1d','1w'].includes(tf)||!allData.some(function(d){return d.sym===sym;}))return;
-  closeOv('scan-ov');openModal(sym);modalTF=tf;
-  document.querySelectorAll('.modal-tf-btn').forEach(function(b){b.classList.toggle('active',b.id==='mtf-'+tf);});
+  if(!['4h','1d','1w'].includes(tf)||!openScannerChart(sym,tf))return;
   var title=document.getElementById('mpair');if(title)title.textContent=sym+' · '+tf+' · Support Holding';
   var snap=document.getElementById('msnap');if(snap)snap.textContent='Historical support-hold observation. Check the chart exchange and retest date; not an entry signal.';
-  switchMTab('chart');chartState.indicators.sr=true;
+  chartState.indicators.sr=true;
   if(chartState.btcFocus&&typeof setBTCFocus==='function')setBTCFocus(false);
 }
 function setScanTF(tf) {
@@ -8926,7 +8929,7 @@ function runScanner(){
     var liqH=d.liq==="buy_sweep"?"<span class=\"pill pg\" style=\"font-size:10px\">🟢 Buy Sweep</span>":d.liq==="sell_sweep"?"<span class=\"pill pr\" style=\"font-size:10px\">🔴 Sell Sweep</span>":"";
     var structCls=SCLS[d.struct]||"pgr";
     var sym2=d.sym;
-    return "<div class=\"sc-item\" onclick=\"closeOv('scan-ov');openModal('"+sym2+"')\">"
+    return "<div class=\"sc-item\" onclick=\"openScannerChart('"+sym2+"',scanTF)\">"
       +"<div style=\"min-width:32px;text-align:center;color:var(--t3);font-size:11px;font-weight:700;flex:0 0 32px\">#"+d.rank+"</div>"
       +"<div style=\"flex:1;min-width:0\">"
         +"<div style=\"display:flex;align-items:center;gap:6px;margin-bottom:3px;flex-wrap:wrap\">"
