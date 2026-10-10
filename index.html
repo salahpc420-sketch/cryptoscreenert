@@ -26915,7 +26915,34 @@ detectProxy().then(function(){}).catch(function(){}).then(function(){
 // Formation is shared with calcChartFVG; all lifecycle decisions use closed bars.
 var FVG_WATCH_KEY = 'bullish_fvg_watch_v1';
 var fvgWatch = {loaded:false,started:false,busy:false,auto:true,records:[],jobs:{},alerts:[],scope:[],
-  tf:'all',filter:'active',search:'',limit:80,progress:'',error:'',storageBlocked:false,timer:null,unread:0};
+  tf:'4h',filter:'Fresh Qualified',latest:true,quality:{gap:.2,body:.8,volume:1.2,btc:'supportive',coin:'bullish',other:false},search:'',limit:80,progress:'',error:'',storageBlocked:false,timer:null,unread:0};
+// Adjustable research thresholds, not optimized parameters or buy signals.
+function fvgWatchQuality(r,stage){
+  var q=fvgWatch.quality,reasons=[],context=r.conditions&&r.conditions[stage==='Held'?'held':'formation'];
+  if(!r.impulseBullish)reasons.push('Middle candle is not bullish');
+  [['gapATR',q.gap,'Gap'],['bodyATR',q.body,'Body'],['volumeRatio',q.volume,'Volume']].forEach(function(x){if(!Number.isFinite(r[x[0]])||r[x[0]]<x[1])reasons.push(x[2]+' below threshold / unavailable');});
+  var btc=context&&context.btc,coin=context&&context.coin;
+  if(q.btc!=='any'&&(!btc||(q.btc==='bullish'?btc.state!=='Bullish':!['Bullish','Stable / range'].includes(btc.state))))reasons.push('BTC context not '+q.btc+' / unavailable');
+  if(q.coin==='bullish'&&(!coin||coin.trend!=='Bullish'||['Falling','Dumping','Unknown'].includes(coin.state)))reasons.push('Coin bullish context unavailable');
+  return {pass:!reasons.length,reasons:reasons};
+}
+function fvgWatchEventTime(r){
+  return r.state==='New'?r.formedAt:r.state==='Held'?r.heldAt:r.state==='Testing'?r.testAt:r.state==='Failed'?r.failedAt:(r.events.find(function(e){return e.type==='Continuation';})||{}).at;
+}
+function fvgWatchFreshMatch(r,now){
+  var fresh=fvgWatch.filter==='Fresh Qualified'||fvgWatch.filter==='Fresh Held',stage=fvgWatch.filter==='Fresh Held'?'Held':r.state==='Held'?'Held':'New';
+  if(fresh&&r.state!==(fvgWatch.filter==='Fresh Held'?'Held':'New'))return false;
+  if((fresh||fvgWatch.latest)&&fvgWatchEventTime(r)!==Math.floor(now/_chartTFDuration(r.tf))*_chartTFDuration(r.tf))return false;
+  return !(fresh||fvgWatch.quality.other)||fvgWatchQuality(r,stage).pass;
+}
+function fvgWatchSetQuality(key,value){
+  var ranges={gap:[.1,5],body:[0,10],volume:[0,20]};
+  if(ranges[key]){var n=Number(value);if(value===''||!Number.isFinite(n)||n<ranges[key][0]||n>ranges[key][1])return;fvgWatch.quality[key]=n;}
+  else if(key==='btc'&&['any','supportive','bullish'].includes(value))fvgWatch.quality.btc=value;
+  else if(key==='coin'&&['any','bullish'].includes(value))fvgWatch.quality.coin=value;
+  else if(key==='other')fvgWatch.quality.other=!!value;
+  fvgWatchSave();fvgWatchRender(); // Changing filters never generates alerts.
+}
 
 function fvgWatchID(source,sym,tf,at){return [source,sym,tf,at].join('|');}
 function fvgWatchValidRecord(r){
@@ -26938,6 +26965,13 @@ function fvgWatchRestore(){
       !saved.jobs||typeof saved.jobs!=='object'||!Array.isArray(saved.alerts))throw Error('Invalid saved schema');
     fvgWatch.records=saved.records.slice(0,3000);fvgWatch.jobs=saved.jobs;fvgWatch.alerts=saved.alerts.slice(0,100);
     fvgWatch.auto=saved.auto!==false;
+    var settings=saved.settings;
+    if(settings&&settings.quality){
+      ['gap','body','volume'].forEach(function(k){var n=settings.quality[k],max=k==='gap'?5:k==='body'?10:20;if(Number.isFinite(n)&&n>=(k==='gap'?.1:0)&&n<=max)fvgWatch.quality[k]=n;});
+      if(['any','supportive','bullish'].includes(settings.quality.btc))fvgWatch.quality.btc=settings.quality.btc;
+      if(['any','bullish'].includes(settings.quality.coin))fvgWatch.quality.coin=settings.quality.coin;
+      fvgWatch.quality.other=settings.quality.other===true;
+    }
   }catch(e){fvgWatch.storageBlocked=true;fvgWatch.error='Saved FVG data could not be read. It has NOT been overwritten; this session is memory-only.';}
 }
 function fvgWatchSave(){
@@ -26945,7 +26979,7 @@ function fvgWatchSave(){
   fvgWatch.records.sort(function(a,b){return b.formedAt-a.formedAt||a.id.localeCompare(b.id);});
   fvgWatch.records=fvgWatch.records.slice(0,3000);fvgWatch.alerts=fvgWatch.alerts.slice(0,100);
   try{localStorage.setItem(FVG_WATCH_KEY,JSON.stringify({version:1,method:'fvg-watch-v1',auto:fvgWatch.auto,
-    records:fvgWatch.records,jobs:fvgWatch.jobs,alerts:fvgWatch.alerts}));}
+    settings:{quality:fvgWatch.quality},records:fvgWatch.records,jobs:fvgWatch.jobs,alerts:fvgWatch.alerts}));}
   catch(e){fvgWatch.error='FVG storage unavailable or full. New results are memory-only; export before closing.';}
 }
 function fvgWatchEvent(r,type,at,price){
@@ -27052,13 +27086,16 @@ function fvgWatchIngest(rows,btc,sym,tf,now){
       if(e.at>prior.closedAt&&e.at<=snap.lastClosedTime&&!fvgWatch.alerts.some(function(a){return a.id===id;})){
         var a={id:id,zoneID:r.id,sym:sym,tf:tf,source:r.source,type:e.type,at:e.at,observedAt:now,
           delayed:e.at<snap.lastClosedTime};notifications.push(a);fvgWatch.alerts.unshift(a);
+        if(['New','Held'].includes(e.type)&&!a.delayed&&prior.closedAt===e.at-_chartTFDuration(tf)&&r.state===e.type&&fvgWatchQuality(r,e.type).pass){
+          a.qualified=true;a.qualifiedType=e.type==='New'?'Fresh Qualified':'Fresh Held';a.rules=Object.assign({},fvgWatch.quality);a.latencyMs=Math.max(0,now-e.at);
+        }
       }
     });
     return r;
   });
   fvgWatch.jobs[jobKey]={sym:sym,tf:tf,source:snap.source,closedAt:snap.lastClosedTime,checkedAt:now,ok:true,
     baseline:!same,error:''};
-  fvgWatch.unread+=notifications.length;return notifications;
+  fvgWatch.unread+=notifications.filter(function(a){return a.qualified;}).length;return notifications;
 }
 function fvgWatchScope(){
   var rank=document.getElementById('f-cap'),range=rank?rank.value:'all';
@@ -27078,8 +27115,10 @@ async function fvgWatchScan(force){
   var now=Date.now(),jobs=[];
   scope.forEach(function(sym){['1h','4h','1d'].forEach(function(tf){
     var p=fvgWatch.jobs[sym+'|'+tf],due=!p||p.closedAt<Math.floor(now/_chartTFDuration(tf))*_chartTFDuration(tf)||!p.ok;
-    if(force||due&&(!p||p.ok||now-p.checkedAt>=300000))jobs.push({sym:sym,tf:tf});
+    var retry=p&&p.retryBoundary===Math.floor(now/_chartTFDuration(tf))*_chartTFDuration(tf)&&(p.failures||0)<3?15000:300000;
+    if(force||due&&(!p||p.ok||now-p.checkedAt>=retry))jobs.push({sym:sym,tf:tf});
   });});
+  jobs.sort(function(a,b){return Number(b.tf===fvgWatch.tf)-Number(a.tf===fvgWatch.tf);});
   if(!jobs.length){fvgWatchRender();return;}
   fvgWatch.busy=true;var total=jobs.length,done=0,failed=0,events=[],btc={};
   fvgWatch.progress='Preparing BTC context · '+total+' coin/timeframe checks';fvgWatchRender();
@@ -27091,11 +27130,14 @@ async function fvgWatchScan(force){
       while(jobs.length&&!document.hidden){
         var job=jobs.shift();
         try{
-          var rows=job.sym==='BTCUSDT'&&btc[job.tf]?btc[job.tf]:await fvgWatchFetch(job.sym,job.tf,force);
-          events=events.concat(fvgWatchIngest(rows,btc[job.tf],job.sym,job.tf,Date.now()));
+          var previous=fvgWatch.jobs[job.sym+'|'+job.tf];
+          var rows=job.sym==='BTCUSDT'&&btc[job.tf]?btc[job.tf]:await fvgWatchFetch(job.sym,job.tf,force||!!(previous&&!previous.ok));
+          var observed=fvgWatchIngest(rows,btc[job.tf],job.sym,job.tf,Date.now());events=events.concat(observed);
+          if(observed.some(function(a){return a.qualified;}))fvgWatchRender();
         }catch(e){
           failed++;var key=job.sym+'|'+job.tf,prior=fvgWatch.jobs[key]||{};
-          fvgWatch.jobs[key]=Object.assign({},prior,{sym:job.sym,tf:job.tf,ok:false,checkedAt:Date.now(),error:String(e.message||'Request failed')});
+          var boundary=Math.floor(Date.now()/_chartTFDuration(job.tf))*_chartTFDuration(job.tf);
+          fvgWatch.jobs[key]=Object.assign({},prior,{sym:job.sym,tf:job.tf,ok:false,checkedAt:Date.now(),retryBoundary:boundary,failures:prior.retryBoundary===boundary?(prior.failures||0)+1:1,error:String(e.message||'Request failed')});
           fvgWatch.records.forEach(function(r){if(r.sym===job.sym&&r.tf===job.tf){r.health='Unknown';r.note='Refresh unavailable; last known state only';}});
         }
         done++;fvgWatch.progress='Checked '+done+'/'+total+' · '+failed+' unavailable';
@@ -27104,23 +27146,67 @@ async function fvgWatchScan(force){
     }
     // Three bounded workers, never modify global scanner TF, Q, BTC state or logs.
     await Promise.all([worker(),worker(),worker()]);
-    fvgWatch.progress=(jobs.length?'Paused while page hidden · ':'Scan complete · ')+done+'/'+total+' checked · '+failed+' unavailable · '+events.length+' new events';
-  }finally{fvgWatch.busy=false;fvgWatchSave();fvgWatchRender();}
+    fvgWatch.progress=(jobs.length?'Paused while page hidden · ':'Scan complete · ')+done+'/'+total+' checked · '+failed+' unavailable · '+events.filter(function(a){return a.qualified;}).length+' qualified alerts · '+events.length+' lifecycle events';
+  }finally{fvgWatch.busy=false;fvgWatchSave();fvgWatchRender();if(fvgWatch.closePending){fvgWatch.closePending=false;setTimeout(function(){if(fvgWatch.auto&&!document.hidden)fvgWatchScan(false);},1500);}}
 }
 function fvgWatchCurrent(r,now){
   var j=fvgWatch.jobs[r.sym+'|'+r.tf];
   return r.health==='Current'&&j&&j.ok&&j.source===r.source&&r.throughAt===j.closedAt&&
     r.throughAt<=now&&now<r.throughAt+_chartTFDuration(r.tf);
 }
+// One public BTC stream is a close-boundary trigger only, not coin evidence.
+// Every coin/venue is still verified from its own REST closed-candle history.
+var fvgClose={socket:null,retryAt:0,failures:0,seen:{},status:'Polling fallback',heartbeat:null,deadline:null,lastMessage:0};
+function fvgWatchCloseStop(){
+  var socket=fvgClose.socket;fvgClose.socket=null;
+  if(fvgClose.heartbeat!=null)clearInterval(fvgClose.heartbeat);
+  clearTimeout(fvgClose.deadline);clearTimeout(fvgWatch.closeTimer);fvgWatch.closeTimer=null;fvgWatch.closePending=false;
+  fvgClose.heartbeat=null;fvgClose.deadline=null;fvgClose.status='Polling fallback';
+  if(socket){socket.onopen=socket.onmessage=socket.onerror=socket.onclose=null;try{socket.close();}catch(e){}}
+}
+function fvgWatchCloseSignal(msg,now){
+  if(!fvgWatch.started||!fvgWatch.auto||document.hidden)return false;
+  var match=/^kline\.(60|240|D)\.BTCUSDT$/.exec(msg&&msg.topic||'');
+  if(!match||!Array.isArray(msg.data))return false;
+  var tf={'60':'1h','240':'4h',D:'1d'}[match[1]],dt=_chartTFDuration(tf),accepted=false;
+  msg.data.forEach(function(k){var start=Number(k.start),end=start+dt;
+    if(k.confirm!==true||String(k.interval)!==match[1]||!Number.isFinite(start)||start%dt||Number(k.end)!==end-1||end>now||now-end>90000||end<=(fvgClose.seen[tf]||0))return;
+    fvgClose.seen[tf]=end;accepted=true;
+  });
+  if(accepted){
+    if(fvgWatch.busy)fvgWatch.closePending=true;
+    else if(!fvgWatch.closeTimer)fvgWatch.closeTimer=setTimeout(function(){fvgWatch.closeTimer=null;if(fvgWatch.auto&&!document.hidden)fvgWatchScan(false);},1500);
+  }
+  return accepted;
+}
+function fvgWatchCloseConnect(){
+  if(!fvgWatch.started||!fvgWatch.auto||document.hidden||typeof WebSocket==='undefined'||fvgClose.socket||Date.now()<fvgClose.retryAt)return;
+  var socket;try{socket=new WebSocket('wss://stream.bybit.com/v5/public/spot');}catch(e){fvgClose.retryAt=Date.now()+60000;return;}
+  fvgClose.socket=socket;fvgClose.status='Connecting close trigger';
+  function failed(){if(fvgClose.socket!==socket)return;fvgWatchCloseStop();fvgClose.failures++;fvgClose.retryAt=Date.now()+Math.min(60000,5000*Math.pow(2,Math.min(4,fvgClose.failures)));}
+  fvgClose.deadline=setTimeout(failed,10000);
+  socket.onopen=function(){if(fvgClose.socket!==socket)return;
+    fvgClose.lastMessage=Date.now();try{socket.send(JSON.stringify({op:'subscribe',args:['kline.60.BTCUSDT','kline.240.BTCUSDT','kline.D.BTCUSDT']}));}catch(e){failed();return;}
+    fvgClose.heartbeat=setInterval(function(){if(fvgClose.socket!==socket)return;if(document.hidden||!fvgWatch.auto){fvgWatchCloseStop();return;}if(Date.now()-fvgClose.lastMessage>90000){failed();return;}try{socket.send(JSON.stringify({op:'ping'}));}catch(e){failed();}},20000);
+  };
+  socket.onmessage=function(event){if(fvgClose.socket!==socket)return;try{
+    var msg=JSON.parse(event.data);fvgClose.lastMessage=Date.now();
+    if(msg.op==='subscribe'){if(msg.success!==true){failed();return;}clearTimeout(fvgClose.deadline);fvgClose.failures=0;fvgClose.status='Bybit BTC close trigger connected · coin candles REST-verified';fvgWatchRender();}
+    fvgWatchCloseSignal(msg,Date.now());
+  }catch(e){/* Ignore malformed transport messages, never candles into analysis. */}};
+  socket.onerror=socket.onclose=failed;
+}
 function fvgWatchStart(){
   fvgWatchRestore();fvgWatch.started=true;fvgWatch.unread=0;fvgWatchRender();fvgWatchScan(false);
-  if(!fvgWatch.timer)fvgWatch.timer=setInterval(function(){if(!document.hidden){if(fvgWatch.auto)fvgWatchScan(false);else fvgWatchRender();}},60000);
+  fvgWatchCloseConnect();
+  if(!fvgWatch.timer)fvgWatch.timer=setInterval(function(){if(!document.hidden){fvgWatchCloseConnect();if(fvgWatch.auto)fvgWatchScan(false);else fvgWatchRender();}},15000);
 }
 function fvgWatchSet(key,value){
   if(key==='tf'&&['all','1h','4h','1d'].includes(value))fvgWatch.tf=value;
-  if(key==='filter'&&['active','all','New','Testing','Held','Continuation','Failed','Unknown'].includes(value))fvgWatch.filter=value;
+  if(key==='filter'&&['Fresh Qualified','Fresh Held','active','all','New','Testing','Held','Continuation','Failed','Unknown'].includes(value))fvgWatch.filter=value;
+  if(key==='latest')fvgWatch.latest=!!value;
   if(key==='search')fvgWatch.search=String(value).toUpperCase().slice(0,40);
-  if(key==='auto'){fvgWatch.auto=!!value;fvgWatchSave();}
+  if(key==='auto'){fvgWatch.auto=!!value;fvgWatchSave();if(!fvgWatch.auto)fvgWatchCloseStop();else{fvgWatchCloseConnect();fvgWatchScan(false);}}
   fvgWatch.limit=80;fvgWatchRender();
 }
 function fvgWatchSearch(value){
@@ -27131,7 +27217,8 @@ function fvgWatchRows(now){
   return fvgWatch.records.filter(function(r){
     if(fvgWatch.scope.indexOf(r.sym)<0||fvgWatch.tf!=='all'&&r.tf!==fvgWatch.tf||r.sym.indexOf(fvgWatch.search)<0)return false;
     var current=fvgWatchCurrent(r,now),filter=fvgWatch.filter;
-    return filter==='all'||filter==='Unknown'&&!current||current&&(filter==='active'?r.state!=='Failed':r.state===filter);
+    if(filter==='all')return true;if(filter==='Unknown')return !current;
+    return current&&fvgWatchFreshMatch(r,now)&&(['Fresh Qualified','Fresh Held'].includes(filter)||(filter==='active'?r.state!=='Failed':r.state===filter));
   }).sort(function(a,b){
     var order={Testing:0,Held:1,Continuation:2,New:3,Failed:4,Unknown:5};
     return (order[a.state]-order[b.state])||b.formedAt-a.formedAt;
@@ -27142,6 +27229,7 @@ function fvgWatchTime(at){return Number.isFinite(at)&&Number.isFinite(new Date(a
 function fvgWatchEscape(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function fvgWatchEvidence(r){
   var esc=fvgWatchEscape;
+  var quality=fvgWatchQuality(r,r.state==='Held'||r.state==='Continuation'?'Held':'New');
   function condition(c,label){
     if(!c)return '<p>'+label+': not observed yet</p>';
     return '<p><b>'+label+'</b> · '+esc(fvgWatchTime(c.asOf))+'<br>BTC: '+esc(c.btc.state)+' · Coin: '+esc(c.coin.state)+
@@ -27153,7 +27241,7 @@ function fvgWatchEvidence(r){
     '<p>Formed '+esc(fvgWatchTime(r.formedAt))+' · First seen '+esc(fvgWatchTime(r.firstSeenAt))+
     '<br>Fixed zone '+esc(fmtPrice(r.low)+'–'+fmtPrice(r.high))+' · Gap '+fvgWatchFmt(r.gapATR,' ATR')+
     '<br>Middle-candle body '+fvgWatchFmt(r.bodyATR,' ATR')+' · '+(r.impulseBullish?'bullish':'not bullish')+' · Volume '+fvgWatchFmt(r.volumeRatio,'× prior 20')+'</p>'+
-    condition(r.conditions.formation,'At formation')+condition(r.conditions.held,'At first held close')+
+    '<p><b>Current filter rules:</b> '+(quality.pass?'Pass (not a buy signal)':esc(quality.reasons.join(' · ')))+'</p>'+condition(r.conditions.formation,'At formation')+condition(r.conditions.held,'At first held close')+
     '<p>Close return since formation: '+horizons(r.performance.formation)+'<br>Since first held close: '+horizons(r.performance.held)+
     '<br>Post-formation high/low excursion: '+fvgWatchFmt(r.performance.maxRisePct,'%')+' / '+fvgWatchFmt(r.performance.maxFallPct,'%')+
     '<br>Research returns include moves after failure. No entry, stop, fees or actual fill; not trade P&amp;L.</p><p>'+r.events.map(function(e){return esc(e.type)+' · '+esc(fvgWatchTime(e.at));}).join('<br>')+
@@ -27161,6 +27249,9 @@ function fvgWatchEvidence(r){
 }
 function fvgWatchRender(){
   var root=document.getElementById('fvg-watch-root');if(!root)return;
+  var editing=document.activeElement;
+  if(editing&&root.contains(editing)&&editing.type==='number')return; // Do not replace a threshold while it is being typed.
+  var qualityControl=root.querySelector('#fvg-quality-controls'),qualityOpen=qualityControl&&qualityControl.open;
   var tab=document.getElementById('it-fvg');if(tab)tab.textContent='🟩 Bullish FVG'+(fvgWatch.unread?' · '+fvgWatch.unread+' new':'');
   if(!document.getElementById('fvg-watch-style')){
     var style=document.createElement('style');style.id='fvg-watch-style';style.textContent=
@@ -27177,13 +27268,19 @@ function fvgWatchRender(){
   var html='<div class="fvg-toolbar"><strong style="font-size:15px">Bullish FVG · Watchlist</strong><button class="btn" onclick="fvgWatchScan(true)" '+(fvgWatch.busy?'disabled':'')+'>'+(fvgWatch.busy?'Scanning…':'↻ Scan now')+'</button><button class="btn" onclick="fvgWatchExport()">Export research</button></div>'+
     '<div class="fvg-muted">1H · 4H · 1D independently · Closed candles only · No buy signals or Buy Sweep entries</div>'+
     '<div class="fvg-toolbar"><label>Timeframe <select aria-label="FVG timeframe" onchange="fvgWatchSet(\'tf\',this.value)">'+['all','1h','4h','1d'].map(function(v){return option(v,v==='all'?'All timeframes':v.toUpperCase(),fvgWatch.tf);}).join('')+'</select></label>'+
-    '<label>Status <select aria-label="FVG status" onchange="fvgWatchSet(\'filter\',this.value)">'+['active','New','Testing','Held','Continuation','Failed','Unknown','all'].map(function(v){return option(v,v==='active'?'Active zones':v==='all'?'All / history':v==='Unknown'?'Unavailable / stale':v,fvgWatch.filter);}).join('')+'</select></label>'+
+    '<label>Status <select aria-label="FVG status" onchange="fvgWatchSet(\'filter\',this.value)">'+['Fresh Qualified','Fresh Held','active','New','Testing','Held','Continuation','Failed','Unknown','all'].map(function(v){return option(v,v==='active'?'Active zones':v==='all'?'All / history':v==='Unknown'?'Unavailable / stale':v,fvgWatch.filter);}).join('')+'</select></label>'+
     '<label>Coin <input type="search" aria-label="FVG coin search" placeholder="SOL, ETH…" value="'+esc(fvgWatch.search)+'" oninput="fvgWatchSearch(this.value)"></label>'+
     '<label><input type="checkbox" onchange="fvgWatchSet(\'auto\',this.checked)" '+(fvgWatch.auto?'checked':'')+'> Auto-check candle closes while page visible</label></div>'+
+    '<label><input type="checkbox" onchange="fvgWatchSet(\'latest\',this.checked)" '+(fvgWatch.latest||fvgWatch.filter.startsWith('Fresh')?'checked':'')+' '+(fvgWatch.filter.startsWith('Fresh')?'disabled':'')+'> Latest closed candle only (mandatory for Fresh views; history/stale views exempt)</label>'+
+    '<details id="fvg-quality-controls"><summary>Quality / context filters · adjustable research rules</summary><div class="fvg-toolbar">'+
+    [['gap','Min gap / ATR',.1,5],['body','Min bullish body / ATR',0,10],['volume','Min volume / prior 20',0,20]].map(function(x){return '<label>'+x[1]+' <input type="number" aria-label="'+x[1]+'" min="'+x[2]+'" max="'+x[3]+'" step="0.1" style="width:65px" value="'+fvgWatch.quality[x[0]]+'" onchange="fvgWatchSetQuality(\''+x[0]+'\',this.value)"></label>';}).join('')+
+    '<label>BTC at event <select onchange="fvgWatchSetQuality(\'btc\',this.value)">'+['any','supportive','bullish'].map(function(v){return option(v,v==='any'?'Any / not required':v==='supportive'?'Bullish or stable/range':'Bullish only',fvgWatch.quality.btc);}).join('')+'</select></label>'+
+    '<label>Coin at event <select onchange="fvgWatchSetQuality(\'coin\',this.value)">'+['any','bullish'].map(function(v){return option(v,v==='any'?'Any / not required':'Bullish only',fvgWatch.quality.coin);}).join('')+'</select></label>'+
+    '<label><input type="checkbox" '+(fvgWatch.quality.other?'checked':'')+' onchange="fvgWatchSetQuality(\'other\',this.checked)"> Apply quality to other active status views too</label></div><p>Defaults: gap ≥0.2 ATR, bullish middle body ≥0.8 ATR, volume ≥1.2× preceding 20; BTC bullish or stable/range; coin bullish. Untested screening heuristics, not optimized parameters. Missing required measurements fail the filter. Context is measured at formation or first hold, not current live BTC. Changing settings never creates retrospective alerts. Use All / history → Evidence to inspect exclusions.</p></details>'+
     '<div role="status">'+esc(fvgWatch.progress||'Ready to scan')+'</div>'+
-    '<div class="fvg-muted">Scope: '+fvgWatch.scope.length+' USDT pairs from the market-cap selector (not row signal filters). Browser-only; closed tabs, sleep and background throttling interrupt tracking. Refresh failures retry after 5 minutes.</div>'+
+    '<div class="fvg-muted">'+esc(fvgClose.status)+' · 15s polling fallback; exchange delivery and scan queue add latency. Selected timeframe gets priority. Scope: '+fvgWatch.scope.length+' USDT pairs from the market-cap selector (not row signal filters). Browser-only; hidden/closed tabs and sleep interrupt tracking. Failed checks retry twice at 15s spacing, then every 5 minutes.</div>'+
     (fvgWatch.error?'<p class="fvg-warning">'+esc(fvgWatch.error)+'</p>':'')+
-    '<div class="fvg-counts">'+['New','Testing','Held','Continuation','Failed','Unknown'].map(function(k){return '<div class="fvg-count">'+(k==='Unknown'?'Unavailable / stale':k)+' <b>'+(counts[k]||0)+'</b></div>';}).join('')+'</div>'+
+    '<div class="fvg-muted">Stage totals below include unqualified and older zones; filtered results: '+rows.length+'. Fresh Held means first hold on the latest closed candle, not a repeat retest.</div><div class="fvg-counts">'+['New','Testing','Held','Continuation','Failed','Unknown'].map(function(k){return '<div class="fvg-count">'+(k==='Unknown'?'Unavailable / stale':k)+' <b>'+(counts[k]||0)+'</b></div>';}).join('')+'</div>'+
     '<div class="fvg-scroll"><table class="fvg-table"><thead><tr><th>Coin / TF</th><th>Stage / fill</th><th>Fixed FVG zone</th><th>Distance / age</th><th>Context / evidence</th></tr></thead><tbody>';
   html+=rows.slice(0,fvgWatch.limit).map(function(r){
     var current=fvgWatchCurrent(r,now),distance=r.lastClose>r.high?r.lastClose-r.high:r.lastClose<r.low?r.low-r.lastClose:0;
@@ -27197,12 +27294,14 @@ function fvgWatchRender(){
       '<td>BTC at formation: '+esc(r.conditions.formation?r.conditions.formation.btc.state:'Unknown')+fvgWatchEvidence(r)+'</td></tr>';
   }).join('');
   html+='</tbody></table>'+(rows.length?'':'<p style="padding:18px">No zones match this view. Try All / history or Unavailable / stale; this is not evidence of missing support.</p>')+'</div><div class="fvg-toolbar">Showing '+Math.min(rows.length,fvgWatch.limit)+' / '+rows.length+' zones'+(rows.length>fvgWatch.limit?' <button class="btn" onclick="fvgWatch.limit+=80;fvgWatchRender()">Show more</button>':'')+'</div>';
-  html+='<details><summary>Recent FVG alerts ('+fvgWatch.alerts.length+') · on-page only</summary><div class="fvg-alerts">'+(fvgWatch.alerts.length?fvgWatch.alerts.slice(0,30).map(function(a){return '<div>'+esc(a.sym+' · '+a.tf+' · '+a.source+' · '+a.type)+' — '+esc(fvgWatchTime(a.at))+(a.delayed?' · caught up from history':'')+'</div>';}).join(''):'No new events after baseline yet.')+'</div></details>'+
+  var qualifiedAlerts=fvgWatch.alerts.filter(function(a){return a.qualified&&fvgWatch.scope.includes(a.sym)&&(fvgWatch.tf==='all'||a.tf===fvgWatch.tf);});
+  html+='<details><summary>Qualified event alerts ('+qualifiedAlerts.length+') · rules at detection · on-page only</summary><div class="fvg-alerts">'+(qualifiedAlerts.length?qualifiedAlerts.slice(0,30).map(function(a){return '<div>'+esc(a.sym+' · '+a.tf+' · '+a.source+' · '+a.qualifiedType)+' — '+esc(fvgWatchTime(a.at))+' · detected '+Math.round(a.latencyMs/1000)+'s after close</div>';}).join(''):'No newly qualified events after baseline yet.')+'</div><p>Historical alert log, not a list of current setups. Saved thresholds are included in Export research. Raw lifecycle events remain in zone evidence and export.</p></details>'+
     '<details><summary>Rules, coverage &amp; limits</summary><p>New = candle 3 low above candle 1 high after candle 3 closes; middle candle must span the gap. Minimum size 0.1 prior ATR (a noise filter, not a proven edge). First touch = a later completed candle overlaps the zone. Held = after a touch, a close above the upper edge. Continuation = a later non-touch candle closes above the most recent retest high. Failed = close below the lower edge; terminal. A wick fill is not automatically failure.</p>'+
     '<p>Each alert type occurs once per zone / venue / timeframe. First scans and provider switches load historical baselines silently. “New” means not retested, not necessarily just formed; check its age. Missing history and stale/provider-mismatched data never count as current. Gap bounds never move. Formation searches the last 240 closed candles; saved zones continue when contiguous history is available. Retain newest 3,000 zones and 100 alerts in this browser only. Export for longer studies.</p>'+
     '<p>Open chart loads that coin and timeframe; check the chart venue if exchange failover occurs. FVGs are descriptive patterns, not proof of orders or guaranteed continuation. Returns omit fees/slippage and are not trade outcomes. Keep timeframe cohorts separate when comparing.</p>'+
     '<p>Unavailable checks: '+esc(Object.keys(fvgWatch.jobs).filter(function(k){var j=fvgWatch.jobs[k];return !j.ok&&fvgWatch.scope.indexOf(j.sym)>=0;}).map(function(k){var j=fvgWatch.jobs[k];return j.sym+' '+j.tf+': '+j.error;}).join(' · ')||'None')+'</p></details>';
   root.innerHTML=html;
+  qualityControl=root.querySelector('#fvg-quality-controls');if(qualityControl&&qualityOpen)qualityControl.open=true;
   root.querySelectorAll('[data-fvg-open]').forEach(function(b){b.onclick=function(){fvgWatchOpen(b.dataset.fvgOpen);};});
   root.querySelectorAll('tr[data-fvg-id]').forEach(function(el){if(open.includes(el.dataset.fvgId)){var d=el.querySelector('details');if(d)d.open=true;}});
   scroll=root.querySelector('.fvg-scroll');if(scroll){scroll.scrollTop=top;scroll.scrollLeft=left;}
@@ -27224,11 +27323,11 @@ async function fvgWatchOpen(id){
 function fvgWatchExport(){
   fvgWatchRestore();var blob=new Blob([JSON.stringify({version:1,method:'fvg-watch-v1',exportedAt:new Date().toISOString(),
     note:'Closed-candle descriptive research, not trades. Contexts reconstructed as-of events. Returns omit costs; history/provider gaps may limit coverage.',
-    records:fvgWatch.records,jobs:fvgWatch.jobs,alerts:fvgWatch.alerts},null,2)],{type:'application/json'});
+    settings:{quality:fvgWatch.quality},records:fvgWatch.records,jobs:fvgWatch.jobs,alerts:fvgWatch.alerts},null,2)],{type:'application/json'});
   var url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='bullish_fvg_'+new Date().toISOString().slice(0,10)+'.json';
   a.click();setTimeout(function(){URL.revokeObjectURL(url);},1000);
 }
-document.addEventListener('visibilitychange',function(){if(!document.hidden&&fvgWatch.started){if(fvgWatch.auto)fvgWatchScan(false);else fvgWatchRender();}});
+document.addEventListener('visibilitychange',function(){if(document.hidden){fvgWatchCloseStop();return;}if(fvgWatch.started){fvgWatchCloseConnect();if(fvgWatch.auto)fvgWatchScan(false);else fvgWatchRender();}});
 
 </script>
 <script data-bundled-source="chart-kie.js">
