@@ -1360,6 +1360,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       <button class="mtab" id="sc-confirmed_bo"      onclick="setScanTab('confirmed_bo')">🚀 Confirmed BO</button>
       <button class="mtab" id="sc-ema_retest"        onclick="setScanTab('ema_retest')">🔄 EMA Retest</button>
       <button class="mtab" id="sc-support_hold"      onclick="setScanTab('support_hold')">🛡 Support Holding</button>
+      <button class="mtab" id="sc-hhhl" onclick="setScanTab('hhhl')">↗ HH / HL</button>
       <button class="mtab" id="sc-gainers" onclick="setScanTab('gainers')">📈 Top Gainers</button>
       <button class="mtab" id="sc-sweep_buy"         onclick="setScanTab('sweep_buy')">🟢 Sweep Buy</button>
       <button class="mtab" id="sc-sweep_sell"        onclick="setScanTab('sweep_sell')">🔴 Sweep Sell</button>
@@ -3736,6 +3737,7 @@ function processSymbol(ticker, btcReferenceOverride, requestTF) {
       invEligible:invEligible, invReason:invReason, e200Rising:e200Rising, coinRank:coinRank,
       struct:st, liq:liq, liqEvidence:liqEvidence, sup:sr.sup, res:sr.res, sDist:sr.sDist, rDist:sr.rDist,
       supportHolding:calcSupportHolding(klines,sym,catalystTF,Date.now()),
+      higherStructure:calcHigherStructure(klines,sym,catalystTF,Date.now()),
       // Research only: frozen closed-candle context; never a signal/entry gate.
       sweepContextFrame:['4h','1d'].includes(catalystTF)&&(sym==='BTCUSDT'||liq==='buy_sweep')
         ? buildSweepContextFrame(klines,sym,catalystTF,analysisSnapshot.lastClosedTime):null,
@@ -8729,6 +8731,49 @@ function openScannerChart(sym,tf){
   return true;
 }
 
+function calcHigherStructure(rows,sym,tf,now){
+  var out={version:1,sym:sym,tf:tf,state:'Unknown',reason:'Use 1H, 4H, 1D or 1W'};
+  if(!['1h','4h','1d','1w'].includes(tf))return out;
+  var snap=chartSnapshot(rows,sym,tf,now);
+  out.source=snap.source;out.signature=snap.signature;out.closedAt=snap.lastClosedTime;
+  if(!snap.usable){out.reason=snap.message;return out;}
+  var bars=rows.slice(0,-1),h=bars.map(function(k){return Number(k[2]);}),l=bars.map(function(k){return Number(k[3]);}),c=bars.map(function(k){return Number(k[4]);});
+  var s=confluenceStructure(h,l,c),dt=_chartTFDuration(tf);
+  function evidence(p){return {price:p.p,at:Number(bars[p.i][0]),confirmedAt:Number(bars[p.confirmedAt][0])+dt};}
+  out.highs=s.highs.slice(-2).map(evidence);out.lows=s.lows.slice(-2).map(evidence);out.close=c[c.length-1];
+  out.state='Not HH/HL';out.reason=s.label;
+  if(s.side!=='bull')return out;
+  // Once a confirmed HL is broken on a close, a later bounce alone cannot
+  // resurrect it. Require a new confirmed pivot pair; freeze break tolerance.
+  var p=s.low,buffer=calcATR(h.slice(0,p.confirmedAt+1),l.slice(0,p.confirmedAt+1),c.slice(0,p.confirmedAt+1),14)*.1;
+  out.breakBelow=p.p-buffer;
+  for(var i=p.confirmedAt+1;i<c.length;i++)if(c[i]<out.breakBelow){out.reason='Confirmed higher low was broken';out.brokenAt=Number(bars[i][0])+dt;return out;}
+  out.state='HH/HL';out.reason='Confirmed higher highs and higher lows';
+  out.confirmedAt=Math.max.apply(null,out.highs.concat(out.lows).map(function(p){return p.confirmedAt;}));
+  out.barsAgo=Math.round((out.closedAt-out.confirmedAt)/dt);
+  return out;
+}
+function higherStructureCurrent(d,tf,now){
+  var e=d&&d.higherStructure,s=d&&d.analysisSnapshot;
+  return !!(d&&!d._stale&&e&&e.version===1&&e.state!=='Unknown'&&e.sym===d.sym&&e.tf===tf&&s&&s.usable&&s.symbol===d.sym&&s.timeframe===tf&&e.source===s.source&&e.signature===s.signature&&e.closedAt===s.lastClosedTime&&Number.isFinite(e.closedAt)&&now>=e.closedAt&&now<e.closedAt+_chartTFDuration(tf));
+}
+function renderHigherStructure(data){
+  var body=document.getElementById('scan-body');if(!body)return;
+  var now=Date.now(),esc=confluenceEscape,eligible=data.filter(function(d){return higherStructureCurrent(d,scanTF,now);});
+  var hits=eligible.filter(function(d){return d.higherStructure.state==='HH/HL';}).sort(function(a,b){return a.higherStructure.barsAgo-b.higherStructure.barsAgo||a.sym.localeCompare(b.sym);});
+  var sub=document.getElementById('scan-sub'),upd=document.getElementById('scan-upd');
+  if(sub)sub.textContent=hits.length+' coins — '+scanTF.toUpperCase()+' Higher highs / higher lows · '+eligible.length+'/'+data.length+' verified';
+  if(upd)upd.textContent='Checked '+confluenceTime(now)+' · '+(data.length-eligible.length)+' unavailable / stale / different timeframe';
+  var html='<div style="padding:12px 16px;font-size:11px;line-height:1.7;color:var(--t2)">Choose <b>1H, 4H, 1D or 1W</b>. Latest two confirmed swing highs and lows must each rise by more than 0.1%, using the last 60 closed bars. Pivots require three completed candles on each side; weekly confirmation therefore needs three later closed weeks. A close below the confirmed higher low minus 0.1 ATR invalidates this observation. No requirement that all four timeframes align. Structure evidence, not a buy signal.</div>';
+  if(!hits.length)html+='<div class="msg" style="padding:2rem">'+(eligible.length?'No confirmed HH / HL structures on '+scanTF.toUpperCase()+'.':'No verified '+scanTF.toUpperCase()+' structure data yet. Re-scan to fetch candles.')+'</div>';
+  hits.forEach(function(d){var e=d.higherStructure,low=e.lows[1],price=Number(d.price);
+    html+='<div class="sc-item"><div style="flex:1;min-width:0"><b>'+esc(d.pair)+' · '+esc(scanTF.toUpperCase())+' · HH / HL</b><div style="font-size:12px;line-height:1.8;margin-top:5px">High: '+esc(fE(e.highs[0].price))+' → <b>'+esc(fE(e.highs[1].price))+'</b><br>Low: '+esc(fE(e.lows[0].price))+' → <b>'+esc(fE(low.price))+'</b></div><div style="font-size:11px;color:var(--t2)">Confirmed '+esc(confluenceTime(e.confirmedAt))+' · '+e.barsAgo+' closed bars ago<br>'+esc(e.source)+' · latest close '+esc(fE(e.close))+' · '+esc(confluenceTime(e.closedAt))+'</div>'+
+      (Number.isFinite(price)&&price<low.price?'<div style="color:var(--am);font-size:11px">Live quote is below the higher low; review the chart. Closed-candle structure is not a live entry.</div>':'')+
+      '<details style="font-size:11px"><summary>Swing evidence</summary>'+e.highs.concat(e.lows).map(function(p,i){return (i<2?'High':'Low')+' '+(i%2+1)+': '+esc(fE(p.price))+' · pivot '+esc(confluenceTime(p.at))+' · confirmed '+esc(confluenceTime(p.confirmedAt));}).join('<br>')+'<br>Closed break threshold: '+esc(fE(e.breakBelow))+' (not a stop order). Ranked by confirmation recency, not profit potential.</details></div><button class="btn" data-hhhl-open="'+esc(d.sym)+'">Open '+esc(scanTF.toUpperCase())+' chart</button></div>';
+  });
+  body.innerHTML=html;
+  body.querySelectorAll('[data-hhhl-open]').forEach(function(b){b.onclick=function(){openScannerChart(b.dataset.hhhlOpen,scanTF);};});
+}
 function calcSupportHolding(rows,sym,tf,now){
   var out={version:1,sym:sym,tf:tf,state:'Unknown',reason:'Use 4H, 1D or 1W',matches:[]};
   if(!['4h','1d','1w'].includes(tf))return out;
@@ -8796,6 +8841,7 @@ function setScanTF(tf) {
   }
   if(scanTab==='sweep_buy'&&!['4h','1d','1w'].includes(tf))tf='4h';
   if(scanTab==='support_hold'&&!['4h','1d','1w'].includes(tf))tf='4h';
+  if(scanTab==='hhhl'&&!['1h','4h','1d','1w'].includes(tf))tf='1h';
   scanTF = tf;
   TF = tf; // make this the ACTIVE timeframe so the main scan + logging follow it
   document.querySelectorAll('[id^="sc-tf-"]').forEach(function(b) {
@@ -8835,7 +8881,8 @@ function setScanTab(t){
   ['15m','1h','4h','1d','1w'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=false;b.title='';b.classList.toggle('active',tf===(t==='gainers'?scanGainers.tf:TF));}});
   ['15m','1h'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=t==='sweep_buy';b.title=t==='sweep_buy'?'Buy sweeps use 4h, 1d and 1w only':'';}});
   if(t==='support_hold')['15m','1h'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=true;b.title='Support Holding uses 4H, 1D and 1W';}});
-  ['aplus','tierA','tierB','tierC','opportunity','strong','buy','confirmed_bo','ema_retest','support_hold','gainers','sweep_buy','sweep_sell','breakout','accum','oversold','rsiDiv','choch','bos','sector'].forEach(function(x){
+  if(t==='hhhl'){var shortTF=document.getElementById('sc-tf-15m');if(shortTF){shortTF.disabled=true;shortTF.title='HH / HL uses 1H, 4H, 1D and 1W';}}
+  ['aplus','tierA','tierB','tierC','opportunity','strong','buy','confirmed_bo','ema_retest','support_hold','hhhl','gainers','sweep_buy','sweep_sell','breakout','accum','oversold','rsiDiv','choch','bos','sector'].forEach(function(x){
     var el=document.getElementById('sc-'+x);if(el)el.classList.toggle('active',x===t);
   });
   var row=document.getElementById('scan-sector-row');
@@ -8843,6 +8890,7 @@ function setScanTab(t){
   if(t==='gainers')['15m','1w'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=true;b.title='Top Gainers uses 1H, 4H and 1D';}});
   if(t==='sweep_buy'&&!['4h','1d','1w'].includes(TF)){setScanTF('4h');return;}
   if(t==='support_hold'&&!['4h','1d','1w'].includes(TF)){setScanTF('4h');return;}
+  if(t==='hhhl'&&!['1h','4h','1d','1w'].includes(TF)){setScanTF('1h');return;}
   runScanner();
 }
 // Re-scan button — actually FETCH fresh data, then re-display (not just re-filter)
@@ -8869,6 +8917,7 @@ function runScanner(){
   if(!body) return;
   var data=(scanData&&scanData.length)?scanData:allData;
   if(scanTab==='support_hold'){renderSupportHolding(data||[]);return;}
+  if(scanTab==='hhhl'){renderHigherStructure(data||[]);return;}
   if(!data||!data.length){
     body.innerHTML="<div class=\"msg\" style=\"padding:2rem;text-align:center;color:var(--t3)\">No data. Wait for screener to load.</div>";
     return;
