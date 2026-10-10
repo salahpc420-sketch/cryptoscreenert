@@ -647,6 +647,9 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 .cp-muted{color:#9caac0;font-size:11px}.cp-pair{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:5px 0}.cp-badge{padding:2px 6px;border-radius:4px;font-size:10px;background:#2c3548}
 .cp-chart-summary{flex-basis:100%;font-size:11px;line-height:1.6;color:#bdcce0;min-width:0}.cp-chart-summary span{margin-right:14px}.cp-chart-summary .cp-health{color:#b5c4d9}
 .cp-status-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;max-width:100%}
+.cp-plan-legend{display:flex;flex-wrap:wrap;gap:5px 12px;margin:8px 0;font-size:11px}.cp-plan-legend span{border-bottom:2px solid currentColor;padding-bottom:2px}
+.cp-entry-state{border-left:3px solid;padding:8px 10px;background:#202838;border-radius:4px}.cp-entry-state strong{display:block;color:inherit}.cp-entry-state small{display:block;color:#bdcce0;margin-top:4px}
+.cp-check{flex-wrap:wrap}.cp-check strong{font-size:11px}.cp-level-row{border-left:3px solid;padding-left:8px}
 .cp-fib-anchor-strip{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:4px;color:#bedbff;font-variant-numeric:tabular-nums}.cp-fib-anchor-strip strong{color:#ffd18a}.cp-fib-anchor-strip button{padding:2px 7px!important;font-size:11px!important}
 .cp-summary-details{position:relative}.cp-summary-details>summary{padding:2px 7px!important;font-size:11px;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .cp-summary-details>div{position:absolute;top:27px;left:0;right:0;max-height:230px;overflow:auto;background:#202738;padding:12px;border:1px solid #60728d;border-radius:6px;z-index:45;box-shadow:0 8px 20px #0008;white-space:normal}
@@ -18749,7 +18752,7 @@ var chartState = {
 var CHART_VIEWS={
   clean:{ema:true,ema50:false,emaLong:false,vol:true,rsi:false,sr:true,analyst:false,fib:false,wyckoff:false,profile:false,preview:false,history:false,avwap:false,sweeps:true,btc:true},
   analysis:{ema:true,ema50:true,emaLong:false,vol:true,rsi:false,sr:true,analyst:false,fib:true,wyckoff:true,profile:false,preview:false,history:false,avwap:false,sweeps:true,btc:true},
-  plan:{ema:false,ema50:false,emaLong:false,vol:true,rsi:false,sr:false,analyst:true,fib:false,wyckoff:false,profile:false,preview:false,history:false,avwap:false,sweeps:false,btc:true}
+  plan:{ema:false,ema50:false,emaLong:false,vol:true,rsi:false,sr:true,analyst:true,fib:false,wyckoff:false,profile:false,preview:false,history:false,avwap:false,sweeps:false,btc:true}
 };
 // Independent, fixed-rule 4h spot paper tracker. Does not place exchange orders.
 var sweepTrack4h={sym:null,serial:0,timer:null,busy:false,rows:null,btc:null,notice:'',error:'',lastCheck:0,lines:true};
@@ -19587,7 +19590,7 @@ function installChartProUI(){
     '<span class="cp-context-switch" role="group" aria-label="Chart viewing range"><button onclick="chartFit(\'recent\')" title="Last 60 candles; 42 on mobile. Analysis anchors stay fixed.">Recent structure</button><button onclick="chartFit(\'all\')">Full context</button></span>'+
     '<button onclick="editChartExecution()">Execution</button><button onclick="recordChartDecision()" title="Save the current data, settings and decision for later review">Record decision</button>'+
     '<details class="cp-ind-menu"><summary>Edit lines</summary><div><button onclick="toggleDrawMode()">Draw two anchors</button><button data-chart-magnet onclick="toggleChartMagnet()">Snap to candle</button><button onclick="editSelectedDrawing(\'lock\')">Lock / unlock selected</button><button onclick="editSelectedDrawing(\'extend\')">Extend selected right</button><button onclick="editSelectedDrawing(\'delete\')">Delete selected</button><small>Click a manual line to select. Drag an unlocked anchor. Manual lines are visual only.</small></div></details>';
-    el.innerHTML+='<span class="cp-build" title="Timeframe-specific structural SL references">Chart 2026.10.06-ai-sl-r1</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
+    el.innerHTML+='<span class="cp-build" title="Colored plan levels and explicit entry confirmation">Chart 2026.10.11-plan-r1</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
     var toolsMenu=document.createElement('details');toolsMenu.className='cp-ind-menu cp-tools-menu';
     toolsMenu.innerHTML='<summary>Tools</summary><div></div>';
     Array.from(el.children).forEach(function(node){
@@ -20399,9 +20402,33 @@ function chartFVGDisplaySelection(zones,price){
   return chartState.viewMode==='clean'&&mode==='relevant'?selected.slice(0,1):selected;
 }
 
+// Presentation only: status remains authoritative; colors identify level roles,
+// never execution permission. READY is not a confirmed trigger or a fill.
+function chartPlanPresentation(p) {
+  var colors={support:'#26c6b0',resistance:'#ff8795',entry:'#60b9ff',sl:'#ff5368',tp:'#65d98b',thesis:'#ffc267'};
+  var recorded=p.positionState==='OPEN',confirmed=!recorded&&p.status==='TRIGGERED'&&p.planValid&&p.quoteOK;
+  var label=recorded?'RECORDED POSITION':confirmed?'ENTRY CONFIRMED · UNFILLED':p.status==='READY'?'ENTRY PENDING · WAIT FOR CLOSE':'ENTRY NOT CONFIRMED · '+p.status;
+  var checks=(p.confirmations||[]).map(function(c){return Object.assign({},c);});
+  checks.unshift({label:'Plan levels',state:p.planValid?'Passed':'Failed',value:p.planValid?'Entry / SL / target valid':'Missing or invalid levels'});
+  checks.unshift({label:'Price in entry zone',state:!p.quoteOK?'Unknown':p.live>=p.zoneLow&&p.live<=p.zoneHigh?'Passed':'Failed',value:!p.quoteOK?'Fresh same-venue quote needed':p.live>=p.zoneLow&&p.live<=p.zoneHigh?'Inside zone':'Outside zone'});
+  // Structure is a READY-context check, not an independent TRIGGERED gate.
+  checks.forEach(function(c){if(c.label==='Structure')c.label='Structure context';});
+  return {colors:colors,label:label,confirmed:confirmed,checks:checks,color:recorded?p.color:confirmed?colors.tp:p.status==='READY'?colors.thesis:p.color,
+    note:recorded?'Saved levels preserved; exchange fills unverified.':confirmed?'Closed trigger and current plan gates passed. No purchase recorded.':p.status==='READY'?'In the planned zone; wait until both closed-trigger and volume checks pass.':'No new entry confirmation. Review the missing / failed checks below.'};
+}
+
+function chartPlanChecksHTML(checks) {
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  return checks.map(function(c){var passed=c.state==='Passed',failed=c.state==='Failed',optional=c.state==='Not required';
+    var color=optional?'#9caac0':passed?'#65d98b':failed?'#ff8795':'#ffc267';
+    return '<div class="cp-check"><span>'+ (optional?'— ':passed?'✓ ':failed?'× ':'? ')+esc(c.label)+'</span><strong style="color:'+color+'">'+esc(c.state)+' · '+esc(c.value)+'</strong></div>';
+  }).join('');
+}
+
 function populateFSTable(d) {
   d=chartMetrics(d);if(!d)return;
   var p=buildCanonicalChartPlan(d),tab=chartState.sideTab||'overview',fl=p.fibLadder,wx=p.wyckoff;
+  var presentation=chartPlanPresentation(p),pc=presentation.colors;
   syncPsychologyToolbar(d);
   var badge=document.getElementById('fs-signal-badge');
   if(badge&&badge.parentElement)badge.parentElement.style.display=tab==='overview'?'none':'';
@@ -20410,7 +20437,7 @@ function populateFSTable(d) {
   function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
   function card(title,body,cls){return '<section class="cp-card '+(cls||'')+'"><h4>'+title+'</h4>'+body+'</section>';}
   function level(x){return x?String(x.ratio).replace(/^0\./,'.')+' · '+fE(x.price):'None mapped';}
-  function row(label,price,col,note){return '<div class="cp-pair"><span>'+label+'</span><strong style="color:'+col+'">'+(price>0&&isFinite(price)?fE(price):'Not recorded')+'</strong></div>'+(note?'<div class="cp-muted">'+note+'</div>':'');}
+  function row(label,price,col,note){return '<div class="cp-level-row" style="border-color:'+col+'"><div class="cp-pair"><span style="color:'+col+'">'+label+'</span><strong style="color:'+col+'">'+(price>0&&isFinite(price)?fE(price):'Not recorded')+'</strong></div>'+(note?'<div class="cp-muted">'+note+'</div>':'')+'</div>';}
   var tabs='<nav class="cp-tabs" role="tablist" aria-label="Chart details">'+['overview','plan','evidence'].map(function(t){
     return '<button role="tab" aria-selected="'+(tab===t)+'" onclick="setChartTab(\''+t+'\')">'+t[0].toUpperCase()+t.slice(1)+'</button>';
   }).join('')+'</nav>';
@@ -20475,8 +20502,8 @@ function populateFSTable(d) {
     fibBody+='<details><summary>'+(chartState.autoFib.manual?'All manual Fib levels':'All confirmed Fib levels')+'</summary>'+chartState.autoFib.levels.map(function(x){return '<div class="cp-pair"><span>'+String(x.ratio)+'</span><strong>'+fE(x.price)+'</strong></div>';}).join('')+'</details>';
   }
   var next=p.nextTarget?p.nextTarget.name+' · '+fE(p.nextTarget.price):(p.tp1||p.tp2||p.tp3)?'None — all mapped targets passed':'No targets recorded';
-  var invalid=row('Close invalidation',p.thesis,'#f0b90b',(chartState.tf||TF)+' close below = setup failed')+
-    row('Protective stop',p.sl,'#ef5350','Stop level only — this app has not placed an exchange order.');
+  var invalid=row('Close invalidation',p.thesis,pc.thesis,(chartState.tf||TF)+' close below = setup failed')+
+    row('SL · protective stop',p.sl,pc.sl,'Stop level only — this app has not placed an exchange order.');
   var waiting=[];
   if(d.volR<CONFIG.CHART_VOL_CONFIRM)waiting.push('closed-candle volume ≥'+CONFIG.CHART_VOL_CONFIRM.toFixed(1)+'×');
   if(d.trend!=='up')waiting.push('uptrend confirmation');
@@ -20485,6 +20512,9 @@ function populateFSTable(d) {
   var pinned=chartMarketOverview();
   var pin='<div class="cp-current-summary"><strong>'+esc(chartState.sym)+' · '+esc(chartState.tf||TF)+' · '+fE(p.live)+'</strong><span>'+esc(pinned.trend)+' · '+esc(p.status)+'</span><span>'+esc(pinned.location)+'</span>'+(wx?'<span>Wyckoff · '+esc(wx.status||'Unknown')+'</span>':'')+'</div>';
   var html='<div class="cp-sticky-head">'+tabs+pin+'</div>';
+  html+=card('Entry confirmation · '+esc(chartState.tf||TF),'<div class="cp-entry-state" style="color:'+presentation.color+';border-color:'+presentation.color+'"><strong>'+esc(presentation.label)+'</strong><small>'+esc(presentation.note)+'</small></div>'+
+    '<div class="cp-plan-legend">'+[['Support','support'],['Resistance','resistance'],['Entry','entry'],['SL','sl'],['TP','tp']].map(function(x){return '<span style="color:'+pc[x[1]]+'">'+x[0]+'</span>';}).join('')+'</div><p class="cp-muted">Colors identify levels, not permission to buy. Dashed plan lines = conditional; SYNTH = modeled objective.</p>'+
+    (tab==='plan'?'<details data-chart-detail="entry-checks" open><summary>Entry checks · passed / failed / unknown</summary>'+chartPlanChecksHTML(presentation.checks)+'</details>':''));
   html+=card(p.positionState==='OPEN'?'Recorded position':'Unfilled plan · '+esc(p.status),'<p>'+esc(p.action)+'</p><p class="cp-muted">'+(p.entry>0?'Current price is '+Math.abs(p.liveVsEntry).toFixed(1)+'% '+(p.liveVsEntry>=0?'above':'below')+' '+(p.positionState==='OPEN'?'recorded':'planned')+' entry. ':'')+'R and target percentages use that entry, not a purchase at the current quote. '+(p.positionState==='OPEN'?'Saved position values are preserved; exchange fills are not verified.':'READY and TRIGGERED do not record a fill. Record an actual entry separately.')+'</p>');
   if(d.srHistory){
     var sh=d.srHistory,sb=(chartState.klines||[]),activeZones=(sh.supports||[]).slice(0,3).concat((sh.resistances||[]).slice(0,3));
@@ -20506,10 +20536,11 @@ function populateFSTable(d) {
     html+=card('No actionable entry plan','<p>'+esc(p.action)+'</p><p>Entry, stop, targets and position size are withheld until the required source levels are valid.</p>');
   }else if(tab==='plan'){
     html+=card('Plan · '+esc(p.source),'<p>'+esc(p.action)+'</p>')+
-      card('Entry zone',row('Planned entry',p.entry,'#f0b90b',fE(p.zoneLow)+' – '+fE(p.zoneHigh)))+
+      card('Support / resistance',row('Support',d.sup,pc.support,'Mapped closed-candle structure')+row('Resistance',d.res,pc.resistance,'A resistance level is not automatically a TP.'))+
+      card('Entry zone',row(p.positionState==='OPEN'?'Recorded entry':'Planned entry · unfilled',p.entry,pc.entry,fE(p.zoneLow)+' – '+fE(p.zoneHigh)))+
       card('Invalidation and risk',invalid+'<p>Current stop vs entry <strong>'+(-p.slPct).toFixed(2)+'%</strong> · net TP1 R:R <strong>'+(p.riskKnown?p.netRR1.toFixed(2)+':1':'Unavailable')+'</strong></p><p class="cp-muted">'+(p.riskKnown?'R uses original entry risk, preserved when the stop moves.':'Original risk was not recorded for this position; R is unavailable.')+'</p>')+
       card('Targets',[1,2,3].map(function(i){
-        var passed=p['tp'+i+'Passed'];return row('TP '+i+(passed?' · PASSED':''),p['tp'+i],passed?'#8992a5':'#26a69a',
+        var passed=p['tp'+i+'Passed'];return row('TP '+i+(passed?' · PASSED':''),p['tp'+i],passed?'#8992a5':pc.tp,
           (passed?'At/below live quote — not a fill. ':p['tp'+i]>0?'':'Not recorded. ')+(p.riskKnown&&p['tp'+i]>0?p['rr'+i].toFixed(2)+'R':'R unavailable')+' · '+esc(p.targetBasis[i-1]||'Unknown source'));
       }).join('')+'<p>Next unreached plan target: <strong>'+next+'</strong></p>')+
       card('Position sizing',p.positionState==='OPEN'?'Use the recorded position size; no replacement allocation calculated.':
@@ -20518,14 +20549,14 @@ function populateFSTable(d) {
   }else{
     html+=card('Fair value gaps · closed candles',chartFVGEvidence())+card('Liquidity sweep · reclaim status',chartSweepEvidence())+trendCard+card('Wyckoff · evidence',wxText)+card('Auto Fib · '+esc(chartState.tf||TF),fibBody)+referenceCard+
       card('Volume methods','Vertical bars show traded base volume by candle direction, not aggressor buying. The optional estimated profile puts each visible candle’s volume in its high/low midpoint bin; zoom changes that visual estimate only. Anchored VWAP uses typical candle price × base volume from the selected Fib start. Both are estimates, excluded from confirmation gates.')+
-      card('Confirmation checklist',p.confirmations.map(function(c){return '<div class="cp-check"><span>'+(c.state==='Passed'?'✓ ':'○ ')+esc(c.label)+'</span><strong style="color:'+(c.state==='Passed'?'#26a69a':'#f0b90b')+'">'+esc(c.state)+' · '+esc(c.value)+'</strong></div>';}).join(''))+
+      card('Confirmation checklist',chartPlanChecksHTML(presentation.checks))+
       card('Closed-candle metrics','<div class="cp-pair"><span>Trend / structure</span><strong>'+esc(d.trend)+' / '+esc(d.struct)+'</strong></div><div class="cp-pair"><span>RSI</span><strong>'+Number(d.rsi).toFixed(1)+'</strong></div><div class="cp-pair"><span>Volume / prior 20 bars</span><strong>'+Number(d.volR).toFixed(2)+'×</strong></div><p class="cp-muted">Current '+esc(chartState.tf||TF)+' chart calculations. Developing candle closes in '+_chartCountdown(p.candleClosesAt)+'.</p>');
   }
   if(root.innerHTML!==html){
     function detailKey(el){var summary=el.querySelector&&el.querySelector('summary');return el.getAttribute&&el.getAttribute('data-chart-detail')||summary&&summary.textContent||'';}
     var openDetails=root._chartTab===tab&&root.querySelectorAll?Array.from(root.querySelectorAll('details')).filter(function(el){return el.open;}).map(detailKey):[];
-    root.innerHTML=html;root._chartTab=tab;
-    if(root.querySelectorAll)Array.from(root.querySelectorAll('details')).forEach(function(el){el.open=openDetails.indexOf(detailKey(el))>=0;});
+    var sameTab=root._chartTab===tab;root.innerHTML=html;root._chartTab=tab;
+    if(sameTab&&root.querySelectorAll)Array.from(root.querySelectorAll('details')).forEach(function(el){el.open=openDetails.indexOf(detailKey(el))>=0;});
   }
   var old=document.getElementById('fs-market');if(old&&old.parentElement)old.parentElement.style.display='none';
 }
@@ -21278,8 +21309,8 @@ function _drawChartNow() {
     ema200:   '#43a0f7',    // blue
     volBull:  'rgba(38,166,154,.78)',
     volBear:  'rgba(239,83,80,.78)',
-    sup:      'rgba(38,166,154,.7)',
-    res:      'rgba(239,83,80,.7)',
+    sup:      '#26c6b0',
+    res:      '#ff8795',
     cross:    'rgba(255,255,255,.35)',
   };
 
@@ -21645,7 +21676,8 @@ function _drawChartNow() {
     }
     var srHistory=d.srHistory;
     if(srHistory){
-      (srHistory.supports||[]).slice(0,3).concat((srHistory.resistances||[]).slice(0,3)).forEach(function(z){
+      var srLimit=chartState.viewMode==='plan'?1:3;
+      (srHistory.supports||[]).slice(0,srLimit).concat((srHistory.resistances||[]).slice(0,srLimit)).forEach(function(z){
         var col=z.role==='support'?C.sup:C.res;
         if(z.high>=pMin&&z.low<=pMax){
           ctx.save();ctx.fillStyle=col;ctx.globalAlpha=.08;
@@ -21881,7 +21913,7 @@ function _drawChartNow() {
       ctx.fillStyle = L.col;
       if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y - 9, w, 13, 3); ctx.fill(); }
       else ctx.fillRect(x, y - 9, w, 13);
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = L.col===C.sup||L.col===C.res?'#101722':'#fff';
       ctx.fillText(L.lbl, x + 4, y + 1,RIGHT_PAD-8);
     });
     ctx.restore();
@@ -22063,6 +22095,7 @@ function _drawChartNow() {
   chartState.planAxisLabels=[];
   if (ind.analyst && d) {
     var aPlan  = buildCanonicalChartPlan(d);
+    var aPresentation=chartPlanPresentation(aPlan),aColors=aPresentation.colors;
     var aEntry = aPlan.entry;
     var aThesis= aPlan.thesis;
     var aSL    = aPlan.sl;
@@ -22293,23 +22326,27 @@ function _drawChartNow() {
       {price: aSL,    col:'#f23645', name:'STOP '+fmtPrice(aSL), dash:[5,4], lw:1.5},
     ].map(function(lv,i){
       if(i<3&&/Synthetic/.test(aPlan.targetBasis[i===0?2:i===1?1:0]||''))lv.name='SYNTH '+lv.name;
-      if(aPlan.inactivePlan){lv.col='#787b86';lv.dash=[3,5];lv.lw=1;lv.name=aPlan.status+' · '+lv.name;}
+      var role=i<3?'tp':i===3?'entry':i===4?'thesis':'sl';
+      var passed=i<3&&aPlan['tp'+(3-i)+'Passed'];
+      lv.col=passed?'#8992a5':aColors[role];
+      lv.shortName=(i<3?(/Synthetic/.test(aPlan.targetBasis[2-i]||'')?'SYNTH ':'')+'TP'+(3-i)+(passed?' PASSED':''):i===3?(aPlan.positionState==='OPEN'?'ENTRY':'PLAN'):i===4?'CLOSE FAIL':'SL')+' '+fmtPrice(lv.price);
+      if(aPlan.inactivePlan){lv.dash=[3,5];lv.lw=1;lv.name=aPlan.status+' · '+lv.name;}
       return lv;
     }).filter(function(lv){ return aPlan.planValid && lv.price && lv.price >= pMin && lv.price <= pMax; })
      .sort(function(a,b){ return b.price - a.price; });
 
     // Visible even in chart-only mode: an unfilled plan is never an actual entry.
     ctx.save();ctx.font='bold 11px -apple-system,sans-serif';
-    var planNotice=aPlan.positionState==='OPEN'?'RECORDED POSITION · exchange fills unverified':aPlan.status+' · UNFILLED · '+(aPlan.entry>0?Math.abs(aPlan.liveVsEntry).toFixed(1)+'% '+(aPlan.liveVsEntry>=0?'above':'below')+' planned entry':'no entry');
+    var planNotice=aPlan.positionState==='OPEN'?aPlan.status+' · RECORDED · fills unverified':aPresentation.label+(aPresentation.confirmed?' · ':' · UNFILLED · ')+(aPlan.entry>0?Math.abs(aPlan.liveVsEntry).toFixed(1)+'% '+(aPlan.liveVsEntry>=0?'above':'below')+' planned entry':'no entry');
     var noticeWidth=Math.min(chartW-12,ctx.measureText(planNotice).width+16);
     ctx.fillStyle='rgba(19,23,34,.94)';ctx.fillRect(6,TOP_PAD+24,noticeWidth,22);
-    ctx.fillStyle=aPlan.color;ctx.textAlign='left';ctx.fillText(planNotice,12,TOP_PAD+39,Math.max(1,noticeWidth-12));ctx.restore();
+    ctx.fillStyle=aPresentation.color;ctx.textAlign='left';ctx.fillText(planNotice,12,TOP_PAD+39,Math.max(1,noticeWidth-12));ctx.restore();
 
     // Step 1: Draw all horizontal lines first (bottom layer)
     tvLevels.forEach(function(lv) {
       var y = pY(lv.price);
       ctx.save();
-      ctx.strokeStyle = lv.col; ctx.lineWidth = lv.lw; ctx.globalAlpha = 0.85;
+      ctx.strokeStyle = lv.col; ctx.lineWidth = lv.lw; ctx.globalAlpha = aPlan.inactivePlan?0.5:0.85;
       if (lv.dash) ctx.setLineDash(lv.dash);
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(chartW, y); ctx.stroke();
       ctx.setLineDash([]); ctx.globalAlpha = 1;
@@ -22379,13 +22416,14 @@ function _drawChartNow() {
 
       // Pill
       ctx.font = 'bold 10px -apple-system,BlinkMacSystemFont,sans-serif';
-      var axisName=mobilePlot?lv.name.split(' ')[0]+' '+fmtPrice(lv.price):lv.name;
+      var axisName=lv.shortName;
       var tw = Math.min(RIGHT_PAD,Math.max(ctx.measureText(axisName).width + 12, RIGHT_PAD - 2));
-      ctx.fillStyle = lv.col;
+      ctx.beginPath();ctx.fillStyle = aPlan.inactivePlan?'#202838':lv.col;
       if (ctx.roundRect) ctx.roundRect(chartW, y - 10, tw, 20, 3);
       else ctx.rect(chartW, y - 10, tw, 20);
       ctx.fill();
-      ctx.fillStyle = '#ffffff';
+      if(aPlan.inactivePlan){ctx.strokeStyle=lv.col;ctx.lineWidth=1;ctx.stroke();}
+      ctx.fillStyle = aPlan.inactivePlan?lv.col:'#101722';
       ctx.textAlign = 'left';
       ctx.fillText(axisName, chartW + 4, y + 3.5, RIGHT_PAD-8);
       ctx.restore();
@@ -22394,10 +22432,10 @@ function _drawChartNow() {
     // LAYER D: Signal arrow on last visible candle
     var lastCI = klines.length - 2;
     var lastCX2 = cX(lastCI - offset);
-    var isBullSig = chartState.tf===TF && d.buySignal;
+    var isBullSig = aPresentation.confirmed;
     var isBearSig = chartState.tf===TF && d.liq === 'sell_sweep';
     if (isBullSig && lastCX2 >= cL3 && lastCX2 <= cR3) {
-      var sigLabel = d.strongBuy ? '⚡ STRONG BUY' : d.liq === 'buy_sweep' ? '🟢 SWEEP BUY' : '✅ BUY';
+      var sigLabel = 'ENTRY CONFIRMED · UNFILLED';
       aArrow(lastCI, lows3[lastCI], true, '#26a69a', sigLabel);
     } else if (isBearSig && lastCX2 >= cL3 && lastCX2 <= cR3) {
       aArrow(lastCI, highs3[lastCI], false, '#ef5350', '🔴 SELL SWEEP');
