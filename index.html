@@ -2519,6 +2519,30 @@ function chartTrendIsHistorical(L){
   var distance=Math.max(price*.02,(Number(chartState.chartAtr)||0)*2);
   return isFinite(price)&&price>0&&age>8&&Math.abs(L.valueNow-price)>distance;
 }
+function chartOrderedAxisLabels(items,top,bottom,gap,maxShift,anchors){
+  // Preserve numerical order around fixed quote/cursor/other-axis anchors.
+  // If there is no honest slot, hide the tag rather than swap price order.
+  var placed=[],fixed=(anchors||[]).filter(function(a){return Number.isFinite(a.y)&&Number.isFinite(a.actualY);});
+  items.map(function(x){return Object.assign({},x,{actualY:x.actualY==null?x.y:x.actualY});}).sort(function(a,b){return a.actualY-b.actualY;}).forEach(function(x){
+    var lo=top,hi=bottom;
+    fixed.concat(placed).forEach(function(a){if(a.actualY<=x.actualY)lo=Math.max(lo,a.y+gap);else hi=Math.min(hi,a.y-gap);});
+    var y=Math.max(lo,Math.min(hi,x.actualY));
+    if(lo<=hi&&Math.abs(y-x.actualY)<=maxShift)placed.push(Object.assign(x,{y:y}));
+  });
+  return placed;
+}
+function chartGroupSRZones(zones){
+  var groups=[];
+  (zones||[]).forEach(function(z){
+    var group=groups.find(function(g){return g.role===z.role&&
+      (Math.min(g.high,z.high)>=Math.max(g.low,z.low)||Math.max(g.maxPrice,z.price)-Math.min(g.minPrice,z.price)<=Math.max(g.maxPrice,z.price)*.0005);});
+    if(!group){groups.push(Object.assign({},z,{members:[z],minPrice:z.price,maxPrice:z.price}));return;}
+    group.members.push(z);group.low=Math.min(group.low,z.low);group.high=Math.max(group.high,z.high);
+    group.minPrice=Math.min(group.minPrice,z.price);group.maxPrice=Math.max(group.maxPrice,z.price);
+    group.confirmedIndex=Math.max(group.confirmedIndex,z.confirmedIndex);
+  });
+  return groups;
+}
 function drawChartTrendlines(ctx,g){
   if(chartState.btcFocus)return;
   var mode=chartState.trendMode||'auto',tl=chartState.trendlines||{},k=chartState.klines||[];
@@ -2546,6 +2570,10 @@ function drawChartTrendlines(ctx,g){
     [tl.up,tl.down].forEach(function(L){
       if(!L)return;
       if(chartTrendIsHistorical(L)&&!(chartState.indicators&&chartState.indicators.history))return;
+      if(chartState.viewMode==='clean'&&k.length>1){
+        var lastClose=Number(k[k.length-2][4]),projected=L.p1+L.slope*(k.length-2-L.i1);
+        if(Math.abs(projected-lastClose)>Math.max((chartState.chartAtr||0)*2,lastClose*.02))return;
+      }
       var col=L.broken?'#8992a5':L.direction==='up'?'#26a69a':'#ef5350';
       var name=L.direction==='up'?'Support':'Resistance';
       if(L.broken)name='Former '+name.toLowerCase();
@@ -18830,6 +18858,7 @@ function renderSweepTrack(){
     if(sweepTrack4h.notice.indexOf('unavailable')>=0)html+='<p>'+esc(sweepTrack4h.notice)+'</p>';
   }
   html+='<details><summary>Strategy rules</summary><small>Closed 4h sweep + reclaim; coin EMA20 &gt; EMA50; BTC 4h close &gt; EMA20 at signal time. Modeled entry at the next 4h open, including configured entry slippage. Stop = sweep low − 0.1 ATR(14); target = 2R; resistance must be beyond target. Exit after 12 bars (48h). Frozen levels and costs; first touch evaluated on completed source candles, both touched = unclear. Live marks do not prove a fill. Uses Chart Execution fee/slippage settings. Paper simulation only; no orders. Saved in this browser; updates while a coin chart is open and catches up when reopened.</small></details>';
+  html='<details data-paper-summary><summary>4H paper tracker · '+(record?esc(record.study.status):'No active study')+'</summary>'+html+'</details>';
   document.querySelectorAll('[data-sweep-track]').forEach(function(el){if(el.innerHTML!==html){var expanded=el.querySelector('details[open]');el.innerHTML=html;if(expanded){var details=el.querySelector('details');if(details)details.open=true;}}});
 }
 async function refreshSweepTrack(force){
@@ -18857,10 +18886,10 @@ function startSweepTrack(){
   sweepTrack4h.serial++;sweepTrack4h.sym=chartState.sym;sweepTrack4h.busy=false;sweepTrack4h.rows=null;sweepTrack4h.btc=null;sweepTrack4h.lastCheck=0;
   sweepTrack4h.notice=chartState.sym&&chartState.sym.endsWith('USDT')?'Loading independent 4h sweep data…':'4h spot strategy currently supports USDT pairs.';
   ['', '-fs'].forEach(function(suffix){var host=document.getElementById(suffix?'chart-fs-table':'chart-analyst-bar'),id='sweep-track-panel'+suffix,old=document.getElementById(id);if(old)old.remove();
-    if(host){var panel=document.createElement('section');panel.id=id;panel.className='sweep-track-panel';panel.setAttribute('data-sweep-track','');host.before(panel);}
+    if(host){var panel=document.createElement('section');panel.id=id;panel.className='sweep-track-panel';panel.setAttribute('data-sweep-track','');host.after(panel);}
   });
-  // The fullscreen panel belongs above its sidebar content, not beside the canvas.
-  var fsPanel=document.getElementById('sweep-track-panel-fs'),sidebar=document.getElementById('chart-fs-table');if(fsPanel&&sidebar)sidebar.prepend(fsPanel);
+  // Secondary paper strategy stays below the canonical entry plan.
+  var fsPanel=document.getElementById('sweep-track-panel-fs'),sidebar=document.getElementById('chart-fs-table');if(fsPanel&&sidebar)sidebar.appendChild(fsPanel);
   renderSweepTrack();refreshSweepTrack(true);
   sweepTrack4h.timer=setInterval(function(){if(document.hidden)return;renderSweepTrack();refreshSweepTrack(false);},5000);
 }
@@ -18869,7 +18898,7 @@ function stopSweepTrack(){
 }
 function showSweepTrackPanel(){
   if(chartState.fullscreen){toggleChartFocus(false);if(chartIsMobile())chartMobilePanel('plan');}
-  var el=document.getElementById('sweep-track-panel'+(chartState.fullscreen?'-fs':''));if(el)el.scrollIntoView({block:'nearest',behavior:'smooth'});
+  var el=document.getElementById('sweep-track-panel'+(chartState.fullscreen?'-fs':''));if(el){var details=el.querySelector('details');if(details)details.open=true;el.scrollIntoView({block:'nearest',behavior:'smooth'});}
 }
 function sweepTrackPlotRecord(){
   var r=sweepTrack4h.lines?sweepTrackRecord():null;
@@ -18955,6 +18984,8 @@ function updateChartMobileHeader(plan){
 }
 function setChartView(mode){
   if(!CHART_VIEWS[mode])return;
+  // Selecting an automatic view must actually leave the AI overlay mode.
+  if(typeof resetChartAIDrawing==='function')resetChartAIDrawing();
   var btcVisible=chartState.indicators&&chartState.indicators.btc;
   chartState.viewMode=mode;chartState.indicators=Object.assign({},CHART_VIEWS[mode]);
   if(typeof btcVisible==='boolean')chartState.indicators.btc=btcVisible;
@@ -19068,7 +19099,7 @@ function syncChartProUI(){
   });
   document.querySelectorAll('[data-chart-fvg]').forEach(function(b){b.value=chartState.fvgMode||'relevant';});
   document.querySelectorAll('[data-chart-fvg-min]').forEach(function(b){b.value=String(chartState.fvgMinAtr==null?.1:chartState.fvgMinAtr);});
-  document.querySelectorAll('[data-chart-view]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.chartView===chartState.viewMode));});
+  document.querySelectorAll('[data-chart-view]').forEach(function(b){b.setAttribute('aria-pressed',String(!chartAIDrawing.enabled&&b.dataset.chartView===chartState.viewMode));});
   document.querySelectorAll('[data-chart-trend]').forEach(function(b){b.value=chartState.trendMode;});
   document.querySelectorAll('[data-chart-fib-scope]').forEach(function(b){b.value=chartState.fibScope||'major';});
   document.querySelectorAll('[data-chart-fib-retirement]').forEach(function(b){b.value=chartState.fibRetirement||'extension';});
@@ -19429,7 +19460,7 @@ function chartAIDrawingStyle(item,compact){
   var col=item.stopReference?'#ffad66':historical||inactive?'#8893a6':role==='support'?'#4dd7b0':role==='resistance'?'#ff8994':proposal?'#ffc66d':'#83bfff';
   var title=historical?'Past trend · inactive':item.kind==='trend'?(role==='support'?'Support trend':'Resistance trend'):proposal?label.replace('Proposed ','').replace(' · UNFILLED','')+' · unfilled':role?(role==='support'?'Support':'Resistance')+(compact?'':' · '+label.split(' · ').slice(1).join(' · ')):/Unswept low/i.test(label)?'Low reference':/Unswept high/i.test(label)?'High reference':label;
   var frames=[item.timeframe].concat((item.relatedZones||[]).map(function(z){return z.timeframe;})).filter(Boolean).filter(function(t,i,a){return a.indexOf(t)===i;});
-  if(item.stopReference)title='SL reference · not an order';
+  if(item.stopReference)title='Risk reference · NOT plan SL';
   if(frames.length)title=frames.join('/')+' · '+title;
   return {color:col,title:title,historical:historical,alpha:historical||inactive?.5:1,width:historical?1:1.5,dash:historical?[3,6]:proposal?[6,4]:item.kind==='zone'?[]:[4,3]};
 }
@@ -19446,7 +19477,7 @@ function chartAIEvidenceHTML(s,stale){
   var h='<p><strong>'+(stale?'STALE · refresh AI drawing':esc(s.context&&s.context.alignment||'NOT ASSESSED'))+'</strong> · snapshot only, not an entry signal.</p>';
   var frames=s.context&&s.context.frames||{};
   var active=frames[s.tf],stop=active&&active.stopReference;
-  h+='<p><strong>'+esc((s.tf||'Selected').toUpperCase())+' SL reference</strong> · '+(stop?fmt(stop.price)+'<br>'+esc(stop.invalidation):'Unavailable: fresh same-timeframe support fully below the last close and valid ATR are required. No stop is invented.')+'</p>';
+  h+='<p><strong>'+esc((s.tf||'Selected').toUpperCase())+' SL reference — NOT plan SL</strong> · '+(stop?fmt(stop.price)+'<br>'+esc(stop.invalidation):'Unavailable: fresh same-timeframe support fully below the last close and valid ATR are required. No stop is invented.')+'</p>';
   ['1w','1d','4h'].forEach(function(tf){var f=frames[tf];h+='<p><strong>'+tf.toUpperCase()+'</strong> · '+esc(f?f.status:'NOT ASSESSED')+(f&&f.status==='READY'?' · '+esc(f.source)+'<br>'+esc(f.structure)+' · EMA '+esc(f.emaTrend)+'<br>Last closed '+time(f.closedAt):' · '+esc(f&&f.reason||'Not supplied'))+'</p>';});
   var seq=frames['4h']&&frames['4h'].sweepSequence;
   if(seq)h+='<details><summary>4H sweep sequence · '+esc(seq.status)+'</summary><p>Historical observation'+(seq.barsSinceTake!=null?' · taken '+esc(seq.barsSinceTake)+' closed 4H bars ago':'')+'<br>Level '+fmt(seq.level)+' · known '+time(seq.levelConfirmedAt)+'<br>Taken '+time(seq.takenAt)+' · low '+fmt(seq.takenLow)+'<br>Reclaim '+time(seq.reclaimAt)+' · close '+fmt(seq.reclaimClose)+'<br>Retest '+time(seq.retestAt)+'<br>Invalidation '+time(seq.invalidatedAt)+' · close below '+fmt(seq.invalidationLevel)+'</p><p>'+esc(seq.note)+'</p></details>';
@@ -19467,6 +19498,7 @@ function openChartAIEvidence(){
 }
 function drawChartAIOverlay(ctx,g){
   var s=chartAIDrawing;
+  document.querySelectorAll('[data-chart-view]').forEach(function(b){b.setAttribute('aria-pressed',String(!s.enabled&&b.dataset.chartView===chartState.viewMode));});
   document.querySelectorAll('[data-ai-drawing]').forEach(function(b){b.textContent=s.enabled?'AI Drawing ON · turn off':'Ask AI · draw';b.setAttribute('aria-pressed',String(s.enabled));b.title=s.status||'AI-selected overlays · selected provider in AI settings';});
   if(!s.enabled&&!s.status)return;
   var stale=s.enabled&&(s.signature!==(chartState.snapshot&&chartState.snapshot.signature)||s.sym!==chartState.sym||s.tf!==chartState.tf||(s.context&&!chartAIContextFresh(s.context)));
@@ -19480,7 +19512,7 @@ function drawChartAIOverlay(ctx,g){
   });
   if(s.enabled&&!stale&&!s.busy)ranked.forEach(function(x,i){
     var style=chartAIDrawingStyle(x,compact),col=style.color,y=g.pY(x.price),start=0,anchorX=g.width-12;
-    if(x.stopReference&&focus>0){var basis=Number(chartState.livePrice)>0?'quote':'last close';style.title+=' · '+(focus<=x.price?basis+' at/below SL':focus<x.anchorLow?basis+' below support':((x.price/focus-1)*100).toFixed(2)+'% vs '+basis);}
+    if(x.stopReference&&focus>0){var basis=Number(chartState.livePrice)>0?'quote':'last close';style.title+=' · '+(focus<=x.price?basis+' at/below reference':focus<x.anchorLow?basis+' below support':((x.price/focus-1)*100).toFixed(2)+'% vs '+basis);}
     ctx.strokeStyle=col;ctx.fillStyle=col;ctx.lineWidth=style.width;ctx.globalAlpha=style.alpha;ctx.setLineDash(style.dash);
     if(x.kind==='trend'){
       var a=g.timeX(x.t1),b=g.timeX(x.t2);if(a==null||b==null)return;
@@ -19591,7 +19623,7 @@ function installChartProUI(){
     '<span class="cp-context-switch" role="group" aria-label="Chart viewing range"><button onclick="chartFit(\'recent\')" title="Last 60 candles; 42 on mobile. Analysis anchors stay fixed.">Recent structure</button><button onclick="chartFit(\'all\')">Full context</button></span>'+
     '<button onclick="editChartExecution()">Execution</button><button onclick="recordChartDecision()" title="Save the current data, settings and decision for later review">Record decision</button>'+
     '<details class="cp-ind-menu"><summary>Edit lines</summary><div><button onclick="toggleDrawMode()">Draw two anchors</button><button data-chart-magnet onclick="toggleChartMagnet()">Snap to candle</button><button onclick="editSelectedDrawing(\'lock\')">Lock / unlock selected</button><button onclick="editSelectedDrawing(\'extend\')">Extend selected right</button><button onclick="editSelectedDrawing(\'delete\')">Delete selected</button><small>Click a manual line to select. Drag an unlocked anchor. Manual lines are visual only.</small></div></details>';
-    el.innerHTML+='<span class="cp-build" title="Read-only AI plan review with timestamped evidence">Chart 2026.10.11-plan-ai-r2</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
+    el.innerHTML+='<span class="cp-build" title="Ordered price labels, grouped zones and entry-first Plan">Chart 2026.10.11-views-r3</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
     var toolsMenu=document.createElement('details');toolsMenu.className='cp-ind-menu cp-tools-menu';
     toolsMenu.innerHTML='<summary>Tools</summary><div></div>';
     Array.from(el.children).forEach(function(node){
@@ -20238,6 +20270,13 @@ function buildCanonicalChartPlan(d) {
   if (!pos && tp1>entry && !(tp2 > tp1)){tp2 = resistance > tp1 ? resistance : Math.max(entry * 1.06, tp1 + risk);targetBasis[1]=resistance>tp1?'Mapped resistance':'Synthetic objective · R / percentage rule';}
   if (!pos && tp1>entry && !(tp3 > tp2)){tp3 = Math.max(entry * 1.10, tp2 + risk);targetBasis[2]='Synthetic objective · R / percentage rule';}
   var levelsKnown=!!pos||!!(sl>0&&sl<entry&&thesis>0&&tp1>entry);
+  var missingReasons=[];
+  if(!pos){
+    if(!(entry>0))missingReasons.push('Planned entry price unavailable.');
+    if(!(thesis>0&&thesis<entry))missingReasons.push('Confirmed support / close invalidation below planned entry unavailable.');
+    if(!(sl>0&&sl<entry))missingReasons.push('Valid protective stop below planned entry unavailable.');
+    if(!(tp1>entry))missingReasons.push('No qualifying TP1 above planned entry. Visible resistance may be too close or below the entry after the target buffer.');
+  }
   if (!zoneLow) zoneLow = Math.min(thesis, entry * 0.995);
   if (!zoneHigh) zoneHigh = entry * 1.012;
 
@@ -20300,7 +20339,7 @@ function buildCanonicalChartPlan(d) {
   } else if (!dataOK||!quoteOK) {
     status='DATA WAIT';color='#f59e0b';action=(!dataOK?(snapshot&&snapshot.message||'No usable chart snapshot'):'Live quote missing, stale, or from a different venue')+'. New setup confirmation is withheld.';
   } else if(!levelsKnown){
-    status='LEVELS MISSING';color='#f59e0b';action='No structural entry plan: confirmed support/invalidation and a mapped target above entry are required. No fallback stop or TP1 has been invented.';
+    status='LEVELS MISSING';color='#f59e0b';action=missingReasons.join(' ')+' No fallback stop or TP1 has been invented.';
   } else if(!planValid){
     status='INVALID PLAN';color='#f23645';action='A new long plan needs positive prices and a stop below entry. Correct the source levels before confirmation.';
   } else if(d.trendAccumAligned==null||(btcRequired&&!btcKnown)||d.volR==null||(wyckoffRequired&&!wx)){
@@ -20347,7 +20386,7 @@ function buildCanonicalChartPlan(d) {
     rr1:rr1, rr2:rr2, rr3:rr3, netRR1:netRR1, liveVsEntry:liveVsEntry,
     status:status, color:color, action:action, allocation:allocation,
     positionState:pos?'OPEN':'NONE',riskState:riskState,riskKnown:riskKnown,originalRiskPct:originalRiskPct,
-    planValid:planValid,levelsKnown:levelsKnown,inactivePlan:inactivePlan,execution:execution,costPct:cost,quoteOK:quoteOK,
+    planValid:planValid,levelsKnown:levelsKnown,missingReasons:missingReasons,inactivePlan:inactivePlan,execution:execution,costPct:cost,quoteOK:quoteOK,
     targetBasis:targetBasis,modeledLoss:modeledLoss,
     planId:[snapshot&&snapshot.signature||'unverified',source,entry,sl,tp1,tp2,tp3,execution.feePctEach,execution.entrySlipPct,execution.exitSlipPct,wyckoffRequired].join('|'),
     sizeQuote:!pos&&execution.equityQuote>0?execution.equityQuote*allocation/100:null,
@@ -20645,10 +20684,11 @@ function populateFSTable(d) {
   var pinned=chartMarketOverview();
   var pin='<div class="cp-current-summary"><strong>'+esc(chartState.sym)+' · '+esc(chartState.tf||TF)+' · '+fE(p.live)+'</strong><span>'+esc(pinned.trend)+' · '+esc(p.status)+'</span><span>'+esc(pinned.location)+'</span>'+(wx?'<span>Wyckoff · '+esc(wx.status||'Unknown')+'</span>':'')+'</div>';
   var html='<div class="cp-sticky-head">'+tabs+pin+'</div>';
-  if(tab==='plan')html+=chartPlanReviewHTML(p);
   html+=card('Entry confirmation · '+esc(chartState.tf||TF),'<div class="cp-entry-state" style="color:'+presentation.color+';border-color:'+presentation.color+'"><strong>'+esc(presentation.label)+'</strong><small>'+esc(presentation.note)+'</small></div>'+
+    (tab==='plan'?'<p>'+esc(p.action)+'</p>'+(p.planValid?row(p.positionState==='OPEN'?'Recorded entry':'Planned entry · unfilled',p.entry,pc.entry,'Zone '+fE(p.zoneLow)+' – '+fE(p.zoneHigh))+row('SL · protective stop',p.sl,pc.sl,'Reference only; no exchange order placed.')+row('TP1'+(p.tp1Passed?' · PASSED':''),p.tp1,p.tp1Passed?'#8992a5':pc.tp,esc((p.targetBasis||[])[0]||'Not mapped')+' · net R:R '+(p.riskKnown?p.netRR1.toFixed(2)+':1':'unavailable')):'<p class="cp-muted">Plan lines withheld until the missing source levels are available. Visible S/R alone does not confirm an entry.</p>'):'')+
     '<div class="cp-plan-legend">'+[['Support','support'],['Resistance','resistance'],['Entry','entry'],['SL','sl'],['TP','tp']].map(function(x){return '<span style="color:'+pc[x[1]]+'">'+x[0]+'</span>';}).join('')+'</div><p class="cp-muted">Colors identify levels, not permission to buy. Dashed plan lines = conditional; SYNTH = modeled objective.</p>'+
     (tab==='plan'?'<details data-chart-detail="entry-checks" open><summary>Entry checks · passed / failed / unknown</summary>'+chartPlanChecksHTML(presentation.checks)+'</details>':''));
+  if(tab==='plan')html+=chartPlanReviewHTML(p)+'<details data-chart-detail="plan-more"><summary style="padding:12px">More plan details · S/R, targets and sizing</summary>';
   html+=card(p.positionState==='OPEN'?'Recorded position':'Unfilled plan · '+esc(p.status),'<p>'+esc(p.action)+'</p><p class="cp-muted">'+(p.entry>0?'Current price is '+Math.abs(p.liveVsEntry).toFixed(1)+'% '+(p.liveVsEntry>=0?'above':'below')+' '+(p.positionState==='OPEN'?'recorded':'planned')+' entry. ':'')+'R and target percentages use that entry, not a purchase at the current quote. '+(p.positionState==='OPEN'?'Saved position values are preserved; exchange fills are not verified.':'READY and TRIGGERED do not record a fill. Record an actual entry separately.')+'</p>');
   if(d.srHistory){
     var sh=d.srHistory,sb=(chartState.klines||[]),activeZones=(sh.supports||[]).slice(0,3).concat((sh.resistances||[]).slice(0,3));
@@ -20686,6 +20726,7 @@ function populateFSTable(d) {
       card('Confirmation checklist',chartPlanChecksHTML(presentation.checks))+
       card('Closed-candle metrics','<div class="cp-pair"><span>Trend / structure</span><strong>'+esc(d.trend)+' / '+esc(d.struct)+'</strong></div><div class="cp-pair"><span>RSI</span><strong>'+Number(d.rsi).toFixed(1)+'</strong></div><div class="cp-pair"><span>Volume / prior 20 bars</span><strong>'+Number(d.volR).toFixed(2)+'×</strong></div><p class="cp-muted">Current '+esc(chartState.tf||TF)+' chart calculations. Developing candle closes in '+_chartCountdown(p.candleClosesAt)+'.</p>');
   }
+  if(tab==='plan')html+='</details>';
   if(root.innerHTML!==html){
     function detailKey(el){var summary=el.querySelector&&el.querySelector('summary');return el.getAttribute&&el.getAttribute('data-chart-detail')||summary&&summary.textContent||'';}
     var previousDetails=root._chartTab===tab&&root.querySelectorAll?Array.from(root.querySelectorAll('details')):[];
@@ -21542,10 +21583,12 @@ function _drawChartNow() {
   var lows   = visible.map(function(k) { return parseFloat(k[3]); });
   var pMin   = Math.min.apply(null, lows);
   var pMax   = Math.max.apply(null, highs);
-  var sweepPaper=chartAIDrawing.enabled?null:sweepTrackPlotRecord();
-  if(sweepPaper&&Number(visible[visible.length-1][0])+_chartTFDuration(chartState.tf)>sweepPaper.study.entryAt){
-    pMin=Math.min(pMin,sweepPaper.study.sl);pMax=Math.max(pMax,sweepPaper.study.tp);
-  }else sweepPaper=null;
+  // AI hides paper drawings, not their contribution to the same price scale.
+  var scalePaper=sweepTrackPlotRecord(),sweepPaper=null;
+  if(scalePaper&&Number(visible[visible.length-1][0])+_chartTFDuration(chartState.tf)>scalePaper.study.entryAt){
+    pMin=Math.min(pMin,scalePaper.study.sl);pMax=Math.max(pMax,scalePaper.study.tp);
+    if(!chartAIDrawing.enabled)sweepPaper=scalePaper;
+  }
   var pad    = (pMax - pMin) * 0.05;
   pMin -= pad; pMax += pad;
   var pRange = pMax - pMin || 1;
@@ -21811,8 +21854,11 @@ function _drawChartNow() {
     }
     var srHistory=d.srHistory;
     if(srHistory){
-      var srLimit=chartState.viewMode==='plan'?1:3;
-      (srHistory.supports||[]).slice(0,srLimit).concat((srHistory.resistances||[]).slice(0,srLimit)).forEach(function(z){
+      var srLimit=chartState.viewMode==='analysis'?3:1;
+      var allSR=(srHistory.supports||[]).concat(srHistory.resistances||[]);
+      allSR.forEach(function(z){rememberReference(z.role+' zone '+fmtPrice(z.price),z.price,fmtPrice(z.low)+'–'+fmtPrice(z.high)+' · '+z.state+' · '+z.touches+' distinct tests');});
+      var groupedSR=chartGroupSRZones(allSR);
+      groupedSR.filter(function(z){return z.role==='support';}).slice(0,srLimit).concat(groupedSR.filter(function(z){return z.role==='resistance';}).slice(0,srLimit)).forEach(function(z){
         var col=z.role==='support'?C.sup:C.res;
         if(z.high>=pMin&&z.low<=pMax){
           ctx.save();ctx.fillStyle=col;ctx.globalAlpha=.08;
@@ -21820,8 +21866,7 @@ function _drawChartNow() {
           var xStart=Math.max(0,cX(z.confirmedIndex-offset));
           ctx.fillRect(xStart,yTop,Math.max(0,chartW-xStart),yBottom-yTop);ctx.restore();
         }
-        drawSRLine(z.price,col,(z.role==='support'?'SUP ':'RES ')+fmtPrice(z.price)+' · '+z.touches+' tests · '+z.state);
-        rememberReference(z.role+' zone',z.price,fmtPrice(z.low)+'–'+fmtPrice(z.high)+' · '+z.state+' · '+z.touches+' distinct tests');
+        drawSRLine(z.price,col,(z.role==='support'?'SUP ':'RES ')+(z.members.length>1?fmtPrice(z.minPrice)+'–'+fmtPrice(z.maxPrice)+' · '+z.members.length+' zones':fmtPrice(z.price)+' · '+z.touches+' tests · '+z.state));
       });
     }else{
       drawSRLine(d.sup, C.sup, 'SUP ' + fmtPrice(d.sup));
@@ -22030,14 +22075,9 @@ function _drawChartNow() {
   (function flushSRLabels(){
     if (!_srLbls.length) return;
     var occupied=[];
-    if(chartState.livePrice>=pMin&&chartState.livePrice<=pMax)occupied.push(pY(chartState.livePrice));
-    if(chartState.crosshair){var cy=chartState.crosshair.y*(TOTAL_H/(chartState.crosshair.cssH||TOTAL_H));if(cy>=TOP_PAD&&cy<=TOP_PAD+CANDLE_H)occupied.push(cy);}
-    _srLbls.forEach(function(l){
-      l.actualY=l.y;var chosen=null;
-      for(var delta=0;delta<=48&&chosen==null;delta+=2){[l.actualY-delta,l.actualY+delta].some(function(y){if(y<TOP_PAD+12||y>TOP_PAD+CANDLE_H-12||occupied.some(function(v){return Math.abs(v-y)<23;}))return false;chosen=y;return true;});}
-      l.hidden=chosen==null;if(!l.hidden){l.y=chosen;occupied.push(chosen);}
-    });
-    _srLbls=_srLbls.filter(function(l){return !l.hidden;});
+    if(chartState.livePrice>=pMin&&chartState.livePrice<=pMax){var ly=pY(chartState.livePrice);occupied.push({y:ly,actualY:ly});}
+    if(chartState.crosshair){var cy=chartState.crosshair.y*(TOTAL_H/(chartState.crosshair.cssH||TOTAL_H));if(cy>=TOP_PAD&&cy<=TOP_PAD+CANDLE_H)occupied.push({y:cy,actualY:cy});}
+    _srLbls=chartOrderedAxisLabels(_srLbls,TOP_PAD+12,TOP_PAD+CANDLE_H-12,23,70,occupied);
     chartState.srAxisLabels=_srLbls.map(function(l){return {text:l.lbl,y:l.y,actualY:l.actualY};});
     ctx.save();
     ctx.font = 'bold 9px -apple-system,sans-serif'; ctx.textAlign = 'left';
@@ -22489,48 +22529,17 @@ function _drawChartNow() {
     });
 
     // Step 2: Assign label Y positions with multi-pass push (guarantees no overlap)
-    var GAP = 20; // minimum pixels between label centers
     var labelData = tvLevels.map(function(lv){ return {lv:lv, origY: pY(lv.price), y: pY(lv.price)}; });
-
-    // Multi-pass push-apart (10 iterations converges well)
-    for (var pi = 0; pi < 10; pi++) {
-      // Top to bottom: push down
-      for (var li = 1; li < labelData.length; li++) {
-        if (labelData[li].y - labelData[li-1].y < GAP) {
-          labelData[li].y = labelData[li-1].y + GAP;
-        }
-      }
-      // Bottom to top: push up
-      for (var li2 = labelData.length - 2; li2 >= 0; li2--) {
-        if (labelData[li2+1].y - labelData[li2].y < GAP) {
-          labelData[li2].y = labelData[li2+1].y - GAP;
-        }
-      }
-    }
-    // Clamp all to chart bounds
-    labelData.forEach(function(ld) {
-      ld.y = Math.max(cT3 + 10, Math.min(cB3 - 10, ld.y));
-    });
 
     // The live quote has priority on the price axis. Place plan tags around it
     // without moving their horizontal lines; connectors preserve exact prices.
-    var occupiedY=(chartState.srAxisLabels||[]).map(function(l){return l.y;});
-    if(chartState.livePrice>=pMin&&chartState.livePrice<=pMax)occupiedY.push(pY(chartState.livePrice));
+    var occupiedY=(chartState.srAxisLabels||[]).map(function(l){return {y:l.y,actualY:l.actualY};});
+    if(chartState.livePrice>=pMin&&chartState.livePrice<=pMax){var quoteY=pY(chartState.livePrice);occupiedY.push({y:quoteY,actualY:quoteY});}
     if(chartState.crosshair){
       var reservedCrosshairY=chartState.crosshair.y*(TOTAL_H/(chartState.crosshair.cssH||TOTAL_H));
-      if(reservedCrosshairY>=cT3&&reservedCrosshairY<=cB3)occupiedY.push(reservedCrosshairY);
+      if(reservedCrosshairY>=cT3&&reservedCrosshairY<=cB3)occupiedY.push({y:reservedCrosshairY,actualY:reservedCrosshairY});
     }
-    labelData.forEach(function(ld){
-      var chosen=null;
-      for(var delta=0;delta<CANDLE_H&&chosen==null;delta+=2){
-        [ld.origY-delta,ld.origY+delta].some(function(y){
-          if(y<cT3+11||y>cB3-11||occupiedY.some(function(v){return Math.abs(v-y)<22;}))return false;
-          chosen=y;return true;
-        });
-      }
-      ld.hidden=chosen==null;if(!ld.hidden){ld.y=chosen;occupiedY.push(chosen);}
-    });
-    labelData=labelData.filter(function(ld){return !ld.hidden;});
+    labelData=chartOrderedAxisLabels(labelData.map(function(ld){ld.actualY=ld.origY;return ld;}),cT3+11,cB3-11,22,90,occupiedY);
     chartState.planAxisLabels=labelData.map(function(ld){return {text:ld.lv.name,price:ld.lv.price,y:ld.y,actualY:ld.origY};});
     // Step 3: Draw connector dots + shifted connector + pill labels
     labelData.forEach(function(ld) {
@@ -22790,7 +22799,7 @@ function updateChartAnalystBar(d) {
   var scC=p.score100>=70?'#26a69a':p.score100>=50?'#F59E0B':'#ef5350';
   var entryNote=p.action;
 
-  bar.innerHTML = chartPlanReviewHTML(p)+
+  bar.innerHTML =
   // Signal header row
   '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">' +
     '<span style="font-size:14px;font-weight:800;color:'+sigCol+'">'+sigTxt+'</span>' +
@@ -22838,7 +22847,7 @@ function updateChartAnalystBar(d) {
       '⚖ <strong>Risk model:</strong> candidate allocation <strong>'+p.allocation.toFixed(1)+'%</strong> (cap '+CONFIG.MAX_SPOT_ALLOC_PCT+'%) · modeled risk including assumed costs <strong>'+p.actualRisk.toFixed(2)+'%</strong> · other positions not netted') +
     '</div>' +
     '<button onclick="switchMTab(\'ai\')" style="margin-left:auto;padding:5px 14px;border-radius:var(--rad);border:none;background:var(--g);color:#fff;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer;white-space:nowrap">Full Analyst →</button>' +
-  '</div>';
+  '</div>'+chartPlanReviewHTML(p);
 }
 
 function tableRow(label, price, fromEntry, fromLive, rr, action, color, isEntry) {
