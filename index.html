@@ -1360,6 +1360,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       <button class="mtab" id="sc-opportunity"  onclick="setScanTab('opportunity')">📊 Top Opportunity</button>
       <button class="mtab" id="sc-strong"     onclick="setScanTab('strong')">⚡ Strong Buy</button>
       <button class="mtab" id="sc-buy"               onclick="setScanTab('buy')">✅ Buy Signal</button>
+      <button class="mtab" id="sc-entry_confirm" onclick="setScanTab('entry_confirm')">✓ Entry Confirmation</button>
       <button class="mtab" id="sc-confirmed_bo"      onclick="setScanTab('confirmed_bo')">🚀 Confirmed BO</button>
       <button class="mtab" id="sc-ema_retest"        onclick="setScanTab('ema_retest')">🔄 EMA Retest</button>
       <button class="mtab" id="sc-support_hold"      onclick="setScanTab('support_hold')">🛡 Support Holding</button>
@@ -3769,6 +3770,7 @@ function processSymbol(ticker, btcReferenceOverride, requestTF) {
       struct:st, liq:liq, liqEvidence:liqEvidence, sup:sr.sup, res:sr.res, sDist:sr.sDist, rDist:sr.rDist,
       supportHolding:calcSupportHolding(klines,sym,catalystTF,Date.now()),
       higherStructure:calcHigherStructure(klines,sym,catalystTF,Date.now()),
+      entryConfirmation:calcEntryConfirmation(klines,sym,catalystTF,Date.now()),
       // Research only: frozen closed-candle context; never a signal/entry gate.
       sweepContextFrame:['4h','1d'].includes(catalystTF)&&(sym==='BTCUSDT'||liq==='buy_sweep')
         ? buildSweepContextFrame(klines,sym,catalystTF,analysisSnapshot.lastClosedTime):null,
@@ -5013,6 +5015,7 @@ function loadAll() {
     renderSectorRotation(allData);
     renderMacroRegime();
     render();
+    refreshVisibleEntryConfirmation();
     checkAlerts(allData);
     try { fetchDominance(); } catch(e){}             // live BTC.D / USDT.D
     try { fetchMarketCaps(); } catch(e){}            // market caps → turnover
@@ -8762,6 +8765,106 @@ function openScannerChart(sym,tf){
   return true;
 }
 
+// Closed setup evidence only. No chart globals, AI, orders, fills or journal writes.
+// v1 research rules: six-bar setup window, three-bar follow-through deadline.
+function calcEntryConfirmation(rows,sym,tf,now){
+  var out={version:1,sym:sym,tf:tf,state:'Unknown',reason:'Use 4H, 1D or 1W',matches:[]};
+  if(!['4h','1d','1w'].includes(tf))return out;
+  var snap=chartSnapshot(rows,sym,tf,now),dt=_chartTFDuration(tf);
+  out.source=snap.source;out.signature=snap.signature;out.closedAt=snap.lastClosedTime;
+  if(!snap.usable){out.reason=snap.message;return out;}
+  var bars=rows.slice(0,-1),n=bars.length;
+  var h=bars.map(function(k){return Number(k[2]);}),l=bars.map(function(k){return Number(k[3]);}),c=bars.map(function(k){return Number(k[4]);});
+  var fvgs=calcChartFVG(bars,.25,dt);
+  out.state='Checked';out.reason='No qualifying recent setup';out.close=c[n-1];
+  function stamp(i){return Number(bars[i][0])+dt;}
+  function add(kind,i,low,high,availableAt,detail){
+    if(!(low>0&&high>=low&&availableAt<=Number(bars[i][0])))return;
+    var m={kind:kind,zoneLow:low,zoneHigh:high,availableAt:availableAt,setupAt:stamp(i),
+      setupHigh:h[i],setupLow:l[i],setupClose:c[i],riskReference:Math.min(low,l[i]),
+      confirmedAt:null,triggerClose:null,state:'Waiting',reason:'Awaiting a later close above the setup high',detail:detail};
+    // Freeze the reference before follow-through. An invalidation cannot be undone
+    // by a subsequent bounce, including when break and confirmation share a bar.
+    for(var j=i+1;j<n;j++){
+      if(l[j]<m.riskReference||c[j]<=high){m.state='Invalidated';m.reason='Reclaim lost or setup low breached';m.invalidatedAt=stamp(j);break;}
+      if(!m.confirmedAt&&j-i<=3&&c[j]>h[i]){m.confirmedAt=stamp(j);m.triggerClose=c[j];m.state='Confirmed';m.reason='Later candle closed above setup high';}
+      if(!m.confirmedAt&&j-i>=3){m.state='Expired';m.reason='No follow-through within three closed bars';break;}
+    }
+    m.barsAgo=m.confirmedAt?Math.round((out.closedAt-m.confirmedAt)/dt):n-1-i;
+    if(m.state==='Confirmed'&&m.barsAgo>2){m.state='Expired';m.reason='Confirmation more than two closed bars old';}
+    var triggerIndex=m.confirmedAt?i+Math.round((m.confirmedAt-m.setupAt)/dt):i;
+    var volumes=bars.slice(Math.max(0,triggerIndex-20),triggerIndex).map(function(k){return k[5]==null||k[5]===''?NaN:Number(k[5]);});
+    var avg=volumes.length===20&&volumes.every(function(v){return Number.isFinite(v)&&v>=0;})?volumes.reduce(function(a,b){return a+b;},0)/20:NaN;
+    var v=bars[triggerIndex][5];m.volumeRatio=avg>0&&v!=null&&v!==''&&Number.isFinite(Number(v))&&Number(v)>=0?Number(v)/avg:null;
+    out.matches.push(m);
+  }
+  for(var i=Math.max(20,n-6);i<n;i++){
+    var prior=calcSR(h.slice(0,i),l.slice(0,i),c.slice(0,i));
+    (prior.supports||[]).forEach(function(z){
+      if(l[i]<=z.high&&h[i]>=z.low&&c[i]>z.high)
+        add('support',i,z.low,z.high,stamp(Math.max(z.confirmedIndex,z.retestIndex||0)),'Retest closed above a previously established support zone');
+    });
+    (prior.zones||[]).forEach(function(z){
+      if(z.role!=='resistance'||z.state!=='broken'||z.breakIndex==null||z.breakIndex>=i||c[z.breakIndex]<=z.high)return;
+      if(c.slice(z.breakIndex+1,i).some(function(p){return p<=z.high;}))return;
+      if(l[i]<=z.high&&h[i]>=z.low&&c[i]>z.high)
+        add('breakout',i,z.low,z.high,stamp(z.breakIndex),'Prior resistance closed through, then a later retest held above it');
+    });
+    var sweep=calcScannerLiquidity(rows,i,tf);
+    if(sweep.valid&&sweep.tag==='buy_sweep'&&sweep.selected&&sweep.level>0)
+      add('sweep',i,sweep.level,sweep.level,sweep.selected.availableAt,'Existing buy-sweep v2 detector: '+sweep.selected.kind+' reclaimed (price proxy, not measured stop orders)');
+    fvgs.forEach(function(z){
+      if(z.side!=='bullish'||z.confirmedIndex>=i||(z.endedIndex!=null&&z.endedIndex<i))return;
+      var mid=bars[z.confirmedIndex-1],body=Number(mid[4])-Number(mid[1]);
+      if(!(z.atr>0&&body>=z.atr*.8)||l[i]>z.high||h[i]<z.low||c[i]<=z.high)return;
+      add('fvg',i,z.low,z.high,stamp(z.confirmedIndex),'Bullish FVG: gap ≥0.25 prior ATR, bullish middle body ≥0.8 prior ATR; later retest closed above gap');
+    });
+  }
+  // Keep the newest event per setup/zone/state; preserve a waiting retest separately
+  // from an earlier confirmed event so neither silently overwrites the other.
+  var seen={};out.matches.sort(function(a,b){return b.setupAt-a.setupAt;});
+  out.matches=out.matches.filter(function(m){var key=[m.kind,m.zoneLow,m.zoneHigh,m.state].join('|');if(seen[key])return false;seen[key]=true;return true;});
+  return out;
+}
+function entryConfirmationCurrent(d,tf,now){
+  var e=d&&d.entryConfirmation,s=d&&d.analysisSnapshot;
+  return !!(d&&!d._stale&&e&&e.version===1&&e.state==='Checked'&&e.sym===d.sym&&e.tf===tf&&s&&s.usable&&s.symbol===d.sym&&s.timeframe===tf&&e.source===s.source&&e.signature===s.signature&&e.closedAt===s.lastClosedTime&&Number.isFinite(e.closedAt)&&now>=e.closedAt&&now<e.closedAt+_chartTFDuration(tf));
+}
+var scanEntrySettings={setup:'all',status:'Confirmed'};
+function refreshVisibleEntryConfirmation(){
+  var panel=document.getElementById('scan-ov'),button=document.getElementById('rescan-btn');
+  if(scanTab==='entry_confirm'&&!document.hidden&&panel&&panel.classList.contains('show')&&!(button&&button.disabled)){
+    scanData=null;renderEntryConfirmation(allData||[]);
+  }
+}
+// Local expiry refresh only: does not fetch, send notifications or place orders.
+setInterval(refreshVisibleEntryConfirmation,60000);
+function setEntryConfirmationFilter(key,value){
+  if(key==='setup'&&['all','support','sweep','breakout','fvg'].includes(value))scanEntrySettings.setup=value;
+  if(key==='status'&&['all','Confirmed','Waiting','Invalidated','Expired'].includes(value))scanEntrySettings.status=value;
+  runScanner();
+}
+function renderEntryConfirmation(data){
+  var body=document.getElementById('scan-body');if(!body)return;
+  var now=Date.now(),esc=confluenceEscape,eligible=data.filter(function(d){return entryConfirmationCurrent(d,scanTF,now);});
+  var labels={support:'Support hold',sweep:'Sweep reclaim',breakout:'Breakout retest',fvg:'Bullish FVG retest'},events=[];
+  eligible.forEach(function(d){d.entryConfirmation.matches.forEach(function(m){if((scanEntrySettings.setup==='all'||m.kind===scanEntrySettings.setup)&&(scanEntrySettings.status==='all'||m.state===scanEntrySettings.status))events.push({d:d,m:m});});});
+  events.sort(function(a,b){return (b.m.confirmedAt||b.m.setupAt)-(a.m.confirmedAt||a.m.setupAt)||a.d.sym.localeCompare(b.d.sym);});
+  var sub=document.getElementById('scan-sub'),upd=document.getElementById('scan-upd');
+  if(sub)sub.textContent=new Set(events.map(function(x){return x.d.sym;})).size+' coins · '+events.length+' setups — '+scanTF.toUpperCase()+' Entry Confirmation';
+  if(upd)upd.textContent=eligible.length+'/'+data.length+' verified · '+(data.length-eligible.length)+' unavailable / stale / different timeframe · '+confluenceTime(now);
+  function options(items,chosen){return items.map(function(x){return '<option value="'+x[0]+'"'+(x[0]===chosen?' selected':'')+'>'+x[1]+'</option>';}).join('');}
+  var html='<div style="padding:12px 16px;font-size:11px;line-height:1.7"><b>Closed trigger evidence · execution NOT checked · no fill recorded</b><br>4H / 1D / 1W independently. A setup reclaim must be followed within three candles by a later close above its high. Confirmed results include only the latest three closed bars. No simultaneous timeframe alignment is implied.<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px"><label>Setup <select id="entry-confirm-setup">'+options([['all','All setups'],['support',labels.support],['sweep',labels.sweep],['breakout',labels.breakout],['fvg',labels.fvg]],scanEntrySettings.setup)+'</select></label><label>State <select id="entry-confirm-status">'+options([['Confirmed','Closed trigger confirmed'],['Waiting','Waiting for follow-through'],['Invalidated','Invalidated'],['Expired','Expired'],['all','All recent observations']],scanEntrySettings.status)+'</select></label></div><details><summary>Rules and limits</summary>Research rules v1, not validated win rates. Setups must occur in the latest six completed candles. Levels are available before the setup starts; live candles cannot confirm. Any later close in/below the reclaimed zone, or wick below the setup risk reference, invalidates that observation. Volume is context only, measured against 20 prior bars. FVG impulse filters are experimental and separate from adjustable FVG Watchlist filters. Check BTC/context, live quote, entry location, mapped target, fees, spread, depth and stop in the chart before considering a trade. This tab does not override Plan gates, create orders, or write Buy Sweep entries. Re-scan fetches fresh data; this is not a 24/7 monitor.</details></div>';
+  if(!events.length)html+='<div class="msg" style="padding:2rem">'+(eligible.length?'No matching '+esc(scanTF.toUpperCase())+' confirmations. Choose Waiting or All recent observations to inspect candidates.':'No verified '+esc(scanTF.toUpperCase())+' data. Re-scan to fetch completed candles.')+'</div>';
+  events.forEach(function(x){var d=x.d,m=x.m,e=d.entryConfirmation,color=m.state==='Confirmed'?'var(--g)':m.state==='Invalidated'?'var(--r)':'var(--am)';
+    html+='<div class="sc-item" style="align-items:flex-start;gap:10px"><div style="flex:1;min-width:0"><b>'+esc(d.pair)+' · '+esc(scanTF.toUpperCase())+' · '+esc(labels[m.kind])+'</b><div style="color:'+color+';font-weight:700;margin:5px 0">'+(m.state==='Confirmed'?'✓ CLOSED TRIGGER CONFIRMED':esc(m.state.toUpperCase()))+' · UNFILLED</div><div style="font-size:11px;line-height:1.8">'+esc(m.reason)+'<br><span style="color:var(--g)">Reclaimed zone '+esc(fE(m.zoneLow))+' – '+esc(fE(m.zoneHigh))+'</span><br>Follow-through threshold: close above '+esc(fE(m.setupHigh))+'<br>'+(m.confirmedAt?'Confirmed '+esc(confluenceTime(m.confirmedAt))+' at close '+esc(fE(m.triggerClose))+' · '+m.barsAgo+' bars ago':'Setup '+esc(confluenceTime(m.setupAt)))+'<br>'+esc(e.source)+' · latest completed close '+esc(fE(e.close))+' · '+esc(confluenceTime(e.closedAt))+'<br>Volume '+(m.volumeRatio==null?'unavailable':m.volumeRatio.toFixed(2)+'× prior 20 bars')+' · context only</div><details style="font-size:11px"><summary>Evidence / remaining checks</summary>'+esc(m.detail)+'<br>Reference available '+esc(confluenceTime(m.availableAt))+'; setup closed '+esc(confluenceTime(m.setupAt))+'.<br>Setup low '+esc(fE(m.setupLow))+'; risk reference '+esc(fE(m.riskReference))+' — NOT a stop order.<br>Fresh quote, current entry distance, BTC alignment, executable SL/TP, net reward/risk and depth are not validated here. Chart Plan can still be blocked or late.</details></div><button class="btn" data-entry-confirm-open="'+esc(d.sym)+'">Open '+esc(scanTF.toUpperCase())+' chart</button></div>';
+  });
+  body.innerHTML=html;
+  var setup=document.getElementById('entry-confirm-setup'),status=document.getElementById('entry-confirm-status');
+  if(setup)setup.onchange=function(){setEntryConfirmationFilter('setup',this.value);};
+  if(status)status.onchange=function(){setEntryConfirmationFilter('status',this.value);};
+  body.querySelectorAll('[data-entry-confirm-open]').forEach(function(b){b.onclick=function(){openScannerChart(b.dataset.entryConfirmOpen,scanTF);};});
+}
 function calcHigherStructure(rows,sym,tf,now){
   var out={version:1,sym:sym,tf:tf,state:'Unknown',reason:'Use 1H, 4H, 1D or 1W'};
   if(!['1h','4h','1d','1w'].includes(tf))return out;
@@ -8872,6 +8975,7 @@ function setScanTF(tf) {
   }
   if(scanTab==='sweep_buy'&&!['4h','1d','1w'].includes(tf))tf='4h';
   if(scanTab==='support_hold'&&!['4h','1d','1w'].includes(tf))tf='4h';
+  if(scanTab==='entry_confirm'&&!['4h','1d','1w'].includes(tf))tf='4h';
   if(scanTab==='hhhl'&&!['1h','4h','1d','1w'].includes(tf))tf='1h';
   scanTF = tf;
   TF = tf; // make this the ACTIVE timeframe so the main scan + logging follow it
@@ -8912,8 +9016,9 @@ function setScanTab(t){
   ['15m','1h','4h','1d','1w'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=false;b.title='';b.classList.toggle('active',tf===(t==='gainers'?scanGainers.tf:TF));}});
   ['15m','1h'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=t==='sweep_buy';b.title=t==='sweep_buy'?'Buy sweeps use 4h, 1d and 1w only':'';}});
   if(t==='support_hold')['15m','1h'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=true;b.title='Support Holding uses 4H, 1D and 1W';}});
+  if(t==='entry_confirm')['15m','1h'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=true;b.title='Entry Confirmation uses 4H, 1D and 1W';}});
   if(t==='hhhl'){var shortTF=document.getElementById('sc-tf-15m');if(shortTF){shortTF.disabled=true;shortTF.title='HH / HL uses 1H, 4H, 1D and 1W';}}
-  ['aplus','tierA','tierB','tierC','opportunity','strong','buy','confirmed_bo','ema_retest','support_hold','hhhl','gainers','sweep_buy','sweep_sell','breakout','accum','oversold','rsiDiv','choch','bos','sector'].forEach(function(x){
+  ['aplus','tierA','tierB','tierC','opportunity','strong','buy','entry_confirm','confirmed_bo','ema_retest','support_hold','hhhl','gainers','sweep_buy','sweep_sell','breakout','accum','oversold','rsiDiv','choch','bos','sector'].forEach(function(x){
     var el=document.getElementById('sc-'+x);if(el)el.classList.toggle('active',x===t);
   });
   var row=document.getElementById('scan-sector-row');
@@ -8921,6 +9026,7 @@ function setScanTab(t){
   if(t==='gainers')['15m','1w'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=true;b.title='Top Gainers uses 1H, 4H and 1D';}});
   if(t==='sweep_buy'&&!['4h','1d','1w'].includes(TF)){setScanTF('4h');return;}
   if(t==='support_hold'&&!['4h','1d','1w'].includes(TF)){setScanTF('4h');return;}
+  if(t==='entry_confirm'&&!['4h','1d','1w'].includes(TF)){setScanTF('4h');return;}
   if(t==='hhhl'&&!['1h','4h','1d','1w'].includes(TF)){setScanTF('1h');return;}
   runScanner();
 }
@@ -8948,6 +9054,7 @@ function runScanner(){
   if(!body) return;
   var data=(scanData&&scanData.length)?scanData:allData;
   if(scanTab==='support_hold'){renderSupportHolding(data||[]);return;}
+  if(scanTab==='entry_confirm'){renderEntryConfirmation(data||[]);return;}
   if(scanTab==='hhhl'){renderHigherStructure(data||[]);return;}
   if(!data||!data.length){
     body.innerHTML="<div class=\"msg\" style=\"padding:2rem;text-align:center;color:var(--t3)\">No data. Wait for screener to load.</div>";
