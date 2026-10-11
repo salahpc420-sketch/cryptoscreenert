@@ -2029,6 +2029,7 @@ function bybitKlines(sym, tf, limit) {
 }
 
 function bybitTickers(syms) {
+  var quoteRequestedAt=Date.now();
   // JPY pairs → bitbank (real Japanese exchange). Detect by suffix.
   if (syms && syms.length && syms[0].endsWith('JPY')) {
     return bitbankTickers(syms);
@@ -2039,9 +2040,9 @@ function bybitTickers(syms) {
   var bnUrl  = BNCDN  + '/api/v3/ticker/24hr?symbols='+encodeURIComponent(JSON.stringify(syms));
   var bn2Url = BN2    + '/api/v3/ticker/24hr?symbols='+encodeURIComponent(JSON.stringify(syms));
 
-  function bx(d)  { return parseBingXTickers(d, syms); }
-  function byt(d) { return parseBybitTickers(d, syms); }
-  function bn(d)  { return parseBinanceTickers(d, syms); }
+  function bx(d)  { return tagScannerQuotes(parseBingXTickers(d, syms),'BingX',quoteRequestedAt); }
+  function byt(d) { return tagScannerQuotes(parseBybitTickers(d, syms),'Bybit',quoteRequestedAt); }
+  function bn(d)  { return tagScannerQuotes(parseBinanceTickers(d, syms),'Binance',quoteRequestedAt); }
 
   // Source order: Bybit first (works in Japan + most regions, no array param needed),
   // BingX next, Binance last (geo-blocked some regions — don't waste time leading with it)
@@ -2052,7 +2053,7 @@ function bybitTickers(syms) {
     // A successful Bybit response can still omit BingX-only pairs.
     var seen={};rows.forEach(function(r){seen[r.symbol]=true;});
     var missing=syms.filter(function(s){return !seen[s];});if(!missing.length)return rows;
-    return fetchJ(bxUrl,9000).then(function(raw){return rows.concat(parseBingXTickers(raw,missing));}).catch(function(){return rows;});
+    return fetchJ(bxUrl,9000).then(function(raw){return rows.concat(tagScannerQuotes(parseBingXTickers(raw,missing),'BingX',quoteRequestedAt));}).catch(function(){return rows;});
   }).catch(function() {
     return Promise.reject(new Error('all sources failed'));
   });
@@ -3750,6 +3751,7 @@ function processSymbol(ticker, btcReferenceOverride, requestTF) {
 
     return {
       sym:sym, pair:pair, price:price, signalPrice:closePx, chg:chg, vol24:vol24, vol24usd:vol24usd,
+      scannerQuote:ticker.scannerQuote||null,
       tlBreakUp:tlBreakUp, tlTouches:tlTouches,
       cascade: _casc, cascPhase: _casc ? _casc.phase : null,
       resFlipHeld: !!_resFlip, resFlipLevel: _resFlip ? _resFlip.level : null,
@@ -8780,7 +8782,8 @@ function calcEntryConfirmation(rows,sym,tf,now){
   function stamp(i){return Number(bars[i][0])+dt;}
   function add(kind,i,low,high,availableAt,detail){
     if(!(low>0&&high>=low&&availableAt<=Number(bars[i][0])))return;
-    var m={kind:kind,zoneLow:low,zoneHigh:high,availableAt:availableAt,setupAt:stamp(i),
+    var setupATR=calcATR(h.slice(0,i),l.slice(0,i),c.slice(0,i),14);
+    var m={kind:kind,zoneLow:low,zoneHigh:high,availableAt:availableAt,setupAt:stamp(i),setupATR:setupATR,
       setupHigh:h[i],setupLow:l[i],setupClose:c[i],riskReference:Math.min(low,l[i]),
       confirmedAt:null,triggerClose:null,state:'Waiting',reason:'Awaiting a later close above the setup high',detail:detail};
     // Freeze the reference before follow-through. An invalidation cannot be undone
@@ -8830,39 +8833,108 @@ function entryConfirmationCurrent(d,tf,now){
   var e=d&&d.entryConfirmation,s=d&&d.analysisSnapshot;
   return !!(d&&!d._stale&&e&&e.version===1&&e.state==='Checked'&&e.sym===d.sym&&e.tf===tf&&s&&s.usable&&s.symbol===d.sym&&s.timeframe===tf&&e.source===s.source&&e.signature===s.signature&&e.closedAt===s.lastClosedTime&&Number.isFinite(e.closedAt)&&now>=e.closedAt&&now<e.closedAt+_chartTFDuration(tf));
 }
-var scanEntrySettings={setup:'all',status:'Confirmed'};
+// Quote provenance is separate from closed-candle evidence and displayed ticker
+// prices. Request-start age is conservative: slow REST replies cannot look new.
+function tagScannerQuotes(rows,source,requestedAt){
+  var receivedAt=Date.now();
+  rows.forEach(function(r){r.scannerQuote={symbol:r.symbol,source:source,price:Number(r.lastPrice),at:requestedAt,receivedAt:receivedAt,transport:'REST'};});
+  return rows;
+}
+function recordScannerQuote(d,q){
+  if(!d||!q||q.symbol!==d.sym||!['Bybit','BingX','Binance'].includes(q.source)||!Number.isFinite(q.price)||q.price<=0||!Number.isFinite(q.at)||!Number.isFinite(q.receivedAt)||q.at>q.receivedAt)return false;
+  // Never replace a usable same-venue quote with another exchange's tick.
+  if(d.analysisSnapshot&&q.source!==d.analysisSnapshot.source)return false;
+  if(d.scannerQuote&&d.scannerQuote.source===q.source&&d.scannerQuote.at>q.at)return false;
+  d.scannerQuote=Object.assign({},q);return true;
+}
+function entryConfirmationPriceState(d,m,tf,now){
+  var out={state:'Unavailable',label:'DATA UNAVAILABLE',reason:'Refresh verified closed candles',price:null,deltaPct:null,maxEntry:null};
+  if(!entryConfirmationCurrent(d,tf,now))return out;
+  if(m.state==='Invalidated'||m.state==='Expired'){out.state=m.state;out.label=m.state.toUpperCase();out.reason=m.reason;return out;}
+  var q=d.scannerQuote,e=d.entryConfirmation;
+  if(!q||q.symbol!==d.sym||q.source!==e.source||!Number.isFinite(q.price)||q.price<=0||!Number.isFinite(q.at)||!Number.isFinite(q.receivedAt)||q.at>q.receivedAt||now<q.receivedAt||now-q.at>30000){
+    out.reason='Fresh matching '+e.source+' quote required (request/receipt age ≤30s). Refresh quotes.';return out;
+  }
+  out.price=q.price;out.source=q.source;out.quoteAt=q.at;out.quoteAge=Math.max(0,Math.floor((now-q.at)/1000));
+  if(q.price<=m.riskReference||q.price<=m.zoneHigh){out.state='Invalidated';out.label='INVALIDATED NOW';out.reason='Live price is in/below the reclaimed zone or risk reference. Closed pattern history is unchanged.';return out;}
+  if(m.state!=='Confirmed'){out.state='Waiting';out.label='WAITING';out.reason='Closed-candle follow-through has not confirmed; a live move cannot confirm it.';return out;}
+  if(!(m.triggerClose>0&&m.setupHigh>0&&Number.isFinite(m.setupATR)&&m.setupATR>0)){out.reason='Confirmation price/ATR unavailable; re-scan candles.';return out;}
+  // A frozen, deliberately conservative location screen, NOT a trade signal.
+  // Do not re-anchor the entry band as the live price rises.
+  out.maxEntry=m.triggerClose+Math.min(m.triggerClose*.01,m.setupATR*.25);
+  out.deltaPct=(q.price/m.triggerClose-1)*100;
+  if(q.price>out.maxEntry){out.state='Late';out.label='LATE · DO NOT CHASE';out.reason='Price exceeds the fixed confirmation-close allowance: smaller of 1% or 0.25 pre-setup ATR.';return out;}
+  if(q.price<=m.setupHigh){out.state='Waiting';out.label='WAITING · BELOW TRIGGER';out.reason='Live price is below the confirmed breakout threshold; review the pullback.';return out;}
+  out.state='Eligible';out.label='ELIGIBLE · PRICE ONLY';out.reason='Fresh same-venue price is above the trigger and inside the fixed entry allowance. Full Plan checks remain required.';
+  return out;
+}
+var scanEntrySettings={setup:'all',status:'Confirmed',entry:'all'};
+var scanEntryQuotes={busy:false,lastAttempt:0,error:''};
+function refreshEntryConfirmationQuotes(force){
+  var now=Date.now();
+  if(scanEntryQuotes.busy||(!force&&now-scanEntryQuotes.lastAttempt<15000))return Promise.resolve();
+  var groups={};
+  (allData||[]).forEach(function(d){
+    if(!entryConfirmationCurrent(d,scanTF,now)||!d.entryConfirmation.matches.some(function(m){return m.state==='Confirmed'||m.state==='Waiting';}))return;
+    var source=d.entryConfirmation.source;if(!['Bybit','BingX','Binance'].includes(source))return;
+    var q=d.scannerQuote;if(!force&&q&&q.source===source&&q.symbol===d.sym&&q.price>0&&now>=q.at&&now-q.at<15000)return;
+    (groups[source]||(groups[source]=[])).push(d.sym);
+  });
+  var sources=Object.keys(groups);if(!sources.length)return Promise.resolve();
+  scanEntryQuotes.busy=true;scanEntryQuotes.lastAttempt=now;scanEntryQuotes.error='';
+  var requests=sources.map(function(source){
+    var syms=groups[source],request;
+    if(source==='Bybit')request=fetchJ(BYBIT+'/v5/market/tickers?category=spot',8000).catch(function(){return fetchJ(BYBIT2+'/v5/market/tickers?category=spot',8000);});
+    else if(source==='BingX')request=fetchJ(BINGX+'/openApi/spot/v1/ticker/24hr',8000);
+    else request=fetchJ(BNCDN+'/api/v3/ticker/24hr?symbols='+encodeURIComponent(JSON.stringify(syms)),8000).catch(function(){return fetchJ(BN2+'/api/v3/ticker/24hr?symbols='+encodeURIComponent(JSON.stringify(syms)),8000);});
+    return request.then(function(raw){
+      var parsed=source==='Bybit'?parseBybitTickers(raw,syms):source==='BingX'?parseBingXTickers(raw,syms):parseBinanceTickers(raw,syms);
+      var rows=tagScannerQuotes(parsed,source,now);
+      rows.forEach(function(r){var d=allData.find(function(x){return x.sym===r.symbol;});recordScannerQuote(d,r.scannerQuote);});
+      if(rows.length<syms.length)scanEntryQuotes.error+=(scanEntryQuotes.error?' · ':'')+source+' partial quote coverage';
+    }).catch(function(){scanEntryQuotes.error+=(scanEntryQuotes.error?' · ':'')+source+' quotes unavailable';});
+  });
+  return Promise.all(requests).finally(function(){scanEntryQuotes.busy=false;var panel=document.getElementById('scan-ov');if(scanTab==='entry_confirm'&&!document.hidden&&panel&&panel.classList.contains('show'))renderEntryConfirmation(allData||[]);});
+}
 function refreshVisibleEntryConfirmation(){
   var panel=document.getElementById('scan-ov'),button=document.getElementById('rescan-btn');
   if(scanTab==='entry_confirm'&&!document.hidden&&panel&&panel.classList.contains('show')&&!(button&&button.disabled)){
-    scanData=null;renderEntryConfirmation(allData||[]);
+    scanData=null;renderEntryConfirmation(allData||[]);refreshEntryConfirmationQuotes(false);
   }
 }
-// Local expiry refresh only: does not fetch, send notifications or place orders.
-setInterval(refreshVisibleEntryConfirmation,60000);
+// Only the visible tab refreshes quotes. No order placement or notifications.
+setInterval(refreshVisibleEntryConfirmation,5000);
 function setEntryConfirmationFilter(key,value){
   if(key==='setup'&&['all','support','sweep','breakout','fvg'].includes(value))scanEntrySettings.setup=value;
   if(key==='status'&&['all','Confirmed','Waiting','Invalidated','Expired'].includes(value))scanEntrySettings.status=value;
+  if(key==='entry'&&['all','Eligible','Late','Invalidated','Waiting','Unavailable','Expired'].includes(value))scanEntrySettings.entry=value;
   runScanner();
 }
 function renderEntryConfirmation(data){
   var body=document.getElementById('scan-body');if(!body)return;
   var now=Date.now(),esc=confluenceEscape,eligible=data.filter(function(d){return entryConfirmationCurrent(d,scanTF,now);});
   var labels={support:'Support hold',sweep:'Sweep reclaim',breakout:'Breakout retest',fvg:'Bullish FVG retest'},events=[];
-  eligible.forEach(function(d){d.entryConfirmation.matches.forEach(function(m){if((scanEntrySettings.setup==='all'||m.kind===scanEntrySettings.setup)&&(scanEntrySettings.status==='all'||m.state===scanEntrySettings.status))events.push({d:d,m:m});});});
+  eligible.forEach(function(d){d.entryConfirmation.matches.forEach(function(m){var current=entryConfirmationPriceState(d,m,scanTF,now);if((scanEntrySettings.setup==='all'||m.kind===scanEntrySettings.setup)&&(scanEntrySettings.status==='all'||m.state===scanEntrySettings.status)&&(!scanEntrySettings.entry||scanEntrySettings.entry==='all'||current.state===scanEntrySettings.entry))events.push({d:d,m:m,current:current});});});
   events.sort(function(a,b){return (b.m.confirmedAt||b.m.setupAt)-(a.m.confirmedAt||a.m.setupAt)||a.d.sym.localeCompare(b.d.sym);});
   var sub=document.getElementById('scan-sub'),upd=document.getElementById('scan-upd');
   if(sub)sub.textContent=new Set(events.map(function(x){return x.d.sym;})).size+' coins · '+events.length+' setups — '+scanTF.toUpperCase()+' Entry Confirmation';
   if(upd)upd.textContent=eligible.length+'/'+data.length+' verified · '+(data.length-eligible.length)+' unavailable / stale / different timeframe · '+confluenceTime(now);
   function options(items,chosen){return items.map(function(x){return '<option value="'+x[0]+'"'+(x[0]===chosen?' selected':'')+'>'+x[1]+'</option>';}).join('');}
-  var html='<div style="padding:12px 16px;font-size:11px;line-height:1.7"><b>Closed trigger evidence · execution NOT checked · no fill recorded</b><br>4H / 1D / 1W independently. A setup reclaim must be followed within three candles by a later close above its high. Confirmed results include only the latest three closed bars. No simultaneous timeframe alignment is implied.<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px"><label>Setup <select id="entry-confirm-setup">'+options([['all','All setups'],['support',labels.support],['sweep',labels.sweep],['breakout',labels.breakout],['fvg',labels.fvg]],scanEntrySettings.setup)+'</select></label><label>State <select id="entry-confirm-status">'+options([['Confirmed','Closed trigger confirmed'],['Waiting','Waiting for follow-through'],['Invalidated','Invalidated'],['Expired','Expired'],['all','All recent observations']],scanEntrySettings.status)+'</select></label></div><details><summary>Rules and limits</summary>Research rules v1, not validated win rates. Setups must occur in the latest six completed candles. Levels are available before the setup starts; live candles cannot confirm. Any later close in/below the reclaimed zone, or wick below the setup risk reference, invalidates that observation. Volume is context only, measured against 20 prior bars. FVG impulse filters are experimental and separate from adjustable FVG Watchlist filters. Check BTC/context, live quote, entry location, mapped target, fees, spread, depth and stop in the chart before considering a trade. This tab does not override Plan gates, create orders, or write Buy Sweep entries. Re-scan fetches fresh data; this is not a 24/7 monitor.</details></div>';
-  if(!events.length)html+='<div class="msg" style="padding:2rem">'+(eligible.length?'No matching '+esc(scanTF.toUpperCase())+' confirmations. Choose Waiting or All recent observations to inspect candidates.':'No verified '+esc(scanTF.toUpperCase())+' data. Re-scan to fetch completed candles.')+'</div>';
-  events.forEach(function(x){var d=x.d,m=x.m,e=d.entryConfirmation,color=m.state==='Confirmed'?'var(--g)':m.state==='Invalidated'?'var(--r)':'var(--am)';
-    html+='<div class="sc-item" style="align-items:flex-start;gap:10px"><div style="flex:1;min-width:0"><b>'+esc(d.pair)+' · '+esc(scanTF.toUpperCase())+' · '+esc(labels[m.kind])+'</b><div style="color:'+color+';font-weight:700;margin:5px 0">'+(m.state==='Confirmed'?'✓ CLOSED TRIGGER CONFIRMED':esc(m.state.toUpperCase()))+' · UNFILLED</div><div style="font-size:11px;line-height:1.8">'+esc(m.reason)+'<br><span style="color:var(--g)">Reclaimed zone '+esc(fE(m.zoneLow))+' – '+esc(fE(m.zoneHigh))+'</span><br>Follow-through threshold: close above '+esc(fE(m.setupHigh))+'<br>'+(m.confirmedAt?'Confirmed '+esc(confluenceTime(m.confirmedAt))+' at close '+esc(fE(m.triggerClose))+' · '+m.barsAgo+' bars ago':'Setup '+esc(confluenceTime(m.setupAt)))+'<br>'+esc(e.source)+' · latest completed close '+esc(fE(e.close))+' · '+esc(confluenceTime(e.closedAt))+'<br>Volume '+(m.volumeRatio==null?'unavailable':m.volumeRatio.toFixed(2)+'× prior 20 bars')+' · context only</div><details style="font-size:11px"><summary>Evidence / remaining checks</summary>'+esc(m.detail)+'<br>Reference available '+esc(confluenceTime(m.availableAt))+'; setup closed '+esc(confluenceTime(m.setupAt))+'.<br>Setup low '+esc(fE(m.setupLow))+'; risk reference '+esc(fE(m.riskReference))+' — NOT a stop order.<br>Fresh quote, current entry distance, BTC alignment, executable SL/TP, net reward/risk and depth are not validated here. Chart Plan can still be blocked or late.</details></div><button class="btn" data-entry-confirm-open="'+esc(d.sym)+'">Open '+esc(scanTF.toUpperCase())+' chart</button></div>';
+  var html='<div style="padding:12px 16px;font-size:11px;line-height:1.7"><b>Pattern confirmation + current price check · full execution NOT checked · no fill recorded</b><br>4H / 1D / 1W independently. A later candle must close above the setup high within three candles. Confirmed results include only the latest three closed bars. No simultaneous timeframe alignment is implied.<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px"><label>Setup <select id="entry-confirm-setup">'+options([['all','All setups'],['support',labels.support],['sweep',labels.sweep],['breakout',labels.breakout],['fvg',labels.fvg]],scanEntrySettings.setup)+'</select></label><label>Pattern <select id="entry-confirm-status">'+options([['Confirmed','Closed trigger confirmed'],['Waiting','Waiting for follow-through'],['Invalidated','Invalidated'],['Expired','Expired'],['all','All recent observations']],scanEntrySettings.status)+'</select></label><label>Current entry <select id="entry-confirm-current">'+options([['all','All price states'],['Eligible','Eligible — price only'],['Late','Late — do not chase'],['Invalidated','Invalidated'],['Waiting','Waiting'],['Unavailable','Data unavailable'],['Expired','Expired']],scanEntrySettings.entry||'all')+'</select></label><button class="btn" id="entry-confirm-quotes"'+(scanEntryQuotes.busy?' disabled':'')+'>'+(scanEntryQuotes.busy?'Refreshing quotes…':'↻ Refresh quotes')+'</button></div><div style="color:var(--am)">'+esc(scanEntryQuotes.error)+'</div><details><summary>Rules and limits · v2 price check</summary>Research rules, not validated win rates. Setups must occur in the latest six completed candles. Levels exist before the setup starts; live candles cannot confirm. A later close in/below the reclaimed zone, or wick below the risk reference, invalidates the closed observation. Current entry uses a matching exchange quote ≤30s old: in/below the zone = invalidated now; below the setup high = waiting; above confirmation close + min(1%, 0.25 pre-setup ATR) = late. Otherwise eligible for price location only, not permission to buy. The allowance is fixed, experimental and never follows price upward. Volume is context only. FVG filters remain separate from FVG Watchlist settings. BTC/context, SL/TP, costs, depth and net reward/risk must still pass the chart Plan. This tab does not override Plan gates or write orders/journal entries. Quotes refresh only while this tab is visible; Re-scan/normal scanner refresh fetches candles. Not a 24/7 monitor.</details></div>';
+  if(!events.length)html+='<div class="msg" style="padding:2rem">'+(eligible.length?'No matching '+esc(scanTF.toUpperCase())+' setups for these filters. Choose All price states and/or All recent observations to inspect candidates.':'No verified '+esc(scanTF.toUpperCase())+' data. Re-scan to fetch completed candles.')+'</div>';
+  events.forEach(function(x){var d=x.d,m=x.m,e=d.entryConfirmation,current=x.current,color=m.state==='Confirmed'?'var(--bl)':m.state==='Invalidated'?'var(--r)':'var(--am)';
+    var currentColor=current.state==='Eligible'?'var(--g)':current.state==='Invalidated'?'var(--r)':'var(--am)';
+    html+='<section style="border-top:1px solid var(--bd)"><div style="padding:10px 16px;background:var(--card3);font-size:11px;line-height:1.7"><b style="color:'+currentColor+'">'+esc(d.pair)+' · CURRENT ENTRY: '+esc(current.label)+'</b><br>'+esc(current.reason)+(current.price!=null?'<br>'+esc(current.source)+' quote '+esc(fE(current.price))+' · '+current.quoteAge+'s request/receipt age':'')+(current.maxEntry!=null?'<br>Price band: above '+esc(fE(m.setupHigh))+' through '+esc(fE(current.maxEntry))+' · '+(current.deltaPct>=0?'+':'')+current.deltaPct.toFixed(2)+'% from confirmation close':'')+'</div>';
+    html+='<div class="sc-item" style="align-items:flex-start;gap:10px"><div style="flex:1;min-width:0"><b>'+esc(d.pair)+' · '+esc(scanTF.toUpperCase())+' · '+esc(labels[m.kind])+'</b><div style="color:'+color+';font-weight:700;margin:5px 0">'+(m.state==='Confirmed'?'✓ CLOSED TRIGGER CONFIRMED':esc(m.state.toUpperCase()))+' · UNFILLED</div><div style="font-size:11px;line-height:1.8">'+esc(m.reason)+'<br><span style="color:var(--g)">Reclaimed zone '+esc(fE(m.zoneLow))+' – '+esc(fE(m.zoneHigh))+'</span><br>Follow-through threshold: close above '+esc(fE(m.setupHigh))+'<br>'+(m.confirmedAt?'Confirmed '+esc(confluenceTime(m.confirmedAt))+' at close '+esc(fE(m.triggerClose))+' · '+m.barsAgo+' bars ago':'Setup '+esc(confluenceTime(m.setupAt)))+'<br>'+esc(e.source)+' · latest completed close '+esc(fE(e.close))+' · '+esc(confluenceTime(e.closedAt))+'<br>Volume '+(m.volumeRatio==null?'unavailable':m.volumeRatio.toFixed(2)+'× prior 20 bars')+' · context only</div><details style="font-size:11px"><summary>Evidence / remaining checks</summary>'+esc(m.detail)+'<br>Reference available '+esc(confluenceTime(m.availableAt))+'; setup closed '+esc(confluenceTime(m.setupAt))+'.<br>Setup low '+esc(fE(m.setupLow))+'; risk reference '+esc(fE(m.riskReference))+' — NOT a stop order.<br>The separate current-entry badge checks quote freshness, exchange and price location only. BTC alignment, executable SL/TP, costs, net reward/risk and depth are not validated here. Chart Plan can still be blocked or late.</details></div><button class="btn" data-entry-confirm-open="'+esc(d.sym)+'">Open '+esc(scanTF.toUpperCase())+' chart</button></div>';
+    html+='</section>';
   });
   body.innerHTML=html;
   var setup=document.getElementById('entry-confirm-setup'),status=document.getElementById('entry-confirm-status');
   if(setup)setup.onchange=function(){setEntryConfirmationFilter('setup',this.value);};
   if(status)status.onchange=function(){setEntryConfirmationFilter('status',this.value);};
+  var currentSelect=document.getElementById('entry-confirm-current'),quotesButton=document.getElementById('entry-confirm-quotes');
+  if(currentSelect)currentSelect.onchange=function(){setEntryConfirmationFilter('entry',this.value);};
+  if(quotesButton)quotesButton.onclick=function(){var button=this;button.disabled=true;refreshEntryConfirmationQuotes(true).finally(function(){button.disabled=false;});};
   body.querySelectorAll('[data-entry-confirm-open]').forEach(function(b){b.onclick=function(){openScannerChart(b.dataset.entryConfirmOpen,scanTF);};});
 }
 function calcHigherStructure(rows,sym,tf,now){
@@ -9029,6 +9101,7 @@ function setScanTab(t){
   if(t==='entry_confirm'&&!['4h','1d','1w'].includes(TF)){setScanTF('4h');return;}
   if(t==='hhhl'&&!['1h','4h','1d','1w'].includes(TF)){setScanTF('1h');return;}
   runScanner();
+  if(t==='entry_confirm')refreshEntryConfirmationQuotes(false);
 }
 // Re-scan button — actually FETCH fresh data, then re-display (not just re-filter)
 function reScanFresh(){
@@ -24008,7 +24081,7 @@ function _connectWS() {
         var newPrice = parseFloat(tick.lastPrice || 0);
         var newChg   = tick.price24hPcnt != null ? parseFloat(tick.price24hPcnt) * 100 : coin.chg;
         var newVol   = parseFloat(tick.turnover24h || coin.vol24 || 0);
-        if (newPrice > 0) { coin.price = newPrice; coin.chg = newChg; coin.vol24 = newVol; _lastDataTime = Date.now(); }
+        if (newPrice > 0) { coin.price = newPrice; coin.chg = newChg; coin.vol24 = newVol; _lastDataTime = Date.now();recordScannerQuote(coin,{symbol:sym,source:'Bybit',price:newPrice,at:Date.now(),receivedAt:Date.now(),transport:'WS'}); }
         if (chartState.sym === sym) {
           chartState.livePrice = newPrice;
           chartState.liveChange = newChg;
