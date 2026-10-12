@@ -8,6 +8,7 @@
 <meta name="scanner-build" content="2026.09.22-sweep-v2">
 <meta name="fvg-watch-build" content="2026.10.04-closed-v1">
 <meta name="agent-build" content="2026.09.07-keyless-r2">
+<meta name="spot-flow-build" content="2026.10.12-evidence-v1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -1361,6 +1362,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       <button class="mtab" id="sc-strong"     onclick="setScanTab('strong')">⚡ Strong Buy</button>
       <button class="mtab" id="sc-buy"               onclick="setScanTab('buy')">✅ Buy Signal</button>
       <button class="mtab" id="sc-entry_confirm" onclick="setScanTab('entry_confirm')">✓ Entry Confirmation</button>
+      <button class="mtab" id="sc-spot_flow" onclick="setScanTab('spot_flow')">🧭 Spot Trade Flow</button>
       <button class="mtab" id="sc-confirmed_bo"      onclick="setScanTab('confirmed_bo')">🚀 Confirmed BO</button>
       <button class="mtab" id="sc-ema_retest"        onclick="setScanTab('ema_retest')">🔄 EMA Retest</button>
       <button class="mtab" id="sc-support_hold"      onclick="setScanTab('support_hold')">🛡 Support Holding</button>
@@ -9048,6 +9050,7 @@ function setScanTF(tf) {
   if(scanTab==='sweep_buy'&&!['4h','1d','1w'].includes(tf))tf='4h';
   if(scanTab==='support_hold'&&!['4h','1d','1w'].includes(tf))tf='4h';
   if(scanTab==='entry_confirm'&&!['4h','1d','1w'].includes(tf))tf='4h';
+  if(scanTab==='spot_flow'&&!['4h','1d','1w'].includes(tf))tf='4h';
   if(scanTab==='hhhl'&&!['1h','4h','1d','1w'].includes(tf))tf='1h';
   scanTF = tf;
   TF = tf; // make this the ACTIVE timeframe so the main scan + logging follow it
@@ -9089,8 +9092,9 @@ function setScanTab(t){
   ['15m','1h'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=t==='sweep_buy';b.title=t==='sweep_buy'?'Buy sweeps use 4h, 1d and 1w only':'';}});
   if(t==='support_hold')['15m','1h'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=true;b.title='Support Holding uses 4H, 1D and 1W';}});
   if(t==='entry_confirm')['15m','1h'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=true;b.title='Entry Confirmation uses 4H, 1D and 1W';}});
+  if(t==='spot_flow')['15m','1h'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=true;b.title='Spot Trade Flow uses 4H, 1D and 1W setups';}});
   if(t==='hhhl'){var shortTF=document.getElementById('sc-tf-15m');if(shortTF){shortTF.disabled=true;shortTF.title='HH / HL uses 1H, 4H, 1D and 1W';}}
-  ['aplus','tierA','tierB','tierC','opportunity','strong','buy','entry_confirm','confirmed_bo','ema_retest','support_hold','hhhl','gainers','sweep_buy','sweep_sell','breakout','accum','oversold','rsiDiv','choch','bos','sector'].forEach(function(x){
+  ['aplus','tierA','tierB','tierC','opportunity','strong','buy','entry_confirm','spot_flow','confirmed_bo','ema_retest','support_hold','hhhl','gainers','sweep_buy','sweep_sell','breakout','accum','oversold','rsiDiv','choch','bos','sector'].forEach(function(x){
     var el=document.getElementById('sc-'+x);if(el)el.classList.toggle('active',x===t);
   });
   var row=document.getElementById('scan-sector-row');
@@ -9099,12 +9103,14 @@ function setScanTab(t){
   if(t==='sweep_buy'&&!['4h','1d','1w'].includes(TF)){setScanTF('4h');return;}
   if(t==='support_hold'&&!['4h','1d','1w'].includes(TF)){setScanTF('4h');return;}
   if(t==='entry_confirm'&&!['4h','1d','1w'].includes(TF)){setScanTF('4h');return;}
+  if(t==='spot_flow'&&!['4h','1d','1w'].includes(TF)){setScanTF('4h');return;}
   if(t==='hhhl'&&!['1h','4h','1d','1w'].includes(TF)){setScanTF('1h');return;}
   runScanner();
   if(t==='entry_confirm')refreshEntryConfirmationQuotes(false);
 }
 // Re-scan button — actually FETCH fresh data, then re-display (not just re-filter)
 function reScanFresh(){
+  if(scanTab==='spot_flow'){sfCheckSelected();return;}
   if(scanTab==='gainers'){refreshScanGainers(true);return;}
   var body=document.getElementById("scan-body");
   var btn=document.getElementById("rescan-btn");
@@ -9122,6 +9128,7 @@ function reScanFresh(){
 }
 
 function runScanner(){
+  if(scanTab==='spot_flow'){renderSpotTradeFlow();return;}
   if(scanTab==='gainers'){refreshScanGainers(false);return;}
   var body=document.getElementById("scan-body");
   if(!body) return;
@@ -28155,6 +28162,267 @@ function swingJournalHTML(){
   return h+'</tbody></table></div><p class="sw-note">Showing latest '+Math.min(rows.length,100)+' of '+rows.length+' matching studies; export contains all. Local browser only. Original Buy Sweep, FVG and Investing logs are untouched.</p>';
 }
 document.addEventListener('visibilitychange',function(){if(!document.hidden&&_swingMode){if(swing.auto)swingScan(false);else swingRender();}});
+
+</script>
+<script data-bundled-source="spot-trade-flow.js">
+'use strict';
+// A read-only, evidence-gated checklist. Never places orders or changes chart plans.
+var SPOT_FLOW_STORE='spot_flow_catalysts_v1';
+var spotFlow={sym:'',tf:'4h',records:{},catalysts:{},loaded:false,storageError:'',filter:'all',
+  generation:0,executionGeneration:0,busy:false,executionBusy:false,message:'',ack:'',timer:null,
+  risk:{notional:'',equity:'',cash:'',fee:'',exitSlip:'',riskCap:'0.5',minR:'2',spreadCap:'20',impactCap:'30'}};
+function sfEsc(x){return String(x==null?'':x).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function sfPrice(x){return Number.isFinite(x)?x.toLocaleString('en-US',{maximumSignificantDigits:7}):'Unknown';}
+function sfTime(x){return Number.isFinite(x)?new Date(x).toISOString().slice(0,16).replace('T',' ')+' UTC':'Unknown';}
+function sfPct(x){return Number.isFinite(x)?(x>=0?'+':'')+x.toFixed(2)+'%':'Unknown';}
+function sfGate(state,reason,extra){return Object.assign({state:state,reason:reason},extra||{});}
+function sfURL(x){try{var u=new URL(String(x));return u.protocol==='https:'&&!u.username&&!u.password?u.href:null;}catch(e){return null;}}
+function sfDate(x){var at=typeof x==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(x)?Date.parse(x+'T00:00:00Z'):NaN;return Number.isFinite(at)&&new Date(at).toISOString().slice(0,10)===x?at:NaN;}
+function sfRestore(){
+  if(spotFlow.loaded)return;spotFlow.loaded=true;
+  try{var data=JSON.parse(localStorage.getItem(SPOT_FLOW_STORE)||'{}');if(data&&typeof data==='object'&&!Array.isArray(data))spotFlow.catalysts=data;}
+  catch(e){spotFlow.storageError='Catalyst storage unavailable. Reviews are memory-only; keep your own source notes.';}
+}
+function sfCatalyst(c,sym,now){
+  if(!c||c.symbol!==sym||c.reviewed!==true)return sfGate('Unknown','Read a primary source and save your verification below.');
+  if(!sfURL(c.url)||['title','mechanism','risks'].some(function(k){return typeof c[k]!=='string'||!c[k].trim();}))return sfGate('Unknown','Source, token-demand explanation and counter-risks are required.');
+  if(!Number.isFinite(c.reviewedAt)||now<c.reviewedAt||!Number.isFinite(c.expiresAt)||c.expiresAt<=c.reviewedAt||c.expiresAt-c.reviewedAt>172800000||now>=c.expiresAt)return sfGate('Wait','Your catalyst review expired or has an invalid timestamp. Re-read the source.');
+  var announced=sfDate(c.announced),event=sfDate(c.eventDate),day=Math.floor(now/86400000)*86400000;
+  if(!Number.isFinite(announced)||announced>day)return sfGate('Unknown','Announcement date must be a real past/today UTC date.');
+  if(!['scheduled','released'].includes(c.status))return sfGate('Wait','Rumours and proposals are not verified catalysts.');
+  if(c.ongoing!==true){
+    if(!Number.isFinite(event))return sfGate('Unknown','Supply an event date or explicitly mark an ongoing development.');
+    if(c.status==='released'&&event>day)return sfGate('Wait','A future event cannot already be released.');
+    if(c.status==='scheduled'&&event<day)return sfGate('Wait','Scheduled date has passed. Verify release, delay or cancellation.');
+    if(event<day-7*86400000||event>day+30*86400000)return sfGate('Wait','Outside this watchlist horizon: past 7 days / next 30 days. Reassess relevance.');
+  }
+  return sfGate('Pass','Verified by you, not by an automated fact-check. Review expires '+sfTime(c.expiresAt)+'.');
+}
+function sfUniverse(){
+  return (allData||[]).filter(function(d){
+    if(!d||typeof d.sym!=='string'||!/^[A-Z0-9]+USDT$/.test(d.sym))return false;
+    var base=d.sym.slice(0,-4),excluded=typeof MARKET_PERF_EXCLUDE!=='undefined'?MARKET_PERF_EXCLUDE:[];
+    return (base==='BTC'||base==='ETH'||excluded.indexOf(base)<0)&&!/(?:[235][LS]|UP|DOWN|BULL|BEAR)$/.test(base);
+  });
+}
+function sfRelative(coin,btc,sym,source,now){
+  var a=chartSnapshot(coin||[],sym,'1h',now),b=chartSnapshot(btc||[],'BTCUSDT','1h',now);
+  if(!a.usable||!b.usable||a.source!==source||b.source!==source||a.lastClosedTime!==b.lastClosedTime)return sfGate('Unknown','Need continuous, current coin and BTC hourly history from the setup venue, ending at the same close.');
+  var x=marketPerformanceCloses(coin,a.lastClosedTime),y=marketPerformanceCloses(btc,a.lastClosedTime);
+  var windows=[4,24].map(function(h){return {hours:h,coin:x.returns[h],btc:y.returns[h],spread:x.returns[h]-y.returns[h]};});
+  if(!windows.every(function(w){return Number.isFinite(w.coin)&&Number.isFinite(w.btc);}))return sfGate('Unknown','One or more comparison windows are incomplete.');
+  if(sym==='BTCUSDT')return sfGate('N/A','BTC cannot outperform itself; relative-strength gate is not applicable.',{windows:windows,end:a.lastClosedTime});
+  var pass=windows.every(function(w){return w.coin>0&&w.spread>0;});
+  return sfGate(pass?'Pass':'Wait',pass?'Positive and outperforming BTC in BOTH 4H and 24H closed windows.':'Requires positive absolute returns AND outperformance vs BTC in both windows.',{windows:windows,end:a.lastClosedTime});
+}
+function sfKey(sym,tf){return sym+'|'+tf;}
+function sfRecord(){return spotFlow.records[sfKey(spotFlow.sym,spotFlow.tf)]||null;}
+function sfMatch(r){return r&&r.d&&r.d.entryConfirmation.matches[r.matchIndex||0]||null;}
+function sfLevels(r,m){
+  if(!r||!m||!(Number.isFinite(m.setupATR)&&m.setupATR>0&&m.riskReference>0))return null;
+  // Target is the near edge of the nearest mapped resistance, never synthetic R.
+  var anchor=m.triggerClose||m.setupClose,z=(r.sr&&r.sr.resistances||[]).filter(function(z){return z.high>anchor&&z.state!=='broken';}).sort(function(a,b){return a.low-b.low;})[0];
+  return {stop:m.riskReference-.1*m.setupATR,target:z?z.low:null,resistance:z||null};
+}
+function sfReviewKey(r,m,levels,risk){
+  return r&&m&&levels?JSON.stringify([r.d.sym,r.d.analysisSnapshot.timeframe,r.d.analysisSnapshot.source,r.d.analysisSnapshot.signature,m.kind,m.setupAt,m.confirmedAt,m.zoneLow,m.zoneHigh,levels.stop,levels.target,risk]):'';
+}
+function sfExecution(r,m,risk,ack,now){
+  if(!r||!m)return sfGate('Unknown','Check candles and select a support-based setup first.');
+  var d=r.d,tf=d.analysisSnapshot.timeframe,price=entryConfirmationPriceState(d,m,tf,now),levels=sfLevels(r,m);
+  if(price.state!=='Eligible')return sfGate(price.state==='Unavailable'?'Unknown':'Wait',price.label+' — '+price.reason,{priceState:price,levels:levels});
+  var keys=['notional','equity','cash','fee','exitSlip','riskCap','minR','spreadCap','impactCap'],n={};
+  if(!risk||keys.some(function(k){var v=risk[k];n[k]=v==null||String(v).trim()===''?NaN:Number(v);return !Number.isFinite(n[k]);}))return sfGate('Unknown','Enter order size, equity, cash and explicit cost assumptions; blanks are not zero.',{levels:levels});
+  if(!(n.notional>0&&n.equity>0&&n.cash>0&&n.cash<=n.equity&&n.riskCap>0&&n.riskCap<=1&&n.minR>=1&&n.minR<=10&&n.fee>=0&&n.fee<=5&&n.exitSlip>=0&&n.exitSlip<=10&&n.spreadCap>0&&n.spreadCap<=100&&n.impactCap>0&&n.impactCap<=200))return sfGate('Wait','Invalid limits. Risk cap must be ≤1% equity, minimum net R 1–10; check input ranges.',{levels:levels});
+  var book=r.book;
+  if(!book||book.symbol!==d.sym||book.tf!==tf||book.source!==d.analysisSnapshot.source||book.signature!==d.analysisSnapshot.signature||book.notional!==n.notional||!Number.isFinite(book.at)||!Number.isFinite(book.receivedAt)||book.at>book.receivedAt||now<book.receivedAt||now-book.at>15000||(book.exchangeTime!=null&&(!Number.isFinite(book.exchangeTime)||now-book.exchangeTime>15000||book.exchangeTime>now)))return sfGate('Unknown',r.bookError||'Refresh the matching venue order book (snapshot ≤15s).',{levels:levels});
+  var est=book.estimate;
+  if(!est||!est.buyComplete||!est.sellComplete)return sfGate('Wait','Displayed ask/bid depth cannot cover this size. Reduce size and refresh; future exit depth is unknown.',{levels:levels});
+  if(!levels||!Number.isFinite(levels.target)||!Number.isFinite(levels.stop)||!(levels.target>est.buyVWAP&&est.buyVWAP>levels.stop&&levels.stop>0))return sfGate('Wait','Missing usable mapped resistance, or invalid stop/entry/target order. No synthetic target is invented.',{levels:levels});
+  if(!(est.buyVWAP>m.setupHigh&&est.buyVWAP<=price.maxEntry))return sfGate('Wait','Estimated execution VWAP is outside the fixed confirmation entry band.',{levels:levels});
+  var fee=n.fee/100,exit=n.exitSlip/100,unitCost=est.buyVWAP*(1+fee),stopNet=levels.stop*(1-exit)*(1-fee),targetNet=levels.target*(1-exit)*(1-fee);
+  var loss=(unitCost-stopNet)*est.baseQuantity,debit=unitCost*est.baseQuantity,netR=(targetNet-unitCost)/(unitCost-stopNet),riskPct=loss/n.equity*100;
+  if(![loss,debit,netR,riskPct,est.spreadBps,est.buyImpactBps].every(Number.isFinite)||loss<=0)return sfGate('Unknown','Invalid book/risk calculation.');
+  var failures=[];
+  if(est.spreadBps>n.spreadCap)failures.push('Spread exceeds limit');
+  if(est.buyImpactBps>n.impactCap)failures.push('Buy impact exceeds limit');
+  if(debit>n.cash)failures.push('Order plus fee exceeds free cash');
+  if(riskPct>n.riskCap)failures.push('Estimated stop loss exceeds equity risk cap');
+  if(netR<n.minR)failures.push('Net reward/risk below minimum');
+  if(ack!==sfReviewKey(r,m,levels,risk))failures.push('Review the candidate stop, target and costs below');
+  return sfGate(failures.length?'Wait':'Pass',failures.join(' · ')||'Size, displayed liquidity and cost-adjusted risk pass your research limits. Not a fill or order approval.',{levels:levels,netR:netR,loss:loss,debit:debit,riskPct:riskPct,estimate:est});
+}
+function sfEvaluate(r,c,risk,ack,sym,tf,now){
+  if(r&&(!r.d||r.d.sym!==sym||!r.d.analysisSnapshot||r.d.analysisSnapshot.timeframe!==tf))r=null;
+  var cat=sfCatalyst(c,sym,now),rs=sfGate('Unknown','Check aligned closed-candle returns.'),setup=sfGate('Unknown','Check setup candles.'),confirmation=sfGate('Unknown','No closed confirmation checked.'),m=sfMatch(r);
+  if(r){
+    rs=sfRelative(r.hourly,r.btc,sym,r.d.analysisSnapshot.source,now);
+    if(entryConfirmationCurrent(r.d,tf,now)){
+      setup=m?sfGate(['Waiting','Confirmed'].includes(m.state)?'Pass':'Wait',m.kind+' · '+m.detail):sfGate('Wait','No qualifying recent support retest, sweep reclaim, breakout retest or FVG retest.');
+      if(m)confirmation=sfGate(m.state==='Confirmed'?'Pass':'Wait',m.state+' — '+m.reason);
+      else confirmation=sfGate('Wait','No setup to confirm.');
+    }else{setup=sfGate('Unknown','Setup snapshot stale or unavailable. Re-check candles.');confirmation=sfGate('Unknown','A fresh matching closed-candle snapshot is required.');}
+  }
+  var execution=sfExecution(r,m,risk,ack,now),stages=[cat,rs,setup,confirmation,execution];
+  var ready=stages.every(function(g,i){return g.state==='Pass'||(i===1&&sym==='BTCUSDT'&&g.state==='N/A');});
+  var next=stages.findIndex(function(g,i){return g.state!=='Pass'&&!(i===1&&sym==='BTCUSDT'&&g.state==='N/A');});
+  return {stages:stages,ready:ready,next:next,passed:stages.filter(function(g){return g.state==='Pass';}).length,match:m,execution:execution};
+}
+// No cross-venue fallback. Missing coverage stays Unknown.
+async function sfKlines(sym,tf,source){
+  var encoded=encodeURIComponent(sym),url,parser;
+  if(source==='Bybit'){url=BYBIT+'/v5/market/kline?category=spot&symbol='+encoded+'&interval='+bvInt(tf)+'&limit=240';parser=parseBybitKlines;}
+  else if(source==='Binance'){url=BNCDN+'/api/v3/klines?symbol='+encoded+'&interval='+bnInt(tf)+'&limit=240';parser=parseBinanceKlines;}
+  else if(source==='BingX'){url=BINGX+'/openApi/market/his/v1/kline?symbol='+encodeURIComponent(sym.slice(0,-4)+'-USDT')+'&interval='+bxInt(tf)+'&limit=240';parser=parseBingXKlines;}
+  else throw Error('Setup venue is unknown. Refresh the main scanner first.');
+  var raw=await fetchJ(url,8000);
+  if(source==='Bybit'&&(raw.retCode!==0||!raw.result||raw.result.symbol!==sym||raw.result.category!=='spot'))throw Error('Wrong or missing spot candle identity');
+  var rows=parser(raw);rows.dataSource=source;return rows;
+}
+async function sfFetchQuote(sym,source){
+  var at=Date.now(),url,parser;
+  if(source==='Bybit'){url=BYBIT+'/v5/market/tickers?category=spot&symbol='+encodeURIComponent(sym);parser=parseBybitTickers;}
+  else if(source==='Binance'){url=BNCDN+'/api/v3/ticker/24hr?symbols='+encodeURIComponent(JSON.stringify([sym]));parser=parseBinanceTickers;}
+  else if(source==='BingX'){url=BINGX+'/openApi/spot/v1/ticker/24hr?symbol='+encodeURIComponent(sym.slice(0,-4)+'-USDT');parser=parseBingXTickers;}
+  else throw Error('Unsupported quote venue');
+  var raw=await fetchJ(url,8000);
+  if(source==='Bybit'&&raw.retCode!==0)throw Error('Quote request rejected');
+  var rows=tagScannerQuotes(parser(raw,[sym]),source,at),row=rows.find(function(x){return x.symbol===sym;});
+  if(!row||!(row.scannerQuote.price>0))throw Error('Missing requested quote');return row.scannerQuote;
+}
+async function sfFetchBook(r,notional){
+  var sym=r.d.sym,source=r.d.analysisSnapshot.source,at=Date.now(),url;
+  if(source==='Bybit')url=BYBIT+'/v5/market/orderbook?category=spot&symbol='+encodeURIComponent(sym)+'&limit=200';
+  else if(source==='Binance')url=BNCDN+'/api/v3/depth?symbol='+encodeURIComponent(sym)+'&limit=100';
+  else throw Error('Order book not connected for '+source+'. No other venue substituted.');
+  if(!(notional>0&&Number.isFinite(notional)))throw Error('Enter a positive order size before checking the book.');
+  var response=await fetchJ(url,7000),raw=source==='Bybit'?response.result:response,receivedAt=Date.now();
+  if(!raw||(source==='Bybit'&&(response.retCode!==0||raw.s!==sym)))throw Error('Wrong or missing spot book identity');
+  var exchangeTime=source==='Bybit'?Number(raw.ts):null;
+  if(exchangeTime!=null&&(!Number.isFinite(exchangeTime)||receivedAt-exchangeTime>15000||exchangeTime>receivedAt))throw Error('Book exchange timestamp is stale or inconsistent');
+  return {symbol:sym,source:source,tf:r.d.analysisSnapshot.timeframe,signature:r.d.analysisSnapshot.signature,notional:notional,at:at,receivedAt:receivedAt,exchangeTime:exchangeTime,
+    estimate:calculateChartDepth({asks:raw.a||raw.asks,bids:raw.b||raw.bids},notional)};
+}
+function sfVisible(){var panel=document.getElementById('scan-ov');return scanTab==='spot_flow'&&!document.hidden&&panel&&panel.classList.contains('show');}
+function sfInvalidate(){spotFlow.generation++;spotFlow.executionGeneration++;spotFlow.busy=false;spotFlow.executionBusy=false;spotFlow.ack='';spotFlow.message='';}
+function sfSelect(sym){if(!sfUniverse().some(function(d){return d.sym===sym;}))return;sfInvalidate();spotFlow.sym=sym;renderSpotTradeFlow(true);}
+function sfChooseMatch(index){var r=sfRecord();if(!r||!Number.isInteger(Number(index))||!r.d.entryConfirmation.matches[Number(index)])return;spotFlow.ack='';r.matchIndex=Number(index);sfPaint();}
+async function sfCheckSelected(){
+  if(spotFlow.busy)return;var sym=spotFlow.sym,tf=spotFlow.tf,base=sfUniverse().find(function(d){return d.sym===sym;});if(!base)return;
+  sfInvalidate();var generation=spotFlow.generation;spotFlow.busy=true;spotFlow.message='Checking closed candles and BTC-relative returns…';
+  delete spotFlow.records[sfKey(sym,tf)];sfPaint();
+  var source=base.analysisSnapshot&&base.analysisSnapshot.source||base.scannerQuote&&base.scannerQuote.source;
+  function current(){return generation===spotFlow.generation&&sym===spotFlow.sym&&tf===spotFlow.tf;}
+  try{
+    var results=await Promise.allSettled([sfKlines(sym,tf,source),sfKlines(sym,'1h',source),sfKlines('BTCUSDT','1h',source)]);if(!current())return;
+    if(results[0].status!=='fulfilled')throw results[0].reason;
+    var rows=results[0].value,now=Date.now(),snapshot=chartSnapshot(rows,sym,tf,now);if(!snapshot.usable)throw Error(snapshot.message);
+    var entry=calcEntryConfirmation(rows,sym,tf,now),closed=rows.slice(0,-1),record={d:{sym:sym,analysisSnapshot:snapshot,entryConfirmation:entry},
+      hourly:results[1].status==='fulfilled'?results[1].value:[],btc:results[2].status==='fulfilled'?results[2].value:[],
+      sr:calcSR(closed.map(function(k){return Number(k[2]);}),closed.map(function(k){return Number(k[3]);}),closed.map(function(k){return Number(k[4]);})),matchIndex:0,checkedAt:now,book:null,bookError:''};
+    var confirmed=entry.matches.findIndex(function(m){return m.state==='Confirmed';}),waiting=entry.matches.findIndex(function(m){return m.state==='Waiting';});record.matchIndex=confirmed>=0?confirmed:waiting>=0?waiting:0;
+    spotFlow.records[sfKey(sym,tf)]=record;spotFlow.message='Candles checked. Complete your catalyst and risk review, then refresh execution.';
+    if(results.some(function(x){return x.status==='rejected';}))spotFlow.message+=' Relative-strength history unavailable.';
+  }catch(e){if(current())spotFlow.message='Data unavailable: '+String(e.message||e).slice(0,180);}
+  finally{if(current()){spotFlow.busy=false;sfPaint();}}
+}
+async function sfCheckExecution(){
+  var r=sfRecord();if(!r||spotFlow.executionBusy)return;
+  var id=++spotFlow.executionGeneration,generation=spotFlow.generation,notional=Number(spotFlow.risk.notional);spotFlow.executionBusy=true;r.book=null;r.d.scannerQuote=null;r.bookError='';sfPaint();
+  function current(){return id===spotFlow.executionGeneration&&generation===spotFlow.generation&&r===sfRecord()&&Object.is(notional,Number(spotFlow.risk.notional));}
+  try{
+    var results=await Promise.allSettled([sfFetchQuote(r.d.sym,r.d.analysisSnapshot.source),sfFetchBook(r,notional)]);if(!current())return;
+    if(results[0].status==='fulfilled')recordScannerQuote(r.d,results[0].value);
+    if(results[1].status==='fulfilled')r.book=results[1].value;else r.bookError=String(results[1].reason.message||results[1].reason).slice(0,180);
+    spotFlow.message=results[0].status==='rejected'?'Quote unavailable; current entry remains Unknown.':r.bookError||'Execution snapshot loaded. It expires after 15 seconds.';
+  }finally{if(current()){spotFlow.executionBusy=false;sfPaint();}}
+}
+function sfSetRisk(key,value){
+  if(!Object.prototype.hasOwnProperty.call(spotFlow.risk,key))return;
+  spotFlow.risk[key]=String(value);spotFlow.ack='';
+  if(key==='notional'){spotFlow.executionGeneration++;spotFlow.executionBusy=false;var r=sfRecord();if(r)r.book=null;}
+  var box=document.getElementById('sf-ack');if(box)box.checked=false;sfPaint();
+}
+function sfAcknowledge(checked){var r=sfRecord(),m=sfMatch(r);spotFlow.ack=checked?sfReviewKey(r,m,sfLevels(r,m),spotFlow.risk):'';sfPaint();}
+function sfSaveCatalyst(){
+  var sym=spotFlow.sym;function value(id){var el=document.getElementById('sf-cat-'+id);return el?el.value.trim():'';}
+  var now=Date.now(),c={symbol:sym,title:value('title').slice(0,160),url:value('url').slice(0,2000),status:value('status'),announced:value('announced'),eventDate:value('event'),
+    mechanism:value('mechanism').slice(0,700),risks:value('risks').slice(0,700),ongoing:document.getElementById('sf-cat-ongoing').checked,
+    reviewed:document.getElementById('sf-cat-reviewed').checked,reviewedAt:now,expiresAt:now+172800000};
+  // Persist even an incomplete/proposed review, but never mark it as passed.
+  spotFlow.catalysts[sym]=c;spotFlow.storageError='';
+  try{localStorage.setItem(SPOT_FLOW_STORE,JSON.stringify(spotFlow.catalysts));}catch(e){spotFlow.storageError='Storage full or unavailable. This review is memory-only and will be lost on closing.';}
+  document.getElementById('sf-cat-reviewed').checked=false;
+  spotFlow.message='Catalyst review saved — '+sfCatalyst(c,sym,now).reason;sfPaint();
+}
+function sfRemoveCatalyst(){delete spotFlow.catalysts[spotFlow.sym];try{localStorage.setItem(SPOT_FLOW_STORE,JSON.stringify(spotFlow.catalysts));}catch(e){spotFlow.storageError='Could not remove the saved review from browser storage; clear site storage manually.';}renderSpotTradeFlow(true);}
+function sfSetFilter(value){if(!['all','catalyst','confirmed','checked'].includes(value))return;spotFlow.filter=value;sfPaintList();}
+function sfOpenChart(sym){return openScannerChart(sym||spotFlow.sym,spotFlow.tf);}
+function sfBadge(g){var color=g.state==='Pass'?'var(--g)':g.state==='Wait'?'var(--am)':'var(--t2)';return '<strong style="color:'+color+'">'+sfEsc(g.state)+'</strong>';}
+function sfPaintList(){
+  var node=document.getElementById('sf-list');if(!node)return;var now=Date.now(),tf=spotFlow.tf,coins=sfUniverse();
+  var list=coins.map(function(d){var r=spotFlow.records[sfKey(d.sym,tf)],cat=sfCatalyst(spotFlow.catalysts[d.sym],d.sym,now),e=sfEvaluate(r,spotFlow.catalysts[d.sym],spotFlow.risk,d.sym===spotFlow.sym?spotFlow.ack:'',d.sym,tf,now);
+    var confirmed=r&&entryConfirmationCurrent(r.d,tf,now)&&r.d.entryConfirmation.matches.some(function(m){return m.state==='Confirmed';});
+    return {sym:d.sym,r:r,cat:cat,e:e,confirmed:confirmed};});
+  list=list.filter(function(x){return spotFlow.filter==='all'||(spotFlow.filter==='catalyst'&&x.cat.state==='Pass')||(spotFlow.filter==='confirmed'&&x.confirmed)||(spotFlow.filter==='checked'&&x.r);});
+  list.sort(function(a,b){return Number(b.cat.state==='Pass')-Number(a.cat.state==='Pass')||Number(b.confirmed)-Number(a.confirmed)||a.sym.localeCompare(b.sym);});
+  var markup='<div class="sf-note">'+list.length+'/'+coins.length+' directional USDT pairs · excludes known stable/pegged/leveraged tokens (heuristic). Main scanner universe; no automatic trade ranking. Check a coin to populate its evidence.</div><div style="max-height:180px;overflow:auto">'+
+    (list.length?list.map(function(x){return '<div class="sf-row"><button type="button" class="btn" onclick="sfSelect(\''+sfEsc(x.sym)+'\')">'+sfEsc(x.sym.replace(/USDT$/,'/USDT'))+'</button><span>'+sfEsc(x.r?x.e.passed+' checks passed · '+(x.e.ready?'review complete':'not complete'):'Not checked')+' · Catalyst '+sfEsc(x.cat.state)+'</span><button type="button" class="btn" onclick="sfOpenChart(\''+sfEsc(x.sym)+'\')">Chart</button></div>';}).join(''):'<p>No coins match this review filter.</p>')+'</div>';
+  // Keep the user's scroll/click target steady on the 1s expiry timer.
+  if(node._markup!==markup){node.innerHTML=markup;node._markup=markup;}
+}
+function sfPaint(){
+  if(!sfVisible())return;var root=document.getElementById('sf-gates');if(!root)return;
+  var r=sfRecord(),now=Date.now(),e=sfEvaluate(r,spotFlow.catalysts[spotFlow.sym],spotFlow.risk,spotFlow.ack,spotFlow.sym,spotFlow.tf,now),names=['Verified catalyst','Relative strength','Support-based setup','Closed confirmation','Execution / risk'];
+  var summary=document.getElementById('sf-summary');summary.textContent=e.ready?'Flow checks met · manual decision only':e.passed+' checks passed · Next: '+names[e.next];summary.style.borderColor=e.ready?'var(--g)':'var(--am)';
+  root.innerHTML=e.stages.map(function(g,i){return '<section class="sf-card"><div><b>'+String(i+1)+'. '+names[i]+'</b> · '+sfBadge(g)+'</div><p>'+sfEsc(g.reason)+'</p></section>';}).join('');
+  var choice=document.getElementById('sf-setup-choice'),matches=r?r.d.entryConfirmation.matches:[];
+  var choices=matches.length?'<label style="margin-top:12px">Setup to review<select onchange="sfChooseMatch(this.value)">'+matches.map(function(m,i){return '<option value="'+i+'"'+(i===r.matchIndex?' selected':'')+'>'+sfEsc(m.kind+' · '+m.state+' · '+sfTime(m.setupAt))+'</option>';}).join('')+'</select></label>':'';
+  if(choice&&choice._options!==choices){choice.innerHTML=choices;choice._options=choices;}
+  var ackBox=document.getElementById('sf-ack');if(ackBox)ackBox.checked=!!spotFlow.ack;
+  var detail='',rs=e.stages[1],m=e.match,levels=sfLevels(r,m),execution=e.execution;
+  if(r)detail+='<p>'+sfEsc(r.d.analysisSnapshot.source+' · '+spotFlow.tf.toUpperCase()+' closed through '+sfTime(r.d.entryConfirmation.closedAt))+'</p>';
+  if(rs.windows)detail+='<table style="width:100%"><caption>Aligned closes · '+sfEsc(sfTime(rs.end))+'</caption><thead><tr><th>Window</th><th>Coin</th><th>BTC</th><th>Coin − BTC</th></tr></thead><tbody>'+rs.windows.map(function(w){return '<tr><td>'+w.hours+'H</td><td>'+sfPct(w.coin)+'</td><td>'+sfPct(w.btc)+'</td><td>'+sfEsc((w.spread>=0?'+':'')+w.spread.toFixed(2))+' pp</td></tr>';}).join('')+'</tbody></table>';
+  if(m)detail+='<p>Setup '+sfEsc(sfTime(m.setupAt))+' · Support/reclaim zone <b style="color:var(--g)">'+sfPrice(m.zoneLow)+' – '+sfPrice(m.zoneHigh)+'</b><br>Closed trigger: '+sfEsc(m.confirmedAt?sfTime(m.confirmedAt):'Waiting')+' · '+sfPrice(m.triggerClose)+'</p>';
+  if(levels)detail+='<p>Candidate SL <b style="color:var(--r)">'+sfPrice(levels.stop)+'</b> (risk reference − 0.1 pre-setup ATR)<br>Candidate TP <b style="color:var(--g)">'+sfPrice(levels.target)+'</b> (near edge of mapped resistance; no invented target)</p>';
+  if(r&&r.d.scannerQuote)detail+='<p>Quote '+sfPrice(r.d.scannerQuote.price)+' · request age '+Math.max(0,Math.floor((now-r.d.scannerQuote.at)/1000))+'s</p>';
+  if(r&&r.book)detail+='<p>Book request age '+Math.max(0,Math.floor((now-r.book.at)/1000))+'s / 15s limit · '+sfEsc(r.book.source)+(r.book.exchangeTime?' · exchange timestamp checked':' · receipt/request age only; no exchange timestamp')+'<br>Estimated buy '+sfPrice(r.book.estimate.buyVWAP)+' · spread '+sfPrice(r.book.estimate.spreadBps)+' bps · midpoint impact '+sfPrice(r.book.estimate.buyImpactBps)+' bps</p>';
+  if(Number.isFinite(execution.netR))detail+='<p>Net R <b>'+execution.netR.toFixed(2)+'R</b> · estimated stop loss '+sfPrice(execution.loss)+' USDT ('+execution.riskPct.toFixed(2)+'% equity) · debit incl. fee '+sfPrice(execution.debit)+' USDT</p>';
+  document.getElementById('sf-evidence').innerHTML=detail||'<p>Check candles to see measured evidence and candidate levels.</p>';
+  var c=spotFlow.catalysts[spotFlow.sym],link=c&&sfURL(c.url);document.getElementById('sf-source').innerHTML=link?'<a href="'+sfEsc(link)+'" target="_blank" rel="noopener noreferrer">'+sfEsc(c.title||'Open primary source')+'</a> · '+sfEsc(c.status)+' · announced '+sfEsc(c.announced)+' · '+sfEsc(c.ongoing?'ongoing':c.eventDate):'No reviewed source saved.';
+  document.getElementById('sf-message').textContent=[spotFlow.message,spotFlow.storageError].filter(Boolean).join(' ');
+  document.getElementById('sf-check').disabled=spotFlow.busy;document.getElementById('sf-exec').disabled=spotFlow.executionBusy||!r;
+  document.getElementById('sf-check').textContent=spotFlow.busy?'Checking…':'1. Check candles & strength';document.getElementById('sf-exec').textContent=spotFlow.executionBusy?'Checking…':'2. Refresh quote & book';
+  sfPaintList();
+}
+function renderSpotTradeFlow(force){
+  if(scanTab!=='spot_flow')return;sfRestore();var tf=['4h','1d','1w'].includes(scanTF)?scanTF:'4h',coins=sfUniverse();
+  if(tf!==spotFlow.tf){sfInvalidate();spotFlow.tf=tf;force=true;}
+  if(!coins.some(function(d){return d.sym===spotFlow.sym;})){sfInvalidate();spotFlow.sym=coins.length?coins[0].sym:'';force=true;}
+  var body=document.getElementById('scan-body');if(!body)return;
+  document.getElementById('scan-sub').textContent='Spot Trade Flow · '+tf.toUpperCase()+' · five evidence gates';
+  document.getElementById('scan-upd').textContent='Read-only checklist · selected coin checks · no orders / fills';
+  if(document.getElementById('sf-root')&&!force){sfPaint();return;}
+  var c=spotFlow.catalysts[spotFlow.sym]||{};
+  function input(id,label,value,type){return '<label>'+label+'<input id="sf-cat-'+id+'" type="'+(type||'text')+'" value="'+sfEsc(value||'')+'" maxlength="'+(id==='url'?2000:700)+'"></label>';}
+  var h='<style>#sf-root{padding:14px}#sf-root .sf-note{font-size:11px;color:var(--t2);line-height:1.5;margin:8px 0}#sf-root .sf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:10px}#sf-root .sf-card{padding:10px;border:1px solid var(--bd);border-radius:8px;font-size:12px}#sf-root .sf-card p{margin:6px 0;line-height:1.5}#sf-root label{display:block;font-size:11px}#sf-root input:not([type=checkbox]),#sf-root select,#sf-root textarea{width:100%;box-sizing:border-box;padding:7px;margin:4px 0 8px;border:1px solid var(--bd);border-radius:5px;color:var(--text);background:var(--bg)}#sf-root details{border:1px solid var(--bd);border-radius:8px;padding:10px;margin:10px 0}#sf-root summary{cursor:pointer;font-weight:600}#sf-root .sf-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd);font-size:11px}#sf-root .sf-row span{flex:1}#sf-root .btn{white-space:normal}#sf-root th,#sf-root td{text-align:left;padding:5px;font-size:11px}</style><div id="sf-root">';
+  h+='<div class="sf-note">Catalyst → strength → support setup → closed trigger → execution/risk. Pass means the stated check passed, not a validated trading edge. Each coin is checked on request; costs and account figures stay in memory and are never sent to AI.</div>';
+  if(!coins.length){body.innerHTML=h+'<p>No supported directional USDT pairs. Refresh the main scanner.</p></div>';return;}
+  h+='<label>Coin<select aria-label="Spot flow coin" onchange="sfSelect(this.value)">'+coins.map(function(d){return '<option value="'+sfEsc(d.sym)+'"'+(d.sym===spotFlow.sym?' selected':'')+'>'+sfEsc(d.sym.replace(/USDT$/,'/USDT'))+'</option>';}).join('')+'</select></label>';
+  h+='<div class="sf-row"><button id="sf-check" class="btn" onclick="sfCheckSelected()">1. Check candles & strength</button><button id="sf-exec" class="btn" onclick="sfCheckExecution()">2. Refresh quote & book</button><button class="btn" onclick="sfOpenChart()">Open '+tf.toUpperCase()+' chart</button></div><p id="sf-message" class="sf-note" role="status"></p>';
+  h+='<div id="sf-summary" class="sf-card" role="status"></div><div id="sf-gates" class="sf-grid" style="margin-top:10px"></div>';
+  h+='<div id="sf-setup-choice"></div>';
+  h+='<section class="sf-card"><b>Measured evidence & candidate levels</b><div id="sf-evidence"></div></section>';
+  h+='<details'+(!c.reviewed?' open':'')+'><summary>1. Verify a catalyst · human review required</summary><p id="sf-source" class="sf-note"></p><p class="sf-note">Use the official project, governance or spot-exchange announcement. An old mechanism is not fresh news. Check token identity, delivery status, unlocks/supply and sell-the-news risk. This app stores your review; it does not fact-check the link.</p><div class="sf-grid">'+input('title','Catalyst / event',c.title)+input('url','Primary-source HTTPS link',c.url,'url')+input('announced','Announcement date (UTC)',c.announced,'date')+input('event','Event date (UTC; omit if ongoing)',c.eventDate,'date');
+  h+='<label>Source status<select id="sf-cat-status">'+[['unconfirmed','Rumour / proposal / unconfirmed'],['scheduled','Officially scheduled'],['released','Released / executed']].map(function(x){return '<option value="'+x[0]+'"'+(c.status===x[0]?' selected':'')+'>'+x[1]+'</option>';}).join('')+'</select></label></div><label><input id="sf-cat-ongoing" type="checkbox"'+(c.ongoing?' checked':'')+'> Ongoing development; I checked current relevance</label>';
+  h+='<label>Why could this affect demand for THIS token?<textarea id="sf-cat-mechanism" maxlength="700">'+sfEsc(c.mechanism||'')+'</textarea></label><label>Counter-risks: unlocks, dilution, already priced in, cancellation<textarea id="sf-cat-risks" maxlength="700">'+sfEsc(c.risks||'')+'</textarea></label><label><input id="sf-cat-reviewed" type="checkbox"> I read the primary source and verified that it applies to this token (re-check to save).</label><div class="sf-row"><button class="btn" onclick="sfSaveCatalyst()">Save / renew 48h review</button><button class="btn" onclick="sfRemoveCatalyst()">Remove review</button></div></details>';
+  h+='<details open><summary>5. Execution & risk inputs · session only</summary><p class="sf-note">All amounts in USDT. Limits below are adjustable research defaults, not proven optimal settings. Book VWAP already includes entry spread/impact; exit slippage is a stress assumption, not a guaranteed fill.</p><div class="sf-grid">';
+  [['notional','Order notional (before fee)'],['equity','Trading equity'],['cash','Available cash'],['fee','Fee per side (%) — enter explicitly'],['exitSlip','Exit slippage stress (%) — enter explicitly'],['riskCap','Maximum equity loss (%) · ≤1'],['minR','Minimum net reward/risk'],['spreadCap','Maximum spread (bps)'],['impactCap','Maximum buy impact vs midpoint (bps)']].forEach(function(x){h+='<label>'+x[1]+'<input type="number" min="0" step="any" value="'+sfEsc(spotFlow.risk[x[0]])+'" oninput="sfSetRisk(\''+x[0]+'\',this.value)"></label>';});
+  h+='</div><label><input id="sf-ack" type="checkbox"'+(spotFlow.ack?' checked':'')+' onchange="sfAcknowledge(this.checked)"> I reviewed this setup’s candidate SL, mapped TP, cost assumptions and size. This does not place an order.</label><p class="sf-note">No venue lot-size/minimum-order checks or actual fills. Displayed depth can vanish; stops can slip beyond estimates. BingX book coverage is currently unavailable. Your chart Plan has its own checks; this checklist never overrides them.</p></details>';
+  h+='<details><summary>Coin review list</summary><label>Show<select onchange="sfSetFilter(this.value)">'+[['all','All directional pairs'],['catalyst','User-verified catalyst'],['confirmed','Checked: closed trigger confirmed'],['checked','Candles checked this session']].map(function(x){return '<option value="'+x[0]+'"'+(spotFlow.filter===x[0]?' selected':'')+'>'+x[1]+'</option>';}).join('')+'</select></label><div id="sf-list"></div></details><p class="sf-note">4H/1D/1W setup selection uses the existing closed-candle Entry Confirmation detector. RS always compares rolling 4H and 24H closed returns. Browser-only: no background 24/7 tracking; quote/book age updates while this panel is visible. No automatic buy, trade log or position is created.</p></div>';
+  body.innerHTML=h;sfPaint();
+  if(!spotFlow.timer)spotFlow.timer=setInterval(function(){if(sfVisible())sfPaint();},1000);
+}
 
 </script>
 </body>
