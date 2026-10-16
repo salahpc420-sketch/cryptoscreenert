@@ -12,7 +12,7 @@
 <meta name="ai-map-build" content="2026.10.13-ai-map-r1">
 <meta name="spot-volume-build" content="2026.10.13-multi-exchange-r1">
 <meta name="onchain-build" content="2026.10.14-audit-fixes-r1">
-<meta name="gemini-tasks-build" content="2026.10.15-r1">
+<meta name="gemini-tasks-build" content="2026.10.16-model-r1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -6418,7 +6418,27 @@ function groqTest(){
 var _coinResearchOpen={}, _coinResearchViews={}, _coinResearchJob=null;
 var COIN_RESEARCH_TTL=2*3600000;
 var _crGeminiSessionKey='',_crGeminiCooldown=0,_crGeminiTestPending=false;
-var CR_GEMINI_MODEL='gemini-2.5-flash';
+var CR_GEMINI_MODEL='gemini-3.8-flash';
+function _crGeminiURL(model){
+  model=String(model||CR_GEMINI_MODEL).trim().replace(/^models\//,'');
+  if(!/^gemini-[A-Za-z0-9._-]{1,100}$/.test(model))throw Error('Invalid Gemini model ID. Use a model name from Google AI Studio.');
+  return 'https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent';
+}
+function _crGeminiGenerationConfig(config,model){
+  var out=Object.assign({},config||{}),name=String(model||CR_GEMINI_MODEL).replace(/^models\//,'');
+  if(/^gemini-3[.-]/.test(name)){
+    // Gemini 3 uses levels, not the 2.5 budget. 3.8 Flash rejects "minimal".
+    out.thinkingConfig={thinkingLevel:'low'};
+    // This is a ceiling, not a requested response length; it includes thinking.
+    out.maxOutputTokens=Math.max(4096,Number(out.maxOutputTokens)||4096);
+  }else if(/^gemini-2\.5-/.test(name)){
+    out.thinkingConfig={thinkingBudget:name.indexOf('pro')>=0?1024:0};
+  }else{
+    // Custom model capabilities are unknown; do not send a family-specific option.
+    delete out.thinkingConfig;
+  }
+  return out;
+}
 function _crGeminiKey(){
   try{return _crGeminiSessionKey||(localStorage.getItem('gemini_research_key')||'').trim();}catch(e){return _crGeminiSessionKey;}
 }
@@ -6431,7 +6451,7 @@ function _crStoreGeminiKey(value,remember){
   catch(e){if(remember)throw Error('Key is available in memory, but browser storage is blocked.');}
 }
 function _crPreferredProvider(){try{return localStorage.getItem('coin_research_provider')==='groq'?'groq':'gemini';}catch(e){return 'gemini';}}
-function _crProviderLabel(provider){return provider==='gemini'?'Gemini 2.5 Flash':'Groq';}
+function _crProviderLabel(provider){return provider==='gemini'?'Gemini · '+CR_GEMINI_MODEL:'Groq';}
 function _crBytes(value){
   var text=typeof value==='string'?value:JSON.stringify(value),bytes=0;
   for(var i=0;i<text.length;i++){
@@ -6443,26 +6463,30 @@ function _crBytes(value){
 }
 async function _crGeminiRequest(body,key,timeout,signal){
   if(!key)throw Error('Add a Gemini key in the research panel first.');
+  var model=CR_GEMINI_MODEL;
+  body=Object.assign({},body,{generationConfig:_crGeminiGenerationConfig(body.generationConfig,model)});
   if(_crBytes(body)>22000)throw Error('Gemini request exceeds the local size budget; reduce the evidence packet.');
   var controller=new AbortController(),timer,onAbort;
   if(signal&&signal.aborted){var cancelled=Error('Research cancelled');cancelled.name='AbortError';throw cancelled;}
   var quotaToken=typeof geminiQuotaBegin==='function'?geminiQuotaBegin(key):null,quotaError=null;
   try{return await Promise.race([
     (async function(){
-      var r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+CR_GEMINI_MODEL+':generateContent',{
+      var r=await fetch(_crGeminiURL(model),{
         method:'POST',credentials:'omit',referrerPolicy:'strict-origin-when-cross-origin',signal:controller.signal,
         headers:{'content-type':'application/json','x-goog-api-key':key},body:JSON.stringify(body)});
       var raw=await r.text(),j=null;try{j=JSON.parse(raw);}catch(e){}
       if(!r.ok||j&&j.error){
         var detail=String(j&&j.error&&j.error.message||raw||'No details returned').split(key).join('[redacted]');
-        var err=Error('Gemini HTTP '+r.status+': '+_catError(detail));err.status=r.status;
+        var hint=r.status===404?'Model '+model+' is unavailable for this project. Update the screener or check model access in AI Studio. ':'';
+        var err=Error('Gemini HTTP '+r.status+': '+hint+_catError(detail));err.status=r.status;
         var retry=r.headers&&r.headers.get('Retry-After');
         err.retryMs=/^\d+$/.test(retry||'')?Number(retry)*1000:Math.max(0,Date.parse(retry||'')-Date.now());
         var retryInfo=(j&&j.error&&Array.isArray(j.error.details)?j.error.details:[]).find(function(x){return x&&/google\.rpc\.RetryInfo$/.test(x['@type']||'');});
         if(retryInfo&&/^\d+(?:\.\d+)?s$/.test(retryInfo.retryDelay||''))err.retryMs=Math.max(err.retryMs||0,parseFloat(retryInfo.retryDelay)*1000);
         throw err;
       }
-      if(!j)throw Error('Gemini returned an invalid response.');return j;
+      if(!j)throw Error('Gemini returned an invalid response.');
+      Object.defineProperty(j,'_requestedGeminiModel',{value:model});return j;
     })(),
     new Promise(function(resolve,reject){
       timer=setTimeout(function(){controller.abort();reject(Error('Gemini request timed out; partial notes are preserved.'));},timeout||55000);
@@ -6476,7 +6500,7 @@ function _crGeminiResult(j,search){
   if(!candidate)throw Error('Gemini returned no answer.');
   if(candidate.finishReason&&candidate.finishReason!=='STOP'&&candidate.finishReason!=='MAX_TOKENS')throw Error('Gemini response stopped: '+_catError(candidate.finishReason));
   var text=(candidate.content&&candidate.content.parts||[]).filter(function(p){return !p.thought&&typeof p.text==='string';}).map(function(p){return p.text;}).join('\n').trim();
-  if(!text)throw Error('Gemini returned no answer text.');
+  if(!text)throw Error('Gemini returned no answer text.'+(candidate.finishReason==='MAX_TOKENS'?' Output limit reached, including thinking; retry manually.':''));
   var meta=candidate.groundingMetadata||{},chunks=Array.isArray(meta.groundingChunks)?meta.groundingChunks:[],sources=[],seen={};
   chunks.forEach(function(x){var w=x.web||{},url=_catURL(w.uri);if(!url||seen[url])return;seen[url]=true;sources.push({url:url,title:_crText(w.title,180)||url,kind:'search'});});
   var supports=(Array.isArray(meta.groundingSupports)?meta.groundingSupports:[]).slice(0,40).map(function(x){
@@ -6484,7 +6508,7 @@ function _crGeminiResult(j,search){
     return {text:_crText(x.segment&&x.segment.text,1400),sources:links};
   }).filter(function(x){return x.text&&x.sources.length;});
   var queries=_crList(meta.webSearchQueries,20);
-  return {provider:'gemini',model:CR_GEMINI_MODEL,text:text.slice(0,18000),sources:sources.slice(0,50),grounding:supports,
+  return {provider:'gemini',model:j._requestedGeminiModel||CR_GEMINI_MODEL,text:text.slice(0,18000),sources:sources.slice(0,50),grounding:supports,
     searched:!!(search&&sources.length&&(queries.length||supports.length)),visited:false,searchQueries:queries,
     searchEntryPoint:search?_crText(meta.searchEntryPoint&&meta.searchEntryPoint.renderedContent,30000):'',
     toolCount:queries.length,finishReason:candidate.finishReason==='MAX_TOKENS'||text.length>18000?'length':'stop',at:Date.now()};
@@ -6757,7 +6781,7 @@ function _crPanelHTML(sym,view){
     +'<div>Short catalyst brief: up to 3 events, dates, why they matter and sources. More information stays under Details.</div>'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><label>Project name<br><input data-cr-name maxlength="100" value="'+esc(c.name||'')+'" placeholder="Full project name, not ticker only" style="'+style+'width:240px;max-width:100%" '+(busy?'disabled':'')+'></label>'
     +'<label>Research depth<br><select data-cr-mode style="'+style+'" '+(busy?'disabled':'')+'><option value="budget" '+(c.mode==='budget'?'selected':'')+'>Budget · 3 focused searches</option><option value="deep" '+(c.mode==='deep'?'selected':'')+'>Deep · 3 detailed passes</option></select></label>'
-    +'<label>AI provider<br><select data-cr-provider style="'+style+'" '+(busy?'disabled':'')+'><option value="gemini" '+(provider==='gemini'?'selected':'')+'>Gemini 2.5 Flash · Google Search</option><option value="groq" '+(provider==='groq'?'selected':'')+'>Groq · Compound</option></select></label></div>'
+    +'<label>AI provider<br><select data-cr-provider style="'+style+'" '+(busy?'disabled':'')+'><option value="gemini" '+(provider==='gemini'?'selected':'')+'>'+_catEsc(_crProviderLabel('gemini'))+' · Google Search</option><option value="groq" '+(provider==='groq'?'selected':'')+'>Groq · Compound</option></select></label></div>'
     +(provider==='gemini'?'<details style="margin-top:10px" '+(!geminiTaskKey('research')?'open':'')+'><summary>Dedicated research task key · '+(geminiTaskKey('research')?'configured':'not configured')+'</summary>'
       +'<p>Get your key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>. In-memory until reload by default. Remembering stores it in this browser, accessible to this site’s scripts. Personal use only; never put a key in GitHub or share it.</p>'
       +'<input data-cr-gemini-key type="password" autocomplete="off" spellcheck="false" maxlength="250" aria-label="Gemini API key" placeholder="Paste Gemini API key" style="'+style+'width:260px;max-width:100%" '+(busy?'disabled':'')+'>'
@@ -6815,7 +6839,8 @@ async function _crTestGemini(sym){
   if(!key){view.error='Use a Gemini key first.';_crPaint(sym);return;}
   if(_crGeminiCooldown>Date.now()){view.error='Gemini rate-limit cooldown is active.';_crPaint(sym);return;}
   _crGeminiTestPending=true;view.keyStatus='Testing Gemini text connection (one request, no search)…';_crPaint(sym);
-  try{_crGeminiResult(await _crGeminiRequest({contents:[{role:'user',parts:[{text:'Reply OK.'}]}],generationConfig:{maxOutputTokens:32,thinkingConfig:{thinkingBudget:0}}},key,20000),false);
+  try{var result=_crGeminiResult(await _crGeminiRequest({contents:[{role:'user',parts:[{text:'Reply OK.'}]}],generationConfig:{maxOutputTokens:1024}},key,20000),false);
+    if(result.finishReason!=='stop')throw Error('Incomplete Gemini test response');
     view.keyStatus='Gemini text connection works. Start research to check Google Search access.';
   }catch(e){if(e.status===429)_crGeminiCooldown=Date.now()+Math.min(3600000,Math.max(60000,e.retryMs||60000));view.error=_catError(e);view.keyStatus='Connection test failed.';}
   finally{_crGeminiTestPending=false;_crPaint(sym);}
@@ -7385,7 +7410,7 @@ function _uaAICall(e){
   var user='Evaluate this compact evidence packet for '+e.pair+': '+JSON.stringify(packet).slice(0,4800);
   if(provider==='gemini'){
     var mainKey=(localStorage.getItem('ai_api_key')||'').trim(),key=(!/^sk-(?:ant|or-)/.test(mainKey)&&mainKey)||(_crGeminiKey?_crGeminiKey():'');
-    return _ffDirect('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+encodeURIComponent(key),30000,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({systemInstruction:{parts:[{text:sys}]},contents:[{role:'user',parts:[{text:user}]}],generationConfig:{temperature:0.1,maxOutputTokens:700,thinkingConfig:{thinkingBudget:0},responseMimeType:'application/json'}})}).then(function(j){if(j.error)throw Error('Gemini response error');return _uaAIJSON((j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts||[]).map(function(p){return p.text||'';}).join(''));});
+    return _ffDirect(_crGeminiURL(),30000,{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:sys}]},contents:[{role:'user',parts:[{text:user}]}],generationConfig:_crGeminiGenerationConfig({temperature:0.1,maxOutputTokens:700,responseMimeType:'application/json'})})}).then(function(j){return _uaAIJSON(_crGeminiResult(j,false).text);});
   }
   if(provider==='groq'){
     var g=groqKey();return _ffDirect('https://api.groq.com/openai/v1/chat/completions',30000,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+g},body:JSON.stringify({model:'groq/compound-mini',messages:[{role:'system',content:sys},{role:'user',content:user}],temperature:0.1,max_completion_tokens:700,response_format:{type:'json_object'}})}).then(function(j){if(j.error)throw Error('Groq response error');return _uaAIJSON(j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content);});
@@ -8107,7 +8132,8 @@ function renderAgent(){
   h += '</div>';
   h += '<div style="display:grid;grid-template-columns:minmax(240px,1fr) 180px;gap:7px;margin-top:7px">';
   h += '<label style="font-size:9px;color:var(--t2)">🧠 Dedicated On-chain Gemini API key <span style="color:'+(ocSaved.gemini?'var(--g)':'var(--t3)')+'">'+(ocSaved.gemini?'● saved':'○ not saved')+'</span><input id="onchain-gemini-key" type="password" value="'+_escProviderHtml(ocKey)+'" placeholder="Enter dedicated Gemini API key" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"></label>';
-  h += '<label style="font-size:9px;color:var(--t2)">Gemini model<input id="onchain-gemini-model" type="text" value="'+_escProviderHtml(_onchainAIModel())+'" placeholder="gemini-2.5-flash" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"></label>';
+  h += '<label style="font-size:9px;color:var(--t2)">Interpretation model (separate from web search)<input id="onchain-gemini-model" type="text" value="'+_escProviderHtml(_onchainAIModel())+'" placeholder="'+CR_GEMINI_MODEL+'" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--card);color:var(--text);font-size:9px"></label>';
+  h += '<div style="font-size:10px;color:var(--t2)">Default: '+CR_GEMINI_MODEL+'. Saved custom models are preserved. If an older model returns HTTP 404, enter the default above and save.</div>';
   h += '</div>';
   h += '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:7px">';
   h += '<button onclick="saveOnchainProviderKeys()" style="padding:7px 12px;border-radius:7px;border:none;background:var(--acc);color:#fff;font-weight:700;cursor:pointer;font-size:10px">💾 Save all keys</button>';
@@ -12182,6 +12208,7 @@ function _ocWebHTML(sym,out){
   if(r)h+='<button data-oc-web-force '+(job?'disabled':'')+'>Search again · uses quota</button>';
   if(job)h+='<button data-oc-web-cancel>Cancel</button>';
   h+='<button class="btn" data-oc-web-keys>Gemini task keys</button></div><p class="dex-muted">Gemini task: <span data-gemini-task-summary="onchain">'+esc(geminiTaskSummary('onchain'))+'</span></p><div role="status" class="dex-muted">'+esc(job?'Searching public sources…':_ocWebMessages[sym]||'Manual search · one request · results cached for 2 hours. Gemini uses only the dedicated Web on-chain task key; Groq keeps its existing key. No cross-task key fallback.')+'</div>';
+  h+='<p class="dex-muted">Gemini 3.8 Google Search requires an eligible billing-enabled project; free text access does not include web search. Requests may incur charges. No automatic provider or key switching. <a href="https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash" target="_blank" rel="noopener noreferrer">Google pricing</a></p>';
   if(r){h+='<p class="dex-muted">'+esc((fresh?'Cached':'Stale — refresh before use')+' · '+r.provider+' · searched '+new Date(r.at).toISOString())+'</p>';
     if(!same)h+='<p class="dex-muted">Fetched measurements changed. Comparisons below refer to the saved baseline, not the latest values.</p>';
     if(!r.items.length)h+='<p>No eligible recent sourced findings returned. Coverage is unknown; this does not mean no on-chain activity.</p>';
@@ -13316,8 +13343,8 @@ function _heliusEnrich(sym,network,contract){
 // The user supplies a dedicated Gemini API key for on-chain interpretation only.
 function _onchainAIKey(){ try{return (localStorage.getItem('onchain_ai_api_key')||'').trim();}catch(e){return '';} }
 function _setOnchainAIKey(val){ try{ if(val&&String(val).trim()) localStorage.setItem('onchain_ai_api_key',String(val).trim()); else localStorage.removeItem('onchain_ai_api_key'); }catch(e){} }
-function _onchainAIModel(){ try{return localStorage.getItem('onchain_ai_model')||'gemini-2.5-flash';}catch(e){return 'gemini-2.5-flash';} }
-function _setOnchainAIModel(val){ try{ localStorage.setItem('onchain_ai_model',String(val||'gemini-2.5-flash').trim()); }catch(e){} }
+function _onchainAIModel(){ try{return (localStorage.getItem('onchain_ai_model')||CR_GEMINI_MODEL).trim().replace(/^models\//,'');}catch(e){return CR_GEMINI_MODEL;} }
+function _setOnchainAIModel(val){ var model=String(val||CR_GEMINI_MODEL).trim().replace(/^models\//,'');_crGeminiURL(model);try{ localStorage.setItem('onchain_ai_model',model); }catch(e){} }
 
 // Save all on-chain credentials once. Values remain in this browser's localStorage
 // and are reused automatically for every monitored coin and every page refresh.
@@ -13341,7 +13368,7 @@ function saveOnchainProviderKeys(){
     _setProvKey('cryptoquant',cq?cq.value:'');
     _setProvKey('coinstats',cs?cs.value:'');
     _setOnchainAIKey(g?g.value:'');
-    _setOnchainAIModel(model?model.value:'gemini-2.5-flash');
+    _setOnchainAIModel(model?model.value:CR_GEMINI_MODEL);
     renderAgent();
     var st=document.getElementById('onchain-save-status');
     if(st){ st.textContent='✓ Saved in this browser'; st.style.color='var(--g)'; }
@@ -13434,9 +13461,9 @@ function testOnchainAll(){
 
     if(st.gemini){
       var model=_onchainAIModel();
-      jobs.push(fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent?key='+encodeURIComponent(_onchainAIKey()),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({contents:[{role:'user',parts:[{text:'Reply with exactly: ONCHAIN_AI_OK'}]}],generationConfig:{temperature:0,maxOutputTokens:20}})})
+      jobs.push(fetch(_crGeminiURL(model),{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':_onchainAIKey()},body:JSON.stringify({contents:[{role:'user',parts:[{text:'Reply with exactly: ONCHAIN_AI_OK'}]}],generationConfig:_crGeminiGenerationConfig({temperature:0,maxOutputTokens:1024},model)})})
         .then(function(r){return r.json().then(function(j){if(!r.ok) throw new Error((j&&j.error&&j.error.message)||('HTTP '+r.status)); return j;});})
-        .then(function(j){var txt=(j&&j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts||[]).map(function(x){return x.text||'';}).join('').trim();add('Dedicated Gemini',true,txt||'response received');})
+        .then(function(j){var result=_crGeminiResult(j,false);if(result.finishReason!=='stop')throw Error('Incomplete Gemini test response');add('Dedicated Gemini',true,model+' · '+result.text+' · text only; Search not tested');})
         .catch(function(e){add('Dedicated Gemini',false,e.message||'request failed');}));
     } else add('Dedicated Gemini',null,'not configured');
 
@@ -13462,11 +13489,11 @@ function _onchainAICall(sym, payload){
   system+=_ocAIRules();
   var user='COIN: '+sym+'\nCURRENT ON-CHAIN EVIDENCE:\n'+JSON.stringify(_ocAIPacket(payload||{}));
   system+=' DEX EVIDENCE RULES: market.scope is a single selected pool, not the whole coin or chain. Use watched-token from/to-address direction. Ignore raw kind labels and unverified symbol matches. market.flowWindows coverage COMPLETE requires explicit evidence; PARTIAL, CONFLICT and UNAVAILABLE cannot confirm accumulation or distribution. Respect eligible=false and tinyDenominator warnings. A 39-to-1 transaction ratio is different from a dollar ratio; a sub-dollar sell can inflate the latter. Missing USD is unknown, never zero. UNKNOWN must remain unknown, not become neutral certainty. Nested 1H/4H/1D samples are correlated, not three independent confirmations. Do not reinterpret counts to agree with the pool summary. Scores are heuristic, not calibrated probabilities.';
-  return fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent?key='+encodeURIComponent(key),{
-    method:'POST',headers:{'content-type':'application/json'},
-    body:JSON.stringify({system_instruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{text:user}]}],generationConfig:{temperature:0.15,maxOutputTokens:900}})
+  return fetch(_crGeminiURL(model),{
+    method:'POST',headers:{'content-type':'application/json','x-goog-api-key':key},
+    body:JSON.stringify({system_instruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{text:user}]}],generationConfig:_crGeminiGenerationConfig({temperature:0.15,maxOutputTokens:900},model)})
   }).then(function(r){return r.json().then(function(j){if(!r.ok) throw new Error((j&&j.error&&j.error.message)||('Gemini HTTP '+r.status)); return j;});})
-  .then(function(j){var parts=j&&j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts||[];var text=parts.map(function(x){return x.text||'';}).join('').trim();if(!text) throw new Error('Empty On-chain AI response');return {enabled:true,text:text,model:model};})
+  .then(function(j){var result=_crGeminiResult(j,false);if(result.finishReason!=='stop')throw Error('Incomplete On-chain AI response; retry manually');return {enabled:true,text:result.text,model:model};})
   .catch(function(e){return {enabled:true,text:'',model:model,error:String(e.message||e)};});
 }
 function _headerFetch(url,headers,ms){
@@ -15593,20 +15620,19 @@ function _aiCallModel(sys, history, image){
   }
 
   if (isGemini) {
-    return fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + encodeURIComponent(key), {
+    return fetch(_crGeminiURL(), {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify({
         system_instruction: { parts: [{ text: sys }] },
         contents: history.map(function(m, i){ var parts = [{ text: m.content }]; if (image && i === 0) parts.unshift({ inline_data: { mime_type: 'image/png', data: image } }); return { role: m.role==='assistant' ? 'model' : 'user', parts: parts }; }),
-        generationConfig: { maxOutputTokens: 6000, thinkingConfig: { thinkingBudget: 1500 } }
+        generationConfig: _crGeminiGenerationConfig({ maxOutputTokens: 6000 })
       })
     }).then(function(r){ return r.json(); }).then(function(data){
       if (data.error) throw new Error(data.error.message || 'Gemini API error');
-      var cand = data.candidates && data.candidates[0];
-      var t = (cand && cand.content && cand.content.parts || []).map(function(p){ return p.text || ''; }).join('\n').trim();
-      if(!t) throw new Error('Empty response — try again');
-      return t;
+      var result = _crGeminiResult(data,false);
+      if(result.finishReason!=='stop') throw new Error('Incomplete Gemini response; retry manually');
+      return result.text;
     });
   }
   return fetch('https://api.anthropic.com/v1/messages', {
@@ -27705,7 +27731,7 @@ detectProxy().then(function(){}).catch(function(){}).then(function(){
 </script>
 <script data-bundled-source="gemini-tasks.js">
 /* Manual, purpose-bound Gemini credentials. No key rotation or quota bypass. */
-var GEMINI_TASKS_VERSION='2026.10.15-r1';
+var GEMINI_TASKS_VERSION='2026.10.16-model-r1';
 var GEMINI_TASK_ROLES={
   onchain:{title:'1 · Web on-chain updates',note:'One grounded search of the past 7 days. Does not change measured on-chain ratios.'},
   news:{title:'2 · Bullish / bearish news',note:'One grounded search. Balanced news implications, dates, sources and counterarguments; never an entry signal.'},
@@ -27775,10 +27801,10 @@ async function geminiTaskRequest(role,body,timeout,signal){
   return _crGeminiRequest(body,key,timeout,signal);
 }
 function geminiTaskSummary(role){
-  var x=geminiTaskConfig(role);if(!x.key)return 'Not configured · no shared-key fallback';
+  var x=geminiTaskConfig(role);if(!x.key)return CR_GEMINI_MODEL+' · Not configured · no shared-key fallback';
   var shared=Object.keys(GEMINI_TASK_ROLES).filter(function(r){if(r===role)return false;var y=geminiTaskConfig(r);return y.key&&(y.key===x.key||(x.project&&y.project===x.project));});
   var group=x.project?'project:'+x.project:'project:unknown',until=Math.max((_gtQuota[group]||{}).until||0,Number(_gtRead('gemini_task_cooldowns_v1',{})[group])||0);
-  return (x.remember?'Remembered in this browser':'This tab only')+(shared.length?' · shared key/project with '+shared.join(', '):'')+(!x.project?' · project unknown; conservative shared local gate':' · declared project: '+x.project)+(until>Date.now()?' · cooldown '+Math.ceil((until-Date.now())/1000)+'s':'');
+  return CR_GEMINI_MODEL+' · '+(x.remember?'Remembered in this browser':'This tab only')+(shared.length?' · shared key/project with '+shared.join(', '):'')+(!x.project?' · project unknown; conservative shared local gate':' · declared project: '+x.project)+(until>Date.now()?' · cooldown '+Math.ceil((until-Date.now())/1000)+'s':'');
 }
 function closeGeminiTasks(){
   var el=document.getElementById('gemini-tasks-dialog');if(el){el.close();el.remove();}
@@ -27798,6 +27824,7 @@ function openGeminiTasks(focusRole){
   dialog.style.cssText='width:min(960px,94vw);max-height:90dvh;overflow:auto;border:1px solid var(--bd);border-radius:12px;background:var(--card,#fff);color:var(--text,#111);padding:20px;box-sizing:border-box';
   dialog.innerHTML='<style>#gemini-tasks-dialog::backdrop{background:#0009}.gt-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:12px}.gt-card{padding:14px;border:1px solid var(--bd,#bbb);border-radius:8px;line-height:1.5}.gt-card label{display:block;margin:8px 0}.gt-card input[type=password],.gt-card input[type=text]{display:block;width:100%;box-sizing:border-box;padding:8px;background:var(--card2,#eee);color:inherit;border:1px solid var(--bd,#bbb);border-radius:5px}.gt-card p{font-size:12px;overflow-wrap:anywhere}.gt-actions{display:flex;gap:6px;flex-wrap:wrap}</style>'
     +'<button class="btn" data-gt-close style="float:right">Close</button><h2 id="gemini-tasks-title">Gemini task keys</h2><p>Assign one key to each job. No automatic rotation, cross-task borrowing or background AI search.</p>'
+    +'<p><b>Model: '+_gtEsc(CR_GEMINI_MODEL)+'</b> · low thinking. Replaces the old 2.5 Flash default, which is unavailable to new projects. Google Search on this model is not included in the API free tier; an eligible billing-enabled project is required and requests may incur charges. A successful text test does not prove Search access. <a href="https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash" target="_blank" rel="noopener noreferrer">Check pricing</a>.</p>'
     +'<p><b>Limits are per Google project, not per API key.</b> Multiple keys in one project share quota. Enter the same real project ID for keys from that project. Project labels are local and not verified; unknown projects share a conservative local gate. This does not increase free quota or guarantee free Google Search access. Check your model/project allowance in AI Studio.</p>'
     +'<p>Keys stay in this tab unless you opt to remember them. Browser storage is not a secure vault: site scripts/extensions can access it. Never publish a key in HTML; use a protected backend for a shared production key. Existing chart and on-chain interpretation keys are unchanged.</p><div class="gt-grid">'
     +Object.keys(GEMINI_TASK_ROLES).map(function(role){var r=GEMINI_TASK_ROLES[role],x=geminiTaskConfig(role),legacy=_gtLegacyKey(role);return '<section class="gt-card" data-gt-role="'+role+'"><h3>'+_gtEsc(r.title)+'</h3><p>'+_gtEsc(r.note)+'</p><p data-gt-state>'+_gtEsc(geminiTaskSummary(role))+'</p>'
@@ -27813,7 +27840,7 @@ function openGeminiTasks(focusRole){
     card.querySelector('[data-gt-save]').onclick=function(){save(false);};
     card.querySelector('[data-gt-remove]').onclick=function(){try{geminiTaskSave(role,'','',false);card.querySelector('[data-gt-key]').value='';status.textContent='Only this task key removed. Other keys and reports are preserved.';}catch(e){status.textContent=_gtSafeError(e);}refresh();};
     var imp=card.querySelector('[data-gt-import]');if(imp)imp.onclick=function(){save(true);};
-    card.querySelector('[data-gt-test]').onclick=async function(){if(_gtTests[role])return;var button=this;_gtTests[role]=true;button.disabled=true;status.textContent='Testing text access · one request…';try{_crGeminiResult(await geminiTaskRequest(role,{contents:[{role:'user',parts:[{text:'Reply OK.'}]}],generationConfig:{maxOutputTokens:32,thinkingConfig:{thinkingBudget:0}}},20000),false);_gtStatus[role]='Text connection works. Search access and free quota are not verified.';}catch(e){_gtStatus[role]=_gtSafeError(e);}finally{delete _gtTests[role];button.disabled=false;status.textContent=_gtStatus[role];refresh();}};
+    card.querySelector('[data-gt-test]').onclick=async function(){if(_gtTests[role])return;var button=this;_gtTests[role]=true;button.disabled=true;status.textContent='Testing '+CR_GEMINI_MODEL+' text access · one request…';try{var result=_crGeminiResult(await geminiTaskRequest(role,{contents:[{role:'user',parts:[{text:'Reply OK.'}]}],generationConfig:{maxOutputTokens:1024}},20000),false);if(result.finishReason!=='stop')throw Error('Incomplete Gemini test response');_gtStatus[role]=CR_GEMINI_MODEL+' text connection works. Search access and free quota are not verified.';}catch(e){_gtStatus[role]=_gtSafeError(e);}finally{delete _gtTests[role];button.disabled=false;status.textContent=_gtStatus[role];refresh();}};
   });
   dialog.showModal();var target=dialog.querySelector('[data-gt-role="'+(Object.prototype.hasOwnProperty.call(GEMINI_TASK_ROLES,focusRole)?focusRole:'onchain')+'"]');if(target)target.scrollIntoView({block:'nearest'});
 }
