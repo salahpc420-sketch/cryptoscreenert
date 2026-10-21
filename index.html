@@ -15,6 +15,7 @@
 <meta name="gemini-tasks-build" content="2026.10.16-model-r1">
 <meta name="early-watch-build" content="2026.10.18-confirmation-r1">
 <meta name="chart-patterns-build" content="2026.10.18-patterns-r1">
+<meta name="clean-levels-build" content="2026.10.21-clean-levels-r1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -676,6 +677,9 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 .cp-muted{color:#9caac0;font-size:11px}.cp-pair{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:5px 0}.cp-badge{padding:2px 6px;border-radius:4px;font-size:10px;background:#2c3548}
 .cp-chart-summary{flex-basis:100%;font-size:11px;line-height:1.6;color:#bdcce0;min-width:0}.cp-chart-summary span{margin-right:14px}.cp-chart-summary .cp-health{color:#b5c4d9}
 .cp-pattern-summary{display:flex;gap:6px 12px;align-items:center;flex-wrap:wrap;margin-top:5px;color:#ffdb8a}
+.cl-summary{margin-top:5px;font-size:11px;line-height:1.65;color:#c0d1e8}.cl-summary>div:first-child{display:flex;align-items:center;gap:5px;flex-wrap:wrap}.cl-summary small{color:#a4b6cc}.cl-frame{border:1px solid #42566d;padding:0 5px;border-radius:4px!important;margin:0!important}.cl-ready{color:#6fe5c5}.cl-missing{color:#ffcf75}.cl-chips{display:flex;gap:4px 12px;flex-wrap:wrap;margin-top:4px}.cl-chip{font-variant-numeric:tabular-nums;margin:0!important}
+#clean-level-evidence{position:fixed;right:12px;top:12vh;width:min(470px,calc(100vw - 24px));max-height:82vh;overflow:auto;box-sizing:border-box;padding:15px;background:#131d2b;color:#d6e6f7;border:1px solid #6685a6;border-radius:10px;z-index:100010;font:12px/1.6 sans-serif;box-shadow:0 8px 32px #0008;overflow-wrap:anywhere}
+#clean-level-evidence header{display:flex;justify-content:space-between;gap:10px;align-items:center}#clean-level-evidence button{font:inherit;background:#25354b;color:#e0eaf5;border:1px solid #607b9b;border-radius:5px;padding:5px 8px;cursor:pointer}#clean-level-evidence :focus-visible{outline:2px solid #8bc8ff;outline-offset:2px}#clean-level-evidence p{margin:10px 0}#clean-level-evidence article{padding:9px;background:#1b293a;margin:10px 0}#clean-level-evidence details{margin:6px 0}#clean-level-evidence a{color:#89c5ff}.cl-coverage{padding:6px 8px;border-bottom:1px solid #39495d}.cl-member{margin:8px 0;border-top:1px solid #44516a;padding-top:8px}
 #chart-pattern-evidence{overflow-wrap:anywhere}#chart-pattern-evidence button,#chart-pattern-evidence select{font:inherit;background:#25354b;color:#e0eaf5;border:1px solid #607b9b;border-radius:5px;padding:5px 8px;cursor:pointer;max-width:100%}
 #chart-pattern-evidence button:disabled{opacity:.5;cursor:default}#chart-pattern-evidence :focus-visible{outline:2px solid #8bc8ff;outline-offset:2px}
 #chart-pattern-evidence .pattern-filters{display:grid;grid-template-columns:1fr;gap:8px}#chart-pattern-evidence label{display:flex;justify-content:space-between;gap:8px;align-items:center}
@@ -719,12 +723,13 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
 #chart-fullscreen-ov.cp-focus #chart-fs-main{min-height:0!important}
 #chart-fullscreen-ov.cp-focus #chart-fs-canvas{width:100%!important;height:100%!important}
 /* AI focus controls get their own row instead of covering upper resistance. */
-#chart-fullscreen-ov.cp-focus.cp-pattern-view #chart-fs-bar,#chart-fullscreen-ov.cp-focus.cp-ai-view #chart-fs-bar{
+#chart-fullscreen-ov.cp-focus.cp-clean-map #chart-fs-bar,#chart-fullscreen-ov.cp-focus.cp-pattern-view #chart-fs-bar,#chart-fullscreen-ov.cp-focus.cp-ai-view #chart-fs-bar{
   position:relative!important;top:0!important;right:0!important;width:100%!important;
   height:auto!important;min-height:38px!important;flex:0 0 auto!important;box-sizing:border-box;
   padding:4px 8px!important;background:#192230!important;overflow:visible!important
 }
 #chart-fullscreen-ov.cp-focus.cp-ai-view #chart-fs-bar>.cp-focus-controls,#chart-fullscreen-ov.cp-focus.cp-pattern-view #chart-fs-bar>.cp-focus-controls{flex-wrap:wrap!important;margin-left:auto!important}
+#chart-fullscreen-ov.cp-focus.cp-clean-map #chart-fs-bar>.cp-focus-controls{flex-wrap:wrap!important;margin-left:auto!important}
 @media(max-width:600px){
   #chart-fullscreen-ov.cp-focus #chart-fs-bar{top:max(5px,env(safe-area-inset-top))!important;right:5px!important}
   #chart-fullscreen-ov.cp-focus #chart-fs-bar>.cp-focus-controls>.cp-focus-keep{font-size:10px!important;min-height:38px!important;height:38px!important}
@@ -17478,6 +17483,7 @@ function runProAnalysis(d) {
 // ═══════════════════════════════════════════════════════════
 var _ovStack = [];
 function _ovHide(id){
+  if(id==='coin-ov'&&typeof CleanLevels!=='undefined')CleanLevels.stop();
   if(id==='coin-ov'&&typeof ChartPatterns!=='undefined')ChartPatterns.close();
   if(id==='coin-ov'){stopChartLive();stopSweepTrack();closeChartAI();resetChartAIDrawing();}
   if(id==='market-chart-ov')releaseMarketChartPage();
@@ -19435,6 +19441,7 @@ function updateChartMobileHeader(plan){
 }
 function setChartView(mode){
   if(!CHART_VIEWS[mode])return;
+  if(typeof CleanLevels!=='undefined')CleanLevels.stop();
   if(typeof ChartPatterns!=='undefined')ChartPatterns.close();
   // Selecting an automatic view must actually leave the AI overlay mode.
   if(typeof resetChartAIDrawing==='function')resetChartAIDrawing();
@@ -19540,6 +19547,7 @@ function chartFit(kind){
 function toggleChartMagnet(){chartState.magnet=!chartState.magnet;saveChartPreferences();syncChartProUI();}
 function toggleFibConnector(){chartState.fibConnector=!chartState.fibConnector;saveChartPreferences();syncChartProUI();drawChart();}
 function syncChartProUI(){
+  if(typeof CleanLevels!=='undefined')CleanLevels.sync();
   if(typeof ChartPatterns!=='undefined')ChartPatterns.sync();
   var btcShown=!!chartState.indicators.btc,isBTC=/^BTC(USDT|JPY)$/.test(chartState.sym||'');
   document.querySelectorAll('[data-btc-toggle]').forEach(function(b){
@@ -20101,7 +20109,7 @@ function installChartProUI(){
     '<button onclick="editChartExecution()">Execution</button><button onclick="recordChartDecision()" title="Save the current data, settings and decision for later review">Record decision</button>'+
     '<details class="cp-ind-menu"><summary>Edit lines</summary><div><button onclick="toggleDrawMode()">Draw two anchors</button><button data-chart-magnet onclick="toggleChartMagnet()">Snap to candle</button><button onclick="editSelectedDrawing(\'lock\')">Lock / unlock selected</button><button onclick="editSelectedDrawing(\'extend\')">Extend selected right</button><button onclick="editSelectedDrawing(\'delete\')">Delete selected</button><small>Click a manual line to select. Drag an unlocked anchor. Manual lines are visual only.</small></div></details>';
     if(typeof ChartPatterns!=='undefined')el.innerHTML+='<details class="cp-ind-menu"><summary>Pattern options</summary><div>'+ChartPatterns.controls()+'<button onclick="ChartPatterns.open()">Pattern evidence</button><small>Closed-candle shapes · no entry approval · max 2 drawings</small></div></details>';
-el.innerHTML+='<span class="cp-build" title="Closed-candle classic patterns with causal recognition">Chart 2026.10.18-patterns-r1</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
+el.innerHTML+='<span class="cp-build" title="Clean: same-venue 1H, 4H, 1D, 1W key support and resistance">Chart 2026.10.21-clean-levels-r1</span><div class="cp-chart-summary" id="chart-summary'+suffix+'" aria-live="polite"></div>';
     var toolsMenu=document.createElement('details');toolsMenu.className='cp-ind-menu cp-tools-menu';
     toolsMenu.innerHTML='<summary>Tools</summary><div></div>';
     Array.from(el.children).forEach(function(node){
@@ -20135,6 +20143,12 @@ el.innerHTML+='<span class="cp-build" title="Closed-candle classic patterns with
     button.style.cssText='font:700 11px sans-serif;padding:5px 9px;border:1px solid #b69b55;border-radius:4px;color:#ffdb8a;background:#263246;cursor:pointer';
     button.onclick=function(){if(typeof ChartPatterns!=='undefined')ChartPatterns.open();};host.appendChild(button);
   });if(typeof ChartPatterns!=='undefined')ChartPatterns.sync();
+  ['#chart-fs-bar .cp-focus-controls','#cp-mobile-header'].forEach(function(selector){
+    var host=document.querySelector(selector);if(!host||host.querySelector('[data-clean-levels]'))return;
+    var button=document.createElement('button');button.type='button';button.setAttribute('data-clean-levels','');button.textContent='Key levels';button.title='1H / 4H / 1D / 1W support and resistance evidence';
+    button.style.cssText='font:700 11px sans-serif;padding:5px 9px;border:1px solid #4b9d92;border-radius:4px;color:#8ce9d8;background:#203642;cursor:pointer';
+    button.onclick=function(){if(typeof CleanLevels!=='undefined')CleanLevels.open();};host.appendChild(button);
+  });if(typeof CleanLevels!=='undefined')CleanLevels.sync();
 }
 
 function getChartWyckoffContext(sym){
@@ -21168,6 +21182,7 @@ function populateFSTable(d) {
   var pinned=chartMarketOverview();
   var pin='<div class="cp-current-summary"><strong>'+esc(chartState.sym)+' · '+esc(chartState.tf||TF)+' · '+fE(p.live)+'</strong><span>'+esc(pinned.trend)+' · '+esc(p.status)+'</span><span>'+esc(pinned.location)+'</span>'+(wx?'<span>Wyckoff · '+esc(wx.status||'Unknown')+'</span>':'')+'</div>';
   var html='<div class="cp-sticky-head">'+tabs+pin+'</div>';
+  if(typeof CleanLevels!=='undefined'&&CleanLevels.active())html+=card('Clean · 1H / 4H / 1D / 1W levels','<p>Teal = support · red = resistance · amber = conflicting roles or price through a zone. The chart combines qualified same-venue levels across four timeframes.</p><button onclick="CleanLevels.open()">Key levels / evidence</button><p class="cp-muted">The entry checks and historical S/R below remain selected-timeframe calculations; they do not use this new display map. A visible level is not entry confirmation.</p>');
   html+=card('Entry confirmation · '+esc(chartState.tf||TF),'<div class="cp-entry-state" style="color:'+presentation.color+';border-color:'+presentation.color+'"><strong>'+esc(presentation.label)+'</strong><small>'+esc(presentation.note)+'</small></div>'+
     (tab==='plan'?'<p>'+esc(p.action)+'</p>'+(p.planValid?row(p.positionState==='OPEN'?'Recorded entry':'Planned entry · unfilled',p.entry,pc.entry,'Zone '+fE(p.zoneLow)+' – '+fE(p.zoneHigh))+row('SL · protective stop',p.sl,pc.sl,'Reference only; no exchange order placed.')+row('TP1'+(p.tp1Passed?' · PASSED':''),p.tp1,p.tp1Passed?'#8992a5':pc.tp,esc((p.targetBasis||[])[0]||'Not mapped')+' · net R:R '+(p.riskKnown?p.netRR1.toFixed(2)+':1':'unavailable')):'<p class="cp-muted">Plan lines withheld until the missing source levels are available. Visible S/R alone does not confirm an entry.</p>'):'')+
     '<div class="cp-plan-legend">'+[['Support','support'],['Resistance','resistance'],['Entry','entry'],['SL','sl'],['TP','tp']].map(function(x){return '<span style="color:'+pc[x[1]]+'">'+x[0]+'</span>';}).join('')+'</div><p class="cp-muted">Colors identify levels, not permission to buy. Dashed plan lines = conditional; SYNTH = modeled objective.</p>'+
@@ -21276,6 +21291,7 @@ function toggleChartFocus(force){
   resizeFullscreenChart();return focus;
 }
 function collapseChartFull() {
+  if(typeof CleanLevels!=='undefined')CleanLevels.close();
   if(typeof ChartPatterns!=='undefined')ChartPatterns.close();
   setBTCFocus(false);
   chartMobilePanel('');
@@ -21298,6 +21314,7 @@ function collapseChartFull() {
 
 function toggleInd(name) {
   chartState.indicators[name] = !chartState.indicators[name];
+  if(name==='sr'&&typeof CleanLevels!=='undefined')CleanLevels.stop();
   if(name==='patterns'&&chartState.indicators.patterns&&typeof resetChartAIDrawing==='function')resetChartAIDrawing();
   if(name==='patterns'&&!chartState.indicators.patterns&&typeof ChartPatterns!=='undefined')ChartPatterns.close();
   if(name==='btc'){
@@ -21324,6 +21341,8 @@ function chartReset() {
 }
 
 function loadChart(tf) {
+  if(typeof CleanLevels!=='undefined')CleanLevels.stop();
+  chartState.cleanLevelMap=null;chartState._cleanLevelMapKey=null;
   if(typeof ChartPatterns!=='undefined')ChartPatterns.close();
   chartState.patternsFrame=null;chartState._patternsKey=null;
   resetChartAIDrawing();
@@ -21907,6 +21926,7 @@ function updateChartSummary(){
   var reason=plan&&plan.status==='BLOCKED'?'<div class="cp-muted">'+esc(plan.action)+'</div>':'';
   var html='<details class="cp-summary-details"><summary>'+esc(compact)+' · Details</summary><div>'+anchorText+lines.join('')+'<div class="cp-health">'+esc(health)+'</div></div></details>'+reason;
   if(typeof ChartPatterns!=='undefined')html+=ChartPatterns.summary();
+  if(typeof CleanLevels!=='undefined')html+=CleanLevels.summary();
   ['chart-summary','chart-summary-fs','market-chart-summary'].forEach(function(id){var el=document.getElementById(id);if(el&&el.innerHTML!==html){var wasOpen=el.querySelector&&el.querySelector('details[open]');el.innerHTML=html;if(wasOpen)el.querySelector('details').open=true;}});
 }
 function createChartLabelLayer(ctx,bounds){
@@ -21925,7 +21945,7 @@ function createChartLabelLayer(ctx,bounds){
         (a.fixed?[0]:[0,-.55,.55,-1,1,-1.5,1.5]).forEach(function(dx){
           var xx=Math.max(4,Math.min(bounds.width-w-4,x+dx*w)),trial={x:xx,y:yy,w:w,h:h};
           var cost=Math.abs(yy-y)+Math.abs(xx-x)*.6;
-          if(cost<bestCost&&!placed.some(function(p){return overlap(trial,p);})&&!(bounds.candles||[]).some(function(p){return overlap(trial,p);})) {box=trial;bestCost=cost;}
+          if(cost<bestCost&&!placed.some(function(p){return overlap(trial,p);})&&!(bounds.candles||[]).some(function(p){return overlap(trial,p);})&&!(bounds.reserved||[]).some(function(p){return overlap(trial,p);})) {box=trial;bestCost=cost;}
         });
       }
       if(!box){hidden++;return;}box.text=a.text;box.col=a.col;box.detail=a.detail;box.anchor=a.anchor;placed.push(box);
@@ -21936,6 +21956,7 @@ function createChartLabelLayer(ctx,bounds){
   }};
 }
 function _drawChartNow() {
+  if(typeof CleanLevels!=='undefined')CleanLevels.sync();
   if(typeof ChartPatterns!=='undefined')ChartPatterns.sync();
   var canvas = document.getElementById(chartState.canvasId || 'chart-canvas');
   if (!canvas || !chartState.klines) return;
@@ -22119,6 +22140,7 @@ function _drawChartNow() {
   if(priorSnapshot&&priorSnapshot.symbol===snapshot.symbol&&priorSnapshot.timeframe===snapshot.timeframe&&priorSnapshot.source!==snapshot.source)
     chartState.sourceNotice='Candle source changed: '+priorSnapshot.source+' → '+snapshot.source+'. Analysis history is source-specific.';
   chartState.snapshot=snapshot;
+  if(typeof CleanLevels!=='undefined')CleanLevels.ensure(snapshot);
   if(ind.patterns&&typeof ChartPatterns!=='undefined')ChartPatterns.update(snapshot);
   var analysisContext={key:snapshot.key,times:snapshot.times,persist:snapshot.usable,interval:_chartTFDuration(chartState.tf)};
   var wx = snapshot.valid?calcWyckoff(wxH,wxL,wxC,wxV,wxAtr,wxTrend,analysisContext):
@@ -22181,7 +22203,8 @@ function _drawChartNow() {
   ctx.restore();
 
   var _srLbls = [], _fibLbls = [];chartState.srAxisLabels=[];
-  var plotLabels=createChartLabelLayer(ctx,{top:TOP_PAD,headerInset:chartAIDrawing.enabled?6:38,bottom:TOP_PAD+CANDLE_H,width:chartW,candles:visible.map(function(k,i){
+  var cleanRouteReserved=typeof CleanLevels!=='undefined'&&CleanLevels.active()&&chartLevelRoute.enabled?[{x:6,y:TOP_PAD+51,w:Math.max(1,chartW-12),h:51}]:[];
+  var plotLabels=createChartLabelLayer(ctx,{top:TOP_PAD,headerInset:chartAIDrawing.enabled?6:38,bottom:TOP_PAD+CANDLE_H,width:chartW,reserved:cleanRouteReserved,candles:visible.map(function(k,i){
     return {x:cX(i)-Math.max(2,bodyW/2),y:pY(Math.max(Number(k[1]),Number(k[4]))),w:Math.max(4,bodyW),h:Math.max(3,Math.abs(pY(Number(k[1]))-pY(Number(k[4]))))};})});
 
   // 3a. AUTO FIB — confirmed closed-pivot impulse on the active timeframe.
@@ -22349,7 +22372,10 @@ function _drawChartNow() {
       ctx.restore();
     }
     var srHistory=d.srHistory;
-    if(srHistory){
+    if(typeof CleanLevels!=='undefined'&&CleanLevels.active()){
+      CleanLevels.draw(ctx,{top:TOP_PAD,height:CANDLE_H,chartW:chartW,min:pMin,max:pMax,pY:pY,labels:plotLabels,
+        timeX:function(t){return cX((t-Number(klines[0][0]))/_chartTFDuration(chartState.tf)-offset);}});
+    }else if(srHistory){
       var srLimit=chartState.viewMode==='analysis'?3:1;
       var allSR=(srHistory.supports||[]).concat(srHistory.resistances||[]);
       allSR.forEach(function(z){rememberReference(z.role+' zone '+fmtPrice(z.price),z.price,fmtPrice(z.low)+'–'+fmtPrice(z.high)+' · '+z.state+' · '+z.touches+' distinct tests');});
@@ -29455,6 +29481,322 @@ var ChartPatterns = (function(){
   return {version:VERSION,analyze:analyze,update:update,sync:sync,draw:draw,summary:summary,controls:controls,
     setFilter:setFilter,selected:selected,filtered:filtered,open:open,close:close,timeframe:timeframe,
     exportEvidence:exportEvidence,refreshPanel:refreshPanel,boundaryAt:at};
+})();
+
+</script>
+<script data-bundled-source="clean-levels.js">
+/* Clean view: same-venue 1H/4H/1D/1W key zones. Descriptive research overlay.
+ * Separate from calcSR, scanner scores, entry decisions and saved positions.
+ */
+var CleanLevels=(function(){
+  'use strict';
+  var VERSION='2026.10.21-clean-levels-r1',TFS=['1w','1d','4h','1h'];
+  var MS={'1h':3600000,'4h':14400000,'1d':86400000,'1w':604800000};
+  var WEIGHT={'1h':1,'4h':2,'1d':3,'1w':4},cache={},queue=[],running=0,currentKey='',generation=0,lastFocus=null;
+  var MAX_CLOSED=500,RETRY_MS=60000;
+  function esc(x){return String(x==null?'':x).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function finite(x){return x!==null&&x!==''&&x!==undefined&&Number.isFinite(Number(x));}
+  function fmt(x){return Number.isFinite(x)?Number(x.toPrecision(6)).toLocaleString('en-US',{maximumFractionDigits:10}):'—';}
+  function time(t){return t?new Date(t).toISOString().slice(0,16).replace('T',' ')+' UTC':'—';}
+  function digest(rows){var s=JSON.stringify(rows),h=2166136261;for(var i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return (h>>>0).toString(16);}
+  function atrAt(b,i){var a=Math.max(1,i-13),sum=0;for(var j=a;j<=i;j++)sum+=Math.max(b[j].h-b[j].l,Math.abs(b[j].h-b[j-1].c),Math.abs(b[j].l-b[j-1].c));return sum/Math.max(1,i-a+1);}
+  function volAt(b,i){
+    if(i<20||b.slice(i-20,i+1).some(function(x){return !Number.isFinite(x.v)||x.v<0;}))return null;
+    var mean=b.slice(i-20,i).reduce(function(s,x){return s+x.v;},0)/20;return mean>0?b[i].v/mean:null;
+  }
+  function strength(z,tf){
+    if(z.state==='broken'||z.roleHolds<1||z.reactionATR<1)return null;
+    if(z.roleHolds>=2)return 'Repeated separate holds';
+    if(z.roleReversed&&z.reactionATR>=1)return 'Closed break + later held role reversal';
+    if((tf==='1w'||tf==='1d')&&z.reactionATR>=1.5)return 'Higher-timeframe swing + meaningful departure';
+    if(z.reactionATR>=2.5&&z.volumeRatio!=null&&z.volumeRatio>=1.5)return 'Strong departure + expanded same-venue volume';
+    return null;
+  }
+  function analyze(rows,symbol,tf,source,now){
+    now=now==null?Date.now():now;
+    var f={version:VERSION,symbol:symbol,timeframe:tf,source:source,status:'UNAVAILABLE',zones:[],checkedAt:now,reason:''};
+    function bad(s){f.reason=s;return f;}
+    if(!MS[tf]||!['Bybit','Binance','BingX','bitbank'].includes(source))return bad('Unsupported timeframe or unverified candle venue.');
+    if(!rows||rows.dataSource!==source)return bad('Source mismatch; no other exchange is substituted.');
+    if(!Array.isArray(rows)||rows.length<31)return bad('Need at least 30 closed candles plus a current forming candle.');
+    // Fixed scope makes loaded and separately fetched frames comparable.
+    var r=rows.slice(-(MAX_CLOSED+1)),b=[],span=MS[tf];
+    for(var i=0;i<r.length;i++){
+      var a=r[i];if(!Array.isArray(a)||![0,1,2,3,4].every(function(k){return finite(a[k]);}))return bad('Malformed OHLC history.');
+      var x={t:+a[0],o:+a[1],h:+a[2],l:+a[3],c:+a[4],v:finite(a[5])?+a[5]:null};
+      if(x.t<0||x.l<=0||x.h<Math.max(x.o,x.c,x.l)||x.l>Math.min(x.o,x.c)||
+        (i&&x.t-b[i-1].t!==span))return bad('Missing, duplicate, unordered or invalid candles.');
+      b.push(x);
+    }
+    var live=b.pop();if(live.t>now||live.t+span<=now)return bad('Stale feed or clock mismatch; latest closed interval is missing.');
+    var zones=[];
+    function event(z,label,i){z.events.push({label:label,at:b[i].t+span,close:b[i].c});if(z.events.length>16)z.events.splice(1,z.events.length-16);}
+    function away(z,i,role){return role==='support'?(b[i].c-z.high)/z.atr:(z.low-b[i].c)/z.atr;}
+    function hold(z,i,label){
+      z.roleHolds++;z.lastHoldIndex=i;z.lastHoldAt=b[i].t+span;z.pending=null;z.armed=false;
+      z.state=z.roleReversed?'retested':'held';event(z,label,i);
+    }
+    for(var i=0;i<b.length;i++){
+      var a=atrAt(b,i),p=i-3;
+      if(p>=14&&a>0){
+        ['support','resistance'].forEach(function(role){
+          var low=role==='support',v=low?b[p].l:b[p].h;
+          var left=[1,2,3].every(function(k){return low?v<=b[p-k].l:v>=b[p-k].h;});
+          var strict=[1,2,3].some(function(k){return low?v<b[p-k].l:v>b[p-k].h;});
+          var right=[1,2,3].every(function(k){return low?v<b[p+k].l:v>b[p+k].h;});
+          if(!left||!strict||!right)return;
+          var width=Math.max(v*.0005,.15*a);
+          var existing=zones.find(function(z){return z.role===role&&z.state!=='broken'&&Math.abs(z.price-v)<=Math.min(z.width,width);});
+          if(existing)return; // Multiple nearby pivots are NOT automatically extra holds.
+          var z={id:[VERSION,source,symbol,tf,b[p].t,role].join('|'),timeframe:tf,source:source,price:v,
+            low:v-width,high:v+width,width:width,atr:a,role:role,originalRole:role,state:'confirmed',originAt:b[p].t,
+            confirmedAt:b[i].t+span,confirmedIndex:i,roleHolds:0,lastHoldIndex:p,lastHoldAt:null,
+            reactionATR:0,volumeRatio:volAt(b,p),armed:false,pending:{index:p},roleReversed:false,events:[]};
+          for(var j=p+1;j<=i;j++)z.reactionATR=Math.max(z.reactionATR,away(z,j,role));
+          event(z,'Swing available after 3 right-hand closed candles',i);
+          if(z.reactionATR>=1)hold(z,i,'Initial pivot departure ≥1 frozen ATR');
+          zones.push(z);
+        });
+      }
+      zones.forEach(function(z){
+        if(i<=z.confirmedIndex)return;
+        var touch=b[i].l<=z.high&&b[i].h>=z.low,buffer=.1*z.atr;
+        if(z.state==='broken'){
+          var newRole=z.role==='support'?'resistance':'support',newSide=newRole==='support'?b[i].c>z.high+buffer:b[i].c<z.low-buffer;
+          if(!newSide){z.pending=null;return;}
+          if(i>z.breakIndex&&touch&&!z.pending)z.pending={index:i};
+          if(z.pending&&away(z,i,newRole)>=1){
+            z.role=newRole;z.roleReversed=true;z.roleHolds=0;z.reactionATR=away(z,i,newRole);z.volumeRatio=volAt(b,i);
+            hold(z,i,'Later held retest confirmed role reversal');z.retestAt=b[i].t+span;z.qualifiedAt=z.retestAt;
+          }
+          return;
+        }
+        if(z.role==='support'?b[i].c<z.low-buffer:b[i].c>z.high+buffer){
+          z.state='broken';z.breakIndex=i;z.breakAt=b[i].t+span;z.qualifiedAt=null;z.pending=null;z.armed=false;event(z,'Closed break beyond far edge + 0.10 ATR',i);return;
+        }
+        var distance=away(z,i,z.role);
+        z.reactionATR=Math.max(z.reactionATR,distance);
+        if(z.armed&&touch&&i-z.lastHoldIndex>=4){z.pending={index:i};z.armed=false;}
+        if(z.pending&&distance>=1){
+          var ratio=volAt(b,z.pending.index);if(ratio!=null)z.volumeRatio=z.volumeRatio==null?ratio:Math.max(z.volumeRatio,ratio);
+          hold(z,i,'Separate return + closed departure ≥1 frozen ATR');
+        }else if(!touch&&distance>=1&&!z.pending)z.armed=true;
+        var reason=strength(z,tf);if(reason&&!z.qualifiedAt)z.qualifiedAt=b[i].t+span;
+      });
+    }
+    zones.forEach(function(z){
+      z.qualification=strength(z,tf);z.eligible=!!z.qualification;
+      if(z.eligible&&!z.qualifiedAt)z.qualifiedAt=z.confirmedAt;
+      z.ageBars=b.length-1-z.lastHoldIndex;
+      z.importance=WEIGHT[tf]*6+Math.min(3,z.roleHolds)*2+Math.min(4,z.reactionATR)*1.5+(z.roleReversed?2:0)+(z.volumeRatio>=1.5?1:0)-Math.min(3,z.ageBars/60);
+      delete z.armed;delete z.pending;
+    });
+    f.status='READY';f.reason='Closed same-venue candles';f.zones=zones;f.price=b[b.length-1].c;f.closedAt=live.t;
+    f.expiresAt=live.t+span;f.bars=b.length;f.from=b[0].t;f.atr=atrAt(b,b.length-1);f.signature=digest(r.slice(0,-1));
+    return f;
+  }
+  function fresh(f,now){return !!f&&f.status==='READY'&&now>=f.closedAt&&now<f.expiresAt;}
+  function compatible(a,b){
+    var overlap=Math.min(a.high,b.high)-Math.max(a.low,b.low),smaller=Math.min(a.high-a.low,b.high-b.low);
+    return overlap>=.5*smaller&&Math.abs(a.price-b.price)<=1.5*Math.min(a.width,b.width);
+  }
+  function combine(frames,reference,now){
+    var candidates=[],groups=[];
+    TFS.forEach(function(tf){var f=frames[tf];if(fresh(f,now))f.zones.filter(function(z){return z.eligible;}).forEach(function(z){candidates.push(z);});});
+    candidates.sort(function(a,b){return WEIGHT[b.timeframe]-WEIGHT[a.timeframe]||b.importance-a.importance||a.id.localeCompare(b.id);});
+    candidates.forEach(function(z){
+      // Complete-link clustering prevents a chain of small overlaps forming one huge zone.
+      var g=groups.find(function(g){return g.members.every(function(m){return compatible(m,z);});});
+      if(!g){g={id:z.id,price:z.price,low:z.low,high:z.high,width:z.width,atr:z.atr,importance:z.importance,members:[],timeframes:[]};groups.push(g);}
+      g.members.push(z);if(!g.timeframes.includes(z.timeframe))g.timeframes.push(z.timeframe);
+    });
+    groups.forEach(function(g){
+      var roles=Array.from(new Set(g.members.map(function(m){return m.role;})));
+      g.role=roles.length===1?roles[0]:'mixed';
+      g.pending=g.role==='support'?reference.price<g.low:g.role==='resistance'?reference.price>g.high:false;
+      g.status=g.role==='mixed'?'Mixed timeframe roles':g.pending?'Price through zone · wait for source close':reference.price>=g.low&&reference.price<=g.high?'Testing zone':g.members[0].roleReversed?'Role reversal held':'Established zone';
+      g.distanceATR=Math.abs(reference.price-g.price)/g.atr;
+      g.percent=(g.price/reference.price-1)*100;
+      g.confirmedAt=Math.max.apply(null,g.members.map(function(m){return m.qualifiedAt||m.confirmedAt;}));
+      g.col=g.pending||g.role==='mixed'?'#ffbf47':g.role==='support'?'#00d3b5':'#ff6b81';
+    });
+    function rank(a,b){return Number(a.pending)-Number(b.pending)||Math.floor(a.distanceATR/3)-Math.floor(b.distanceATR/3)||b.importance-a.importance||a.distanceATR-b.distanceATR||a.id.localeCompare(b.id);}
+    var selected=[];
+    // One qualified support and resistance per timeframe, merged where appropriate.
+    TFS.forEach(function(tf){
+      ['support','resistance'].forEach(function(role){
+        var options=groups.filter(function(g){return g.members.some(function(m){return m.timeframe===tf&&m.role===role;});}).sort(rank);
+        if(options[0]&&!selected.includes(options[0]))selected.push(options[0]);
+      });
+    });
+    selected.sort(function(a,b){return b.price-a.price;});
+    return {groups:groups,selected:selected.slice(0,8),reference:reference};
+  }
+  function active(){return typeof chartState!=='undefined'&&chartState.viewMode==='clean'&&chartState.indicators&&chartState.indicators.sr&&
+    !chartState.marketMode&&!chartState.btcFocus&&!(typeof chartAIDrawing!=='undefined'&&chartAIDrawing.enabled);}
+  function current(){
+    var entry=cache[currentKey],snap=typeof chartState!=='undefined'&&chartState.snapshot;
+    return entry&&snap&&snap.usable&&entry.symbol===chartState.sym&&entry.source===snap.source?entry:null;
+  }
+  function cancelPending(){
+    queue.forEach(function(j){delete j.entry.pending[j.tf];delete j.entry.attempt[j.tf];});queue=[];
+    var entry=cache[currentKey];
+    if(entry){Object.keys(entry.pending).forEach(function(tf){delete entry.attempt[tf];});entry.pending={};} // In-flight completions no longer own a slot.
+  }
+  function stop(){generation++;cancelPending();currentKey='';close();}
+  function requestRows(symbol,tf,source){
+    var encoded=encodeURIComponent(symbol),routes=[],parser;
+    if(source==='Bybit'){routes=[BYBIT,BYBIT2].map(function(root){return root+'/v5/market/kline?category=spot&symbol='+encoded+'&interval='+bvInt(tf)+'&limit=501';});parser=parseBybitKlines;}
+    else if(source==='Binance'){routes=[BNCDN,BN2].map(function(root){return root+'/api/v3/klines?symbol='+encoded+'&interval='+bnInt(tf)+'&limit=501';});parser=parseBinanceKlines;}
+    else if(source==='BingX'){
+      if(!/USDT$/.test(symbol))return Promise.reject(Error('BingX quote pair unsupported.'));
+      routes=[BINGX+'/openApi/market/his/v1/kline?symbol='+encodeURIComponent(symbol.slice(0,-4)+'-USDT')+'&interval='+bxInt(tf)+'&limit=501'];parser=parseBingXKlines;
+    }else if(source==='bitbank')return bitbankKlines(symbol,tf,501).then(function(rows){rows.dataSource=source;return rows;});
+    else return Promise.reject(Error('Unsupported candle venue.'));
+    async function request(){
+      var error;
+      for(var url of routes){
+        try{
+          var raw=await fetchJ(url,8000);
+          if(source==='Bybit'&&(!raw||raw.retCode!==0||!raw.result||raw.result.symbol!==symbol||raw.result.category!=='spot'))throw Error('Wrong or missing spot candle identity.');
+          if(source==='BingX'&&raw&&raw.code!=null&&Number(raw.code)!==0)throw Error('BingX candle request rejected.');
+          var rows=parser(raw);rows.dataSource=source;return rows;
+        }catch(e){error=e;}
+      }
+      throw error||Error('Candle request unavailable.');
+    }
+    return request();
+  }
+  function pump(){
+    while(running<2&&queue.length){
+      let job=queue.shift(),entry=job.entry;
+      if(job.generation!==generation||job.key!==currentKey||!active()){delete entry.pending[job.tf];continue;}
+      running++;
+      requestRows(entry.symbol,job.tf,entry.source).then(function(rows){
+        if(entry.pending[job.tf]!==job)return;
+        entry.frames[job.tf]=analyze(rows,entry.symbol,job.tf,entry.source,Date.now());
+      }).catch(function(e){
+        if(entry.pending[job.tf]!==job)return;
+        entry.frames[job.tf]={timeframe:job.tf,source:entry.source,status:'UNAVAILABLE',reason:String(e.message||e).slice(0,180),zones:[]};
+      }).finally(function(){
+        if(entry.pending[job.tf]===job){delete entry.pending[job.tf];entry.attempt[job.tf]=Date.now();entry.revision++;}
+        running--;
+        if(job.generation===generation&&job.key===currentKey&&active()&&typeof drawChart==='function')drawChart();
+        pump();
+      });
+    }
+  }
+  function ensure(snapshot){
+    if(!active()||chartState.loading)return;
+    if(!snapshot||!snapshot.usable){chartState.cleanLevelMap=null;return;}
+    var now=Date.now(),key=chartState.sym+'|'+snapshot.source;
+    if(key!==currentKey){generation++;cancelPending();currentKey=key;}
+    var entry=cache[key];if(!entry)entry=cache[key]={symbol:chartState.sym,source:snapshot.source,frames:{},pending:{},attempt:{},revision:0};
+    // Keep memory bounded; in-flight entries are never evicted or published into a new coin.
+    var keys=Object.keys(cache);if(keys.length>8)keys.filter(function(k){return k!==key&&!Object.keys(cache[k].pending).length;}).slice(0,keys.length-8).forEach(function(k){delete cache[k];});
+    if(MS[chartState.tf]&&entry.loadedSignature!==snapshot.signature){
+      entry.frames[chartState.tf]=analyze(chartState.klines,chartState.sym,chartState.tf,snapshot.source,now);
+      entry.loadedSignature=snapshot.signature;entry.revision++;
+    }
+    TFS.forEach(function(tf){
+      var f=entry.frames[tf];
+      if(fresh(f,now)||entry.pending[tf]||now-(entry.attempt[tf]||0)<RETRY_MS)return;
+      var job={key:key,tf:tf,entry:entry,generation:generation};entry.pending[tf]=job;entry.attempt[tf]=now;queue.push(job);
+    });
+    var reference={price:Number(chartState.klines[chartState.klines.length-2][4]),at:snapshot.lastClosedTime,label:chartState.tf.toUpperCase()+' closed price'};
+    TFS.forEach(function(tf){var f=entry.frames[tf];if(fresh(f,now)&&f.closedAt>reference.at)reference={price:f.price,at:f.closedAt,label:tf.toUpperCase()+' closed price'};});
+    var mapKey=key+'|'+entry.revision+'|'+reference.at+'|'+reference.price+'|'+TFS.map(function(tf){return fresh(entry.frames[tf],now)?'ready':entry.pending[tf]?'loading':'missing';}).join(',');
+    if(chartState._cleanLevelMapKey!==mapKey){
+      chartState._cleanLevelMapKey=mapKey;chartState.cleanLevelMap=combine(entry.frames,reference,now);
+      chartState.cleanLevelMap.key=key;chartState.cleanLevelMap.source=entry.source;chartState.cleanLevelMap.symbol=entry.symbol;
+      refreshPanel();
+    }
+    pump();
+  }
+  function map(){var m=typeof chartState!=='undefined'&&chartState.cleanLevelMap;return active()&&current()&&m&&m.key===currentKey&&m.symbol===chartState.sym?m:null;}
+  function tfLabel(g){return g.timeframes.map(function(tf){return tf.toUpperCase();}).join('+');}
+  function roleLabel(g){return g.role==='mixed'?'MIXED':g.pending?'WATCH':g.role==='support'?'SUP':'RES';}
+  function sync(){
+    var on=!!active();document.querySelectorAll('[data-clean-levels]').forEach(function(b){b.hidden=!on;b.classList.toggle('cp-focus-keep',on);});
+    var host=document.getElementById('chart-fullscreen-ov');if(host)host.classList.toggle('cp-clean-map',on);
+  }
+  function draw(ctx,g){
+    var m=map();if(!m)return;
+    m.visible=[];m.offscreen=[];
+    m.selected.forEach(function(z){
+      if(z.price<g.min||z.price>g.max){m.offscreen.push(z);return;}
+      var y=g.pY(z.price),x=Math.max(0,Math.min(g.chartW,g.timeX(z.confirmedAt)));
+      ctx.save();ctx.beginPath();ctx.rect(0,g.top,g.chartW,g.height);ctx.clip();
+      ctx.fillStyle=z.col;ctx.globalAlpha=.065;
+      ctx.fillRect(x,g.pY(Math.min(g.max,z.high)),g.chartW-x,g.pY(Math.max(g.min,z.low))-g.pY(Math.min(g.max,z.high)));
+      ctx.globalAlpha=.85;ctx.strokeStyle=z.col;ctx.lineWidth=z.timeframes.includes('1w')?2:z.timeframes.includes('1d')?1.65:1.15;
+      ctx.setLineDash(z.pending||z.role==='mixed'?[6,4]:z.timeframes.some(function(t){return t==='1w'||t==='1d';})?[]:[4,4]);
+      ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(g.chartW,y);ctx.stroke();ctx.restore();
+      var label=tfLabel(z)+' '+roleLabel(z)+' '+fmt(z.price);
+      if(g.labels)g.labels.add({text:label,col:z.col,x:Math.max(8,g.chartW-ctx.measureText(label).width-18),y:y-18,priority:85+WEIGHT[z.timeframes[0]],anchor:{x:g.chartW-8,y:y},maxShift:120});
+      m.visible.push(z);
+    });
+  }
+  function summary(){
+    if(!active())return '';
+    var m=map(),entry=current(),now=Date.now();
+    var coverage=TFS.map(function(tf){var f=entry&&entry.frames[tf],ready=fresh(f,now),n=ready?f.zones.filter(function(z){return z.eligible;}).length:0;
+      return '<span class="cl-frame '+(ready?'cl-ready':'cl-missing')+'" title="'+esc(ready?n+' qualified zones · '+time(f.closedAt):f&&f.reason||'Waiting for same-venue candles')+'">'+tf.toUpperCase()+' '+(ready?n?'✓':'no key zone':entry&&entry.pending[tf]?'…':'unavailable')+'</span>';}).join('');
+    var chips=m?m.selected.map(function(z){return '<span class="cl-chip" style="color:'+z.col+'">'+esc(tfLabel(z)+' '+roleLabel(z)+' '+fmt(z.price))+'</span>';}).join(''):'';
+    return '<div class="cl-summary"><div><b>Key levels · 4 timeframes</b> '+coverage+' <button onclick="CleanLevels.open()">Key levels / evidence</button></div>'+
+      '<div class="cl-chips">'+chips+'</div><small>'+(m?esc(m.source+' · nearest qualified zones per timeframe · '+m.selected.length+' merged levels · location vs '+m.reference.label+(m.offscreen&&m.offscreen.length?' · '+m.offscreen.length+' outside view':'')):'Waiting for a usable current chart snapshot. No substitute levels.')+'</small></div>';
+  }
+  function panelHTML(){
+    var m=map(),entry=current(),now=Date.now();
+    var coverage=TFS.map(function(tf){
+      var f=entry&&entry.frames[tf],ready=fresh(f,now);
+      return '<div class="cl-coverage"><b>'+tf.toUpperCase()+' · '+(ready?'Ready':entry&&entry.pending[tf]?'Loading':'Unavailable / stale')+'</b><div>'+esc(ready?f.bars+' closed bars · '+f.source+' · '+time(f.closedAt):f&&f.reason||'No verified current history')+'</div></div>';
+    }).join('');
+    var rows=m?m.selected.map(function(z){
+      return '<article style="border-left:3px solid '+z.col+'"><strong style="color:'+z.col+'">'+esc(tfLabel(z)+' '+roleLabel(z)+' '+fmt(z.price))+'</strong><div>'+esc(z.status)+' · '+(z.percent>=0?'+':'')+z.percent.toFixed(2)+'% vs reference</div>'+
+        '<div>Zone '+fmt(z.low)+'–'+fmt(z.high)+(m.offscreen&&m.offscreen.includes(z)?' · outside current price view':'')+'</div>'+
+        '<details data-clean-detail="'+esc(z.id)+'"><summary>Why this level · original evidence</summary>'+z.members.map(function(a){
+          return '<div class="cl-member"><b>'+esc(a.timeframe.toUpperCase()+' '+a.role+' · '+a.qualification)+'</b><div>'+fmt(a.price)+' · zone '+fmt(a.low)+'–'+fmt(a.high)+'</div>'+
+            '<div>'+a.roleHolds+' separate confirmed hold(s) in current role · maximum closed departure '+a.reactionATR.toFixed(2)+' frozen ATR</div>'+
+            '<div>Reaction volume '+(a.volumeRatio==null?'unknown':a.volumeRatio.toFixed(2)+'× prior 20 same-venue base-volume mean')+' · '+a.ageBars+' bars since last hold</div>'+
+            '<div>Origin '+time(a.originAt)+' · recognized '+time(a.confirmedAt)+' · qualified '+time(a.qualifiedAt)+'</div>'+
+            a.events.map(function(e){return '<div>'+esc(e.label)+' · '+time(e.at)+' · close '+fmt(e.close)+'</div>';}).join('')+'</div>';
+        }).join('')+'<p>Merged labels share nearby geometry, not independent votes. Drawing retains the highest-timeframe representative\'s original price and width.</p></details></article>';
+    }).join(''):'';
+    var omitted=m?Math.max(0,m.groups.length-m.selected.length):0;
+    return '<header><strong>Clean · multi-timeframe key levels</strong><button onclick="CleanLevels.close()" aria-label="Close key levels">Close ×</button></header>'+
+      '<p>Support = teal · resistance = red · mixed roles / price through zone = amber. OHLCV evidence only—not institutional orders or entry approval.</p>'+coverage+
+      (m?'<p>'+esc(m.symbol+' · '+m.source+' · reference '+fmt(m.reference.price)+' · '+m.reference.label+' at '+time(m.reference.at))+'. Live quote is separate.</p>':'<p>Open Clean with current same-venue coin candles. Missing levels are not invented.</p>')+
+      rows+(m&&!m.selected.length?'<p>No zone passes the importance rules in the available history.</p>':'')+
+      (omitted?'<p>'+omitted+' additional qualified clusters omitted from the clean display.</p>':'')+
+      '<details><summary>Selection rules and limitations</summary><p>Three-right-candle confirmed pivots; fixed zone half-width = max(0.05% of price, 0.15 ATR). A separate hold needs departure, a later return, then a ≥1 ATR closed reaction. Lingering candles do not add tests.</p>'+
+      '<p>Important = two separate holds, a held role reversal, a daily/weekly swing with ≥1.5 ATR departure, or a lower-timeframe ≥2.5 ATR departure with ≥1.5× volume. Zones breaking by a close beyond the far edge +0.1 ATR are excluded until a later held role reversal. Timeframe closes can disagree.</p>'+
+      '<p>Up to one support and resistance from each timeframe, maximum eight merged drawings. Within each timeframe, prefer unbreached nearby zones (3-ATR distance buckets), then timeframe, capped hold/reaction evidence and recency. This display priority is not a confidence score or proven trading edge.</p>'+
+      '<p>Only the latest 500 closed candles per timeframe are searched; providers may return fewer (minimum 30). No all-time history claim. Price scale never expands for distant levels; they remain in this panel and the level strip. No AI requests, automatic orders or changes to entry plans.</p>'+
+      '<p><a href="https://www.cmegroup.com/education/courses/technical-analysis/support-and-resistance" target="_blank" rel="noopener noreferrer">CME: support/resistance zones</a> · <a href="https://www.newyorkfed.org/research/staff_reports/sr125.html" target="_blank" rel="noopener noreferrer">NY Fed: FX order clustering (not crypto validation)</a></p></details>'+
+      '<button onclick="CleanLevels.refresh()">Refresh four timeframes</button> <small>Reuses fresh chart candles · public data only · cached until candle close · '+VERSION+'</small>';
+  }
+  function refreshPanel(){
+    var p=document.getElementById('clean-level-evidence');if(!p)return;
+    var scroll=p.scrollTop,open=Array.from(p.querySelectorAll('details[open][data-clean-detail]')).map(function(x){return x.getAttribute('data-clean-detail');});
+    p.innerHTML=panelHTML();p.scrollTop=scroll;p.querySelectorAll('[data-clean-detail]').forEach(function(x){x.open=open.includes(x.getAttribute('data-clean-detail'));});
+  }
+  function open(){
+    if(typeof ChartPatterns!=='undefined')ChartPatterns.close();
+    var p=document.getElementById('clean-level-evidence');if(!p){
+      lastFocus=document.activeElement;p=document.createElement('section');p.id='clean-level-evidence';p.setAttribute('role','dialog');p.setAttribute('aria-label','Multi-timeframe key levels');
+      p.addEventListener('keydown',function(e){e.stopPropagation();if(e.key==='Escape')close();});document.body.appendChild(p);
+    }refreshPanel();p.querySelector('button').focus();
+  }
+  function close(){var p=document.getElementById('clean-level-evidence');if(p)p.remove();if(lastFocus&&lastFocus.isConnected)lastFocus.focus();lastFocus=null;}
+  function refresh(){
+    var entry=current();if(!entry||!active())return;
+    var now=Date.now();if(entry.lastManual&&now-entry.lastManual<15000)return;entry.lastManual=now;
+    generation++;queue.forEach(function(j){delete j.entry.pending[j.tf];});queue=[];entry.pending={};entry.attempt={};entry.frames={};entry.loadedSignature=null;entry.revision++;
+    chartState._cleanLevelMapKey=null;if(chartState.snapshot)ensure(chartState.snapshot);if(typeof drawChart==='function')drawChart();
+  }
+  return {version:VERSION,analyze:analyze,combine:combine,fresh:fresh,active:active,ensure:ensure,draw:draw,summary:summary,
+    sync:sync,open:open,close:close,stop:stop,refresh:refresh,refreshPanel:refreshPanel,requestRows:requestRows};
 })();
 
 </script>
