@@ -16,6 +16,7 @@
 <meta name="early-watch-build" content="2026.10.18-confirmation-r1">
 <meta name="chart-patterns-build" content="2026.10.18-patterns-r1">
 <meta name="clean-levels-build" content="2026.10.21-clean-levels-r1">
+<meta name="spot-shortlist-build" content="2026.10.21-spot-shortlist-r1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -1408,6 +1409,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       <button class="mtab" id="sc-strong"     onclick="setScanTab('strong')">⚡ Strong Buy</button>
       <button class="mtab" id="sc-buy"               onclick="setScanTab('buy')">✅ Buy Signal</button>
       <button class="mtab" id="sc-entry_confirm" onclick="setScanTab('entry_confirm')">✓ Entry Confirmation</button>
+      <button class="mtab" id="sc-spot_shortlist" onclick="setScanTab('spot_shortlist')">◎ Spot Shortlist</button>
       <button class="mtab" id="sc-spot_flow" onclick="setScanTab('spot_flow')">🧭 Spot Trade Flow</button>
       <button class="mtab" id="sc-confirmed_bo"      onclick="setScanTab('confirmed_bo')">🚀 Confirmed BO</button>
       <button class="mtab" id="sc-ema_retest"        onclick="setScanTab('ema_retest')">🔄 EMA Retest</button>
@@ -3684,6 +3686,7 @@ function processSymbol(ticker, btcReferenceOverride, requestTF) {
     return {
       sym:sym, pair:pair, price:price, signalPrice:closePx, chg:chg, vol24:vol24, vol24usd:vol24usd,
       scannerQuote:ticker.scannerQuote||null,
+      scannerLiquidity:typeof spotTurnoverEvidence==='function'?spotTurnoverEvidence(sym,ticker):null,
       tlBreakUp:tlBreakUp, tlTouches:tlTouches,
       cascade: _casc, cascPhase: _casc ? _casc.phase : null,
       resFlipHeld: !!_resFlip, resFlipLevel: _resFlip ? _resFlip.level : null,
@@ -9021,6 +9024,7 @@ function setScanTF(tf) {
   if(scanTab==='support_hold'&&!['4h','1d','1w'].includes(tf))tf='4h';
   if(scanTab==='entry_confirm'&&!['4h','1d','1w'].includes(tf))tf='4h';
   if(scanTab==='spot_flow'&&!['4h','1d','1w'].includes(tf))tf='4h';
+  if(scanTab==='spot_shortlist'&&!['4h','1d','1w'].includes(tf))tf='4h';
   if(scanTab==='hhhl'&&!['1h','4h','1d','1w'].includes(tf))tf='1h';
   scanTF = tf;
   TF = tf; // make this the ACTIVE timeframe so the main scan + logging follow it
@@ -9088,8 +9092,9 @@ function setScanTab(t){
   if(t==='support_hold')['15m','1h'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=true;b.title='Support Holding uses 4H, 1D and 1W';}});
   if(t==='entry_confirm')['15m','1h'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=true;b.title='Entry Confirmation uses 4H, 1D and 1W';}});
   if(t==='spot_flow')['15m','1h'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=true;b.title='Spot Trade Flow uses 4H, 1D and 1W setups';}});
+  if(t==='spot_shortlist')['15m','1h'].forEach(function(tf){var b=document.getElementById('sc-tf-'+tf);if(b){b.disabled=true;b.title='Spot Shortlist uses closed 4H, 1D and 1W setups';}});
   if(t==='hhhl'){var shortTF=document.getElementById('sc-tf-15m');if(shortTF){shortTF.disabled=true;shortTF.title='HH / HL uses 1H, 4H, 1D and 1W';}}
-  ['aplus','tierA','tierB','tierC','opportunity','strong','buy','entry_confirm','spot_flow','confirmed_bo','ema_retest','support_hold','hhhl','gainers','sweep_buy','sweep_sell','breakout','accum','oversold','rsiDiv','choch','bos','sector'].forEach(function(x){
+  ['aplus','tierA','tierB','tierC','opportunity','strong','buy','entry_confirm','spot_shortlist','spot_flow','confirmed_bo','ema_retest','support_hold','hhhl','gainers','sweep_buy','sweep_sell','breakout','accum','oversold','rsiDiv','choch','bos','sector'].forEach(function(x){
     var el=document.getElementById('sc-'+x);if(el)el.classList.toggle('active',x===t);
   });
   var row=document.getElementById('scan-sector-row');
@@ -9099,6 +9104,7 @@ function setScanTab(t){
   if(t==='support_hold'&&!['4h','1d','1w'].includes(TF)){setScanTF('4h');return;}
   if(t==='entry_confirm'&&!['4h','1d','1w'].includes(TF)){setScanTF('4h');return;}
   if(t==='spot_flow'&&!['4h','1d','1w'].includes(TF)){setScanTF('4h');return;}
+  if(t==='spot_shortlist'&&!['4h','1d','1w'].includes(TF)){setScanTF('4h');return;}
   if(t==='hhhl'&&!['1h','4h','1d','1w'].includes(TF)){setScanTF('1h');return;}
   runScanner();
   if(t==='entry_confirm')refreshEntryConfirmationQuotes(false);
@@ -9123,6 +9129,7 @@ function reScanFresh(){
 }
 
 function runScanner(){
+  if(scanTab==='spot_shortlist'){SpotShortlist.render();return;}
   if(scanTab==='spot_flow'){renderSpotTradeFlow();return;}
   if(scanTab==='gainers'){refreshScanGainers(false);return;}
   var body=document.getElementById("scan-body");
@@ -28764,13 +28771,14 @@ function sfCatalyst(c,sym,now){
   }
   return sfGate('Pass','Verified by you, not by an automated fact-check. Review expires '+sfTime(c.expiresAt)+'.');
 }
-function sfUniverse(){
-  return (allData||[]).filter(function(d){
-    if(!d||typeof d.sym!=='string'||!/^[A-Z0-9]+USDT$/.test(d.sym))return false;
-    var base=d.sym.slice(0,-4),excluded=typeof MARKET_PERF_EXCLUDE!=='undefined'?MARKET_PERF_EXCLUDE:[];
-    return (base==='BTC'||base==='ETH'||excluded.indexOf(base)<0)&&!/(?:[235][LS]|UP|DOWN|BULL|BEAR)$/.test(base);
-  });
+function sfDirectionalSymbol(sym){
+  if(typeof sym!=='string'||!/^[A-Z0-9]+USDT$/.test(sym))return false;
+  var base=sym.slice(0,-4),excluded=typeof MARKET_PERF_EXCLUDE!=='undefined'?MARKET_PERF_EXCLUDE:[];
+  // A suffix alone is not enough: JUP is an ordinary spot token, not a leveraged UP product.
+  var leveraged=/(?:[235][LS])$/.test(base)||/^(?:BTC|ETH|BNB|XRP|SOL|ADA|DOT|LINK|LTC|EOS|BCH|TRX|UNI|SUSHI|YFI|XTZ|XLM|FIL|AAVE|DOGE|AVAX)(?:UP|DOWN|BULL|BEAR)$/.test(base);
+  return (base==='BTC'||base==='ETH'||excluded.indexOf(base)<0)&&!leveraged;
 }
+function sfUniverse(){return (allData||[]).filter(function(d){return d&&sfDirectionalSymbol(d.sym);});}
 function sfRelative(coin,btc,sym,source,now){
   var a=chartSnapshot(coin||[],sym,'1h',now),b=chartSnapshot(btc||[],'BTCUSDT','1h',now);
   if(!a.usable||!b.usable||a.source!==source||b.source!==source||a.lastClosedTime!==b.lastClosedTime)return sfGate('Unknown','Need continuous, current coin and BTC hourly history from the setup venue, ending at the same close.');
@@ -29797,6 +29805,174 @@ var CleanLevels=(function(){
   }
   return {version:VERSION,analyze:analyze,combine:combine,fresh:fresh,active:active,ensure:ensure,draw:draw,summary:summary,
     sync:sync,open:open,close:close,stop:stop,refresh:refresh,refreshPanel:refreshPanel,requestRows:requestRows};
+})();
+
+</script>
+<script data-bundled-source="spot-shortlist.js">
+'use strict';
+// Reported rolling quote turnover is a separate snapshot, NOT order-book depth.
+function spotTurnoverEvidence(sym,ticker){
+  var q=ticker&&ticker.scannerQuote,v=ticker&&ticker.quoteVolume;
+  if(!q||q.symbol!==sym||!sym.endsWith('USDT')||!['Bybit','Binance','BingX'].includes(q.source)||
+    v==null||String(v).trim()===''||!Number.isFinite(Number(v))||Number(v)<0||
+    !Number.isFinite(q.at)||!Number.isFinite(q.receivedAt)||q.at>q.receivedAt)return null;
+  return {version:1,symbol:sym,source:q.source,quote:'USDT',quoteVolume24h:Number(v),at:q.at,receivedAt:q.receivedAt};
+}
+var SpotShortlist=(function(){
+  var VERSION='2026.10.21-spot-shortlist-r1',state={filter:'candidates',search:'',minTurnover:5000000,minR:2,page:0,quoteBusy:false,message:'',timer:null};
+  var TITLES=['Turnover','BTC context','Relative strength','Support + volume','Closed trigger','Room before costs'];
+  var LABELS={review:'Review execution',quote:'Refresh quote',wait:'Waiting for checks',late:'Late / invalidated',unknown:'Data missing'};
+  var ORDER={review:0,quote:1,wait:2,late:3,unknown:4};
+  function gate(state,reason,extra){return Object.assign({state:state,reason:reason},extra||{});}
+  function known(n){return typeof n==='number'&&Number.isFinite(n);}
+  function validConfig(cfg){return cfg&&known(cfg.minTurnover)&&cfg.minTurnover>=0&&cfg.minTurnover<=1e12&&known(cfg.minR)&&cfg.minR>=1&&cfg.minR<=10;}
+  function turnover(d,now,min){
+    var v=d.scannerLiquidity,s=d.analysisSnapshot;
+    if(!v||v.version!==1||v.symbol!==d.sym||!s||v.source!==s.source||v.quote!=='USDT'||
+      !known(v.quoteVolume24h)||v.quoteVolume24h<0||!known(v.at)||!known(v.receivedAt)||v.at>v.receivedAt||now<v.receivedAt||now-v.at>=900000)
+      return gate('Unknown','Fresh same-venue rolling 24h USDT turnover is unavailable. Re-scan; quotes alone do not refresh turnover.');
+    return gate(v.quoteVolume24h>=min?'Pass':'Wait',sfPrice(v.quoteVolume24h)+' USDT / 24h · filter ≥'+sfPrice(min)+' · reported turnover, not guaranteed liquidity.',{value:v.quoteVolume24h,at:v.at});
+  }
+  function btc(d,tf,now){
+    var b=d.btcContext,s=d.analysisSnapshot;
+    if(!b||b.symbol!=='BTCUSDT'||!btcContextIsCurrent(b,tf,now)||!s||b.source!==s.source||b.closedAt!==s.lastClosedTime)
+      return gate('Unknown','Need current, same-venue BTC context ending at the same closed candle.');
+    var pass=['bullish','stable'].includes(b.state);
+    return gate(pass?'Pass':'Wait','BTC '+b.state+' · '+(b.state==='stable'?'range context, NOT a bullish trend; be cautious near overhead resistance.':b.reason||'Existing closed-candle BTC classifier.'),{btcState:b.state});
+  }
+  function room(d,m,minR){
+    if(!m||m.state!=='Confirmed')return gate('Wait','A confirmed setup is required before comparing structural room.');
+    if(!known(m.triggerClose)||m.triggerClose<=0||!known(m.riskReference)||!known(m.setupATR)||m.setupATR<=0)
+      return gate('Unknown','Missing finite confirmation-close / risk-reference / ATR evidence.');
+    var entry=m.triggerClose,stop=m.riskReference-.1*m.setupATR,sr=d.scannerFlow&&d.scannerFlow.sr;
+    if(!sr||!Array.isArray(sr.resistances))return gate('Unknown','Mapped resistance evidence is missing. No synthetic target.');
+    var zones=sr.resistances.filter(function(z){return z&&z.role==='resistance'&&z.state!=='broken'&&known(z.low)&&known(z.high)&&z.high>=z.low&&z.high>entry;}).sort(function(a,b){return a.low-b.low;});
+    if(!zones.length)return gate('Unknown','No overhead mapped resistance in the scanned history. Open space is not an unlimited target.');
+    var target=zones[0].low;
+    if(!(target>entry&&entry>stop&&stop>0))return gate('Wait','Entry overlaps resistance, or structural stop is invalid.',{entry:entry,stop:stop,target:target});
+    var r=(target-entry)/(entry-stop);
+    return gate(r>=minR?'Pass':'Wait',r.toFixed(2)+'R gross at confirmation close; needs ≥'+minR+'R. Fees, slippage and current entry still require review.',{r:r,entry:entry,stop:stop,target:target});
+  }
+  function evaluate(d,tf,now,cfg){
+    cfg=cfg||state;
+    var current=['4h','1d','1w'].includes(tf)&&sfScannerEvidenceCurrent(d,tf,now),valid=validConfig(cfg);
+    var unavailable=gate('Unknown',valid?'Current matching '+tf.toUpperCase()+' closed scanner evidence required.':'Invalid shortlist thresholds.');
+    var first=current&&valid?[turnover(d,now,cfg.minTurnover),btc(d,tf,now),sfScannerRelative(d,tf,now)]:[unavailable,unavailable,unavailable];
+    var matches=current&&valid&&Array.isArray(d.entryConfirmation.matches)?d.entryConfirmation.matches:[];
+    var choices=matches.map(function(m,i){
+      var allowed=m&&['support','sweep','breakout','fvg'].includes(m.kind)&&known(m.setupAt)&&m.setupAt>0&&m.setupAt<=d.analysisSnapshot.lastClosedTime&&
+        (m.state!=='Confirmed'||known(m.confirmedAt)&&m.confirmedAt>m.setupAt&&m.confirmedAt<=d.analysisSnapshot.lastClosedTime);
+      var gates=first.concat(allowed?[sfSupportVolume(m),gate(m.state==='Confirmed'?'Pass':'Wait',m.state+' · '+(m.reason||'No closed confirmation.')),room(d,m,cfg.minR)]:[gate('Unknown','Unsupported setup or invalid causal timestamps.'),unavailable,unavailable]);
+      var price=allowed?entryConfirmationPriceState(d,m,tf,now):{state:'Unavailable',reason:'Unsupported setup'};
+      var passed=gates.filter(function(g,i){return g.state==='Pass'||(i===2&&d.sym==='BTCUSDT'&&g.state==='N/A');}).length;
+      var all=passed===6,status=all?(price.state==='Eligible'?'review':price.state==='Unavailable'?'quote':['Late','Invalidated','Expired'].includes(price.state)?'late':'wait'):
+        gates.some(function(g){return g.state==='Unknown';})?'unknown':'wait';
+      return {d:d,sym:d.sym,tf:tf,match:m,matchIndex:i,gates:gates,price:price,passed:passed,qualified:all,candidate:status==='review'||status==='quote',status:status};
+    });
+    if(!choices.length){var tail=current&&valid?gate('Wait','No support/reclaim/retest setup found.'):unavailable;
+      choices.push({d:d,sym:d.sym,tf:tf,match:null,matchIndex:-1,gates:first.concat([tail,tail,tail]),price:{state:'Unavailable',reason:'No current confirmed setup.'},passed:0,qualified:false,candidate:false,status:current&&valid&&!first.some(function(g){return g.state==='Unknown';})?'wait':'unknown'});
+    }
+    // One entire setup per row: never combine one setup's volume with another's trigger/risk.
+    choices.sort(function(a,b){return ORDER[a.status]-ORDER[b.status]||b.passed-a.passed||((b.match&&b.match.confirmedAt)||0)-((a.match&&a.match.confirmedAt)||0)||a.matchIndex-b.matchIndex;});
+    var selected=choices[0];selected.passed=selected.gates.filter(function(g,i){return g.state==='Pass'||(i===2&&d.sym==='BTCUSDT'&&g.state==='N/A');}).length;
+    selected.label=LABELS[selected.status];return selected;
+  }
+  function universe(data,range){
+    var seen={};return (data||[]).filter(function(d){
+      if(!d||!sfDirectionalSymbol(d.sym)||seen[d.sym])return false;
+      if(typeof marketCapMatches==='function'&&!marketCapMatches(d.sym,range))return false;
+      seen[d.sym]=true;return true;
+    });
+  }
+  function ranking(data,tf,now,cfg,range){
+    return universe(data,range).map(function(d){return evaluate(d,tf,now,cfg);}).sort(function(a,b){
+      return ORDER[a.status]-ORDER[b.status]||a.sym.localeCompare(b.sym);
+    }); // No opaque score or probability: workflow group, then alphabetical.
+  }
+  function visible(){var ov=document.getElementById('scan-ov');return typeof scanTab!=='undefined'&&scanTab==='spot_shortlist'&&!document.hidden&&ov&&ov.classList.contains('show');}
+  function rows(){return ranking(allData||[],scanTF,Date.now(),state,(document.getElementById('f-cap')||{}).value||'all');}
+  function badge(g,title){return '<span class="ss-gate ss-'+(g.state==='Pass'||g.state==='N/A'?'pass':g.state==='Unknown'?'unknown':'wait')+'" title="'+sfEsc(g.reason)+'">'+sfEsc(title)+' · '+sfEsc(g.state)+'</span>';}
+  function catalystLabel(sym,now){
+    var manual=spotFlow.catalysts[sym],ai=spotFlow.research[sym];
+    if(manual&&sfCatalyst(manual,sym,now).state==='Pass')return 'Manual source review saved';
+    if(ai&&sfAICatalyst(ai,sym,now).state==='Pass')return 'AI source-supported · not independently verified';
+    return 'Catalyst / unlock / event risks: review needed';
+  }
+  function card(x){
+    var d=x.d,price=x.price,g=x.gates[5],s=d.analysisSnapshot||{},m=x.match,rs=x.gates[2];
+    var metrics=['RS '+(known(rs.rank)?rs.rank+'/99':rs.state==='N/A'?'N/A':'unknown'),
+      'weighted excess '+(known(rs.excess)?sfPct(rs.excess):'unknown'),
+      'setup volume '+(m&&known(m.volumeRatio)?m.volumeRatio.toFixed(2)+'×':'unknown'),
+      'gross room '+(known(g.r)?g.r.toFixed(2)+'R':'unknown'),
+      '24h turnover '+(known(x.gates[0].value)?sfPrice(x.gates[0].value)+' USDT':'unknown')];
+    return '<article class="ss-card"><div class="ss-row"><strong>'+sfEsc(d.sym.replace(/USDT$/,'/USDT'))+'</strong><b class="ss-state ss-'+x.status+'">'+x.label+'</b><span class="ss-note">'+sfEsc(s.source||'Unknown')+' · '+sfEsc(x.tf.toUpperCase())+'</span></div>'+
+      '<div class="ss-gates">'+x.gates.map(function(g,i){return badge(g,TITLES[i]);}).join('')+'</div>'+
+      '<p class="ss-note">'+sfEsc(metrics.join(' · '))+'</p>'+
+      '<p>'+sfEsc(m?m.kind+' · '+m.state+' · confirmed '+sfTime(m.confirmedAt):'No current support-based setup')+'</p>'+
+      '<p><b>'+sfEsc(price.label||price.state)+'</b> · '+sfEsc(price.reason)+'</p>'+
+      '<div class="ss-note">'+sfEsc(catalystLabel(d.sym,Date.now()))+'<br>Execution: order size, live two-sided depth, fees and net risk remain a separate check.</div>'+
+      '<details data-ss-detail="'+sfEsc(d.sym)+'"><summary>Why included / excluded · evidence</summary>'+x.gates.map(function(a,i){return '<p><b>'+TITLES[i]+': '+sfEsc(a.state)+'</b><br>'+sfEsc(a.reason)+'</p>';}).join('')+
+      '<p>Closed through '+sfEsc(sfTime(s.lastClosedTime))+'. '+(m?'Setup '+sfEsc(sfTime(m.setupAt))+'. ':'')+'Quote requested '+sfEsc(sfTime(price.quoteAt))+' · 30s maximum age.</p>'+
+      (known(g.r)?'<p>Historical planning reference only: close '+sfPrice(g.entry)+' · stop '+sfPrice(g.stop)+' · nearest resistance edge '+sfPrice(g.target)+'. No current fill assumed; no exchange order placed.</p>':'')+'</details>'+
+      '<div class="ss-row"><button class="btn" data-ss-review="'+sfEsc(d.sym)+'">Review catalyst & execution</button><button class="btn" data-ss-chart="'+sfEsc(d.sym)+'">Open '+sfEsc(x.tf.toUpperCase())+' chart</button></div></article>';
+  }
+  function paint(){
+    if(!visible())return;var host=document.getElementById('ss-results');if(!host)return;
+    var all=rows(),counts={review:0,quote:0,wait:0,late:0,unknown:0};all.forEach(function(x){counts[x.status]++;});
+    var search=state.search.trim().toUpperCase(),list=all.filter(function(x){return (!search||x.sym.includes(search))&&(state.filter==='all'||state.filter==='candidates'&&x.candidate||x.status===state.filter);});
+    state.page=Math.max(0,Math.min(state.page,Math.max(0,Math.ceil(list.length/20)-1)));var page=list.slice(state.page*20,state.page*20+20);
+    var sum=document.getElementById('ss-summary');if(sum)sum.textContent=all.length+' pairs · '+counts.review+' review execution · '+counts.quote+' need quote · '+counts.wait+' waiting · '+counts.late+' late/invalidated · '+counts.unknown+' missing data';
+    var subtitle=document.getElementById('scan-sub');if(subtitle)subtitle.textContent='Spot Shortlist · '+scanTF.toUpperCase()+' · evidence gates, not a buy ranking';
+    var upd=document.getElementById('scan-upd');if(upd)upd.textContent='Uses current scanner / market-cap scope · no automatic AI or orders';
+    var html=page.map(card).join('')||'<div class="ss-empty"><b>No coins match this view.</b><p>Nothing passing is a valid result. Re-scan or inspect all results to see the failed and missing checks.</p><button class="btn" onclick="SpotShortlist.set(\'filter\',\'all\')">Show all results</button></div>';
+    if(host._markup!==html){var open=Array.from(host.querySelectorAll('details[open]')).map(function(e){return e.getAttribute('data-ss-detail');});host.innerHTML=html;host._markup=html;
+      host.querySelectorAll('details').forEach(function(e){e.open=open.includes(e.getAttribute('data-ss-detail'));});
+      host.querySelectorAll('[data-ss-chart]').forEach(function(b){b.onclick=function(){openScannerChart(b.getAttribute('data-ss-chart'),scanTF);};});
+      host.querySelectorAll('[data-ss-review]').forEach(function(b){b.onclick=function(){review(b.getAttribute('data-ss-review'));};});
+    }
+    var paging=document.getElementById('ss-page');if(paging)paging.textContent=list.length?'Showing '+(state.page*20+1)+'–'+Math.min(list.length,(state.page+1)*20)+' of '+list.length:'0 results';
+    var prev=document.getElementById('ss-prev'),next=document.getElementById('ss-next');if(prev)prev.disabled=state.page===0;if(next)next.disabled=(state.page+1)*20>=list.length;
+    var msg=document.getElementById('ss-message');if(msg)msg.textContent=state.message;
+    var refresh=document.getElementById('ss-quotes');if(refresh)refresh.disabled=state.quoteBusy;
+    var filter=document.getElementById('ss-filter');if(filter&&filter.value!==state.filter)filter.value=state.filter;
+  }
+  function set(key,value){
+    if(key==='filter'&&['all','candidates','review','quote','wait','late','unknown'].includes(value))state.filter=value;
+    else if(key==='search')state.search=String(value).slice(0,40);
+    else if(key==='minTurnover'||key==='minR'){
+      var n=String(value).trim()===''?NaN:Number(value),cfg=Object.assign({},state);cfg[key]=n;
+      if(!validConfig(cfg)){var input=document.getElementById(key==='minR'?'ss-min-r':'ss-turnover');if(input)input.value=state[key];state.message='Invalid filter. Turnover must be 0–1 trillion USDT; minimum gross R must be 1–10. Previous settings remain active.';paint();return false;}
+      state[key]=n;state.message='Research filter changed. This does not change scanner signals or trading plans.';
+    }else return false;
+    state.page=0;paint();return true;
+  }
+  function movePage(delta){state.page+=delta;paint();}
+  async function quotes(){
+    if(state.quoteBusy)return;state.quoteBusy=true;state.message='Refreshing same-venue quotes; turnover still uses the last full scan.';paint();
+    try{await refreshEntryConfirmationQuotes(true);state.message=scanEntryQuotes.error||'Quotes checked. Price location expires after 30 seconds; order-book execution is still unverified.';}
+    catch(e){state.message='Quote refresh unavailable. No entry status inferred.';}
+    finally{state.quoteBusy=false;paint();}
+  }
+  function review(sym){
+    var chosen=rows().find(function(x){return x.sym===sym;});if(!chosen)return;
+    sfInvalidate();spotFlow.sym=sym;spotFlow.tf=scanTF;spotFlow.ack='';sfSyncScanner();
+    var r=spotFlow.records[sfKey(sym,scanTF)];if(r&&chosen.match){var at=r.d.entryConfirmation.matches.findIndex(function(m){return m.kind===chosen.match.kind&&m.setupAt===chosen.match.setupAt&&m.zoneLow===chosen.match.zoneLow;});if(at>=0)r.matchIndex=at;}
+    setScanTab('spot_flow'); // No automatic search, book request, account input or acknowledgment.
+  }
+  function render(){
+    if(scanTab!=='spot_shortlist')return;sfRestore();var body=document.getElementById('scan-body');if(!body)return;
+    if(!document.getElementById('ss-root')){
+      body.innerHTML='<style>#ss-root{padding:14px;font-size:12px;line-height:1.55}#ss-root .ss-note{color:var(--t2);font-size:11px}#ss-root .ss-row,#ss-root .ss-gates{display:flex;align-items:center;gap:8px;flex-wrap:wrap}#ss-root .ss-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:12px 0}#ss-root input,#ss-root select{display:block;box-sizing:border-box;width:100%;padding:7px;border:1px solid var(--bd);background:var(--card);color:var(--text);border-radius:5px}#ss-root .ss-card{border:1px solid var(--bd);padding:12px;border-radius:9px;margin:10px 0;overflow-wrap:anywhere}#ss-root p{margin:7px 0}#ss-root .ss-gates{margin:8px 0;gap:5px}#ss-root .ss-gate{font-size:10px;border:1px solid currentColor;border-radius:4px;padding:2px 5px}#ss-root .ss-pass,#ss-root .ss-review{color:var(--g)}#ss-root .ss-wait,#ss-root .ss-quote{color:var(--am)}#ss-root .ss-unknown{color:var(--t2)}#ss-root .ss-late{color:var(--r)}#ss-root details{border-top:1px solid var(--bd);padding:8px 0;margin:8px 0}#ss-root summary{cursor:pointer;font-weight:600}#ss-root .ss-empty{text-align:center;padding:24px 6px}#ss-root .btn{white-space:normal}#ss-root button:focus-visible,#ss-root input:focus-visible,#ss-root select:focus-visible{outline:2px solid var(--g);outline-offset:2px}</style>'+
+        '<div id="ss-root"><b>Find candidates, then check the trade</b><p>Turnover → BTC context → positive BTC-relative strength → support with volume → closed confirmation → room to resistance → live execution review. All screening gates must pass; a strong score cannot compensate for missing evidence.</p>'+
+        '<p class="ss-note">4H / 1D / 1W independently. Uses existing scanner evidence; no duplicate candle scan or automatic AI. Known stable, pegged and leveraged tokens are excluded heuristically. Main market-cap scope applies; other row filters do not.</p>'+
+        '<div class="ss-controls"><label>Show<select id="ss-filter" onchange="SpotShortlist.set(\'filter\',this.value)">'+[['candidates','Candidates to review'],['all','All results / reasons'],['review','Review execution'],['quote','Refresh quote'],['wait','Waiting for checks'],['late','Late / invalidated'],['unknown','Missing data']].map(function(p){return '<option value="'+p[0]+'"'+(p[0]===state.filter?' selected':'')+'>'+p[1]+'</option>';}).join('')+'</select></label>'+
+        '<label>Coin<input id="ss-search" placeholder="BTC, SOL…" value="'+sfEsc(state.search)+'" maxlength="40" oninput="SpotShortlist.set(\'search\',this.value)"></label><label>Min 24h turnover · USDT<input id="ss-turnover" type="number" min="0" max="1000000000000" value="'+state.minTurnover+'" onchange="SpotShortlist.set(\'minTurnover\',this.value)"></label><label>Min gross room · R<input id="ss-min-r" type="number" min="1" max="10" step="0.1" value="'+state.minR+'" onchange="SpotShortlist.set(\'minR\',this.value)"></label></div>'+
+        '<div class="ss-row"><button id="ss-quotes" class="btn" onclick="SpotShortlist.quotes()">Refresh quotes</button><span class="ss-note">Re-scan below refreshes candles, RS and turnover.</span></div><p id="ss-message" role="status"></p><p id="ss-summary" aria-live="polite"></p>'+
+        '<details><summary>How to use · research, rules and limitations</summary><p>Start on 4H, inspect the 1D/1W chart context, and open a candidate’s review. Check the exact token, primary-source catalyst, unlocks/dilution, major economic events and correlated holdings. No news found is not proof of no risk.</p><p>Default filters: reported turnover ≥5M USDT/24h, BTC bullish or stable, scanner RS rank ≥70/99 with positive excess and positive last-7-bar return, setup volume ≥1.5×, a confirmed support/reclaim/retest, and ≥2R gross to the nearest mapped resistance. These are adjustable/reused research choices, not optimized or proven thresholds. RS is weighted 7/14/30/60 selected-timeframe bars, not RSI or a one-day ranking.</p><p>Gross R uses the historical confirmation close, structural stop (risk reference −0.1 pre-setup ATR) and nearest resistance edge. It excludes fees/slippage and is NOT today’s executable R. A fresh price-only check never verifies liquidity. Review a same-venue book for your size and net R after costs in Spot Trade Flow. Stops can slip and limit orders can remain unfilled.</p><p>Grouped by next action, then alphabetically—not predicted returns or win probability. No trading/scanner scores changed. Multiple passing coins may share the same BTC exposure. Review portfolio concentration separately.</p><p><a href="https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/relative-strength-comparison" target="_blank" rel="noopener noreferrer">Fidelity: relative strength</a> · <a href="https://www.coinbase.com/learn/advanced-trading/what-is-an-order-book" target="_blank" rel="noopener noreferrer">Coinbase: book, spread and depth</a> · <a href="https://www.investor.gov/introduction-investing/general-resources/news-alerts/alerts-bulletins/investor-alerts/crypto-asset-securities" target="_blank" rel="noopener noreferrer">Investor.gov: crypto risks</a></p></details><div id="ss-results"></div><div class="ss-row"><button id="ss-prev" class="btn" onclick="SpotShortlist.movePage(-1)">Previous</button><span id="ss-page"></span><button id="ss-next" class="btn" onclick="SpotShortlist.movePage(1)">Next</button></div><p class="ss-note">No orders, automatic AI research, fills or profit guarantees · '+VERSION+'</p></div>';
+    }
+    paint();if(!state.timer)state.timer=setInterval(function(){if(visible())paint();},1000);
+  }
+  return {version:VERSION,evaluate:evaluate,ranking:ranking,universe:universe,turnover:turnover,room:room,render:render,paint:paint,set:set,movePage:movePage,quotes:quotes,review:review};
 })();
 
 </script>
