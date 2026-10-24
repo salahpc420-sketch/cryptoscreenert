@@ -16,7 +16,7 @@
 <meta name="early-watch-build" content="2026.10.18-confirmation-r1">
 <meta name="chart-patterns-build" content="2026.10.18-patterns-r1">
 <meta name="clean-levels-build" content="2026.10.21-clean-levels-r1">
-<meta name="spot-shortlist-build" content="2026.10.21-spot-shortlist-r1">
+<meta name="spot-shortlist-build" content="2026.10.23-spot-shortlist-bot-watchlist-r2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -22199,7 +22199,7 @@ function _drawChartNow() {
   for (var pp = priceStart; pp <= pMax; pp += priceStep) {
     var gy = snapY(pY(pp));   // crisp 1px stroke (research: half-pixel snap)
     if (gy < TOP_PAD || gy > TOP_PAD + CANDLE_H) continue;
-    ctx.strokeStyle = 'rgba(120,123,134,.10)';   // softer than before — candles pop
+    ctx.strokeStyle = 'rgba(220,228,240,.22)';   // readable horizontal price grid, below cursor/level contrast
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(chartW, gy); ctx.stroke();
     ctx.fillStyle = C.text2;
@@ -23253,12 +23253,12 @@ function _drawChartNow() {
     ctx.beginPath(); ctx.moveTo(cxp, 0); ctx.lineTo(cxp, TOTAL_H - BOTTOM_PAD); ctx.stroke();
     // Horizontal line — price area only
     if (cyp >= TOP_PAD && cyp <= TOP_PAD + CANDLE_H) {
-      ctx.beginPath(); ctx.moveTo(0, cyp); ctx.lineTo(chartW, cyp); ctx.stroke();
+      drawChartHorizontalCursorLine(ctx, chartW, cyp);
       ctx.setLineDash([]);
       var cprice2 = pMin + pRange * (1 - (cyp - TOP_PAD) / CANDLE_H);
       drawChartCursorPriceBadge(ctx, cprice2, chartState, klines, chartW, cyp, RIGHT_PAD, TOP_PAD, CANDLE_H);
     } else if(btcPanelMap&&cyp>=btcPanelMap.top&&cyp<=btcPanelMap.top+btcPanelMap.height){
-      ctx.beginPath();ctx.moveTo(0,cyp);ctx.lineTo(chartW,cyp);ctx.stroke();ctx.setLineDash([]);
+      drawChartHorizontalCursorLine(ctx, chartW, cyp);ctx.setLineDash([]);
       var btcCursorPrice=btcPanelMap.min+btcPanelMap.range*(1-(cyp-btcPanelMap.top)/btcPanelMap.height);
       ctx.fillStyle='#b66a0e';ctx.fillRect(chartW,cyp-9,RIGHT_PAD,18);ctx.fillStyle='#fff';ctx.font='bold 11px sans-serif';ctx.textAlign='left';
       ctx.fillText(fmtPrice(btcCursorPrice),chartW+5,cyp+4,RIGHT_PAD-8);
@@ -23441,6 +23441,16 @@ function chartCursorPriceChange(price, state, rows) {
   if (!Number.isFinite(pct)) return {text: 'Change n/a', reference: null};
   var rounded = Number(pct.toFixed(2)); // Do not display negative zero.
   return {text: (rounded > 0 ? '+' : '') + rounded.toFixed(2) + '%' + (fallback ? ' last' : ''), reference: ref};
+}
+function drawChartHorizontalCursorLine(ctx, width, y) {
+  // Shared by normal, fullscreen, mobile and BTC comparison panes.
+  // Keep the vertical guide subtle; emphasize only the selected price row.
+  ctx.save();
+  ctx.strokeStyle = '#f5f8ff';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
+  ctx.restore();
 }
 function drawChartCursorPriceBadge(ctx, price, state, rows, x, y, width, top, height) {
   var change = chartCursorPriceChange(price, state, rows);
@@ -29819,7 +29829,7 @@ function spotTurnoverEvidence(sym,ticker){
   return {version:1,symbol:sym,source:q.source,quote:'USDT',quoteVolume24h:Number(v),at:q.at,receivedAt:q.receivedAt};
 }
 var SpotShortlist=(function(){
-  var VERSION='2026.10.21-spot-shortlist-r1',state={filter:'candidates',search:'',minTurnover:5000000,minR:2,page:0,quoteBusy:false,message:'',timer:null};
+  var VERSION='2026.10.23-spot-shortlist-bot-watchlist-r2',state={filter:'candidates',search:'',minTurnover:5000000,minR:2,page:0,quoteBusy:false,message:'',timer:null};
   var TITLES=['Turnover','BTC context','Relative strength','Support + volume','Closed trigger','Room before costs'];
   var LABELS={review:'Review execution',quote:'Refresh quote',wait:'Waiting for checks',late:'Late / invalidated',unknown:'Data missing'};
   var ORDER={review:0,quote:1,wait:2,late:3,unknown:4};
@@ -29959,6 +29969,21 @@ var SpotShortlist=(function(){
     var r=spotFlow.records[sfKey(sym,scanTF)];if(r&&chosen.match){var at=r.d.entryConfirmation.matches.findIndex(function(m){return m.kind===chosen.match.kind&&m.setupAt===chosen.match.setupAt&&m.zoneLow===chosen.match.zoneLow;});if(at>=0)r.matchIndex=at;}
     setScanTab('spot_flow'); // No automatic search, book request, account input or acknowledgment.
   }
+  function botWatchlist(){
+    var search=state.search.trim().toUpperCase(),selected=rows().filter(function(x){return x.candidate&&(!search||x.sym.indexOf(search)>=0);});
+    if(!selected.length||selected.length>20)throw Error('Export needs 1–20 current candidates. Narrow the Coin search if needed. Missing or failed evidence is not exported.');
+    return {schema:'coinscreener.watchlist.v1',purpose:'research-watchlist-not-orders',generatedAt:Date.now(),
+      scannerTimeframe:scanTF,symbols:selected.map(function(x){return x.sym.slice(0,-4)+'-USDT';}),
+      note:'Symbols only, not entry instructions. Scanner venues may differ. The BingX paper bot independently rechecks BingX candles, setup, liquidity and risk. No keys, prices, account information or AI prompts are exported.'};
+  }
+  function exportBotWatchlist(){
+    try{
+      var payload=botWatchlist(),url=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'})),a=document.createElement('a');
+      a.href=url;a.download='coinscreener-bot-watchlist.json';a.click();setTimeout(function(){URL.revokeObjectURL(url);},1000);
+      state.message='Exported '+payload.symbols.length+' symbols for independent BingX PAPER research. This does not send signals, approve entries or place orders.';
+    }catch(e){state.message=String(e.message||e);}
+    paint();
+  }
   function render(){
     if(scanTab!=='spot_shortlist')return;sfRestore();var body=document.getElementById('scan-body');if(!body)return;
     if(!document.getElementById('ss-root')){
@@ -29967,12 +29992,12 @@ var SpotShortlist=(function(){
         '<p class="ss-note">4H / 1D / 1W independently. Uses existing scanner evidence; no duplicate candle scan or automatic AI. Known stable, pegged and leveraged tokens are excluded heuristically. Main market-cap scope applies; other row filters do not.</p>'+
         '<div class="ss-controls"><label>Show<select id="ss-filter" onchange="SpotShortlist.set(\'filter\',this.value)">'+[['candidates','Candidates to review'],['all','All results / reasons'],['review','Review execution'],['quote','Refresh quote'],['wait','Waiting for checks'],['late','Late / invalidated'],['unknown','Missing data']].map(function(p){return '<option value="'+p[0]+'"'+(p[0]===state.filter?' selected':'')+'>'+p[1]+'</option>';}).join('')+'</select></label>'+
         '<label>Coin<input id="ss-search" placeholder="BTC, SOL…" value="'+sfEsc(state.search)+'" maxlength="40" oninput="SpotShortlist.set(\'search\',this.value)"></label><label>Min 24h turnover · USDT<input id="ss-turnover" type="number" min="0" max="1000000000000" value="'+state.minTurnover+'" onchange="SpotShortlist.set(\'minTurnover\',this.value)"></label><label>Min gross room · R<input id="ss-min-r" type="number" min="1" max="10" step="0.1" value="'+state.minR+'" onchange="SpotShortlist.set(\'minR\',this.value)"></label></div>'+
-        '<div class="ss-row"><button id="ss-quotes" class="btn" onclick="SpotShortlist.quotes()">Refresh quotes</button><span class="ss-note">Re-scan below refreshes candles, RS and turnover.</span></div><p id="ss-message" role="status"></p><p id="ss-summary" aria-live="polite"></p>'+
+        '<div class="ss-row"><button id="ss-quotes" class="btn" onclick="SpotShortlist.quotes()">Refresh quotes</button><button id="ss-bot-export" class="btn" onclick="SpotShortlist.exportBotWatchlist()">Export bot watchlist</button><span class="ss-note">Export 1–20 current candidates matching Coin search, across pages. Symbols only; no orders. Re-scan refreshes candles, RS and turnover.</span></div><p id="ss-message" role="status"></p><p id="ss-summary" aria-live="polite"></p>'+
         '<details><summary>How to use · research, rules and limitations</summary><p>Start on 4H, inspect the 1D/1W chart context, and open a candidate’s review. Check the exact token, primary-source catalyst, unlocks/dilution, major economic events and correlated holdings. No news found is not proof of no risk.</p><p>Default filters: reported turnover ≥5M USDT/24h, BTC bullish or stable, scanner RS rank ≥70/99 with positive excess and positive last-7-bar return, setup volume ≥1.5×, a confirmed support/reclaim/retest, and ≥2R gross to the nearest mapped resistance. These are adjustable/reused research choices, not optimized or proven thresholds. RS is weighted 7/14/30/60 selected-timeframe bars, not RSI or a one-day ranking.</p><p>Gross R uses the historical confirmation close, structural stop (risk reference −0.1 pre-setup ATR) and nearest resistance edge. It excludes fees/slippage and is NOT today’s executable R. A fresh price-only check never verifies liquidity. Review a same-venue book for your size and net R after costs in Spot Trade Flow. Stops can slip and limit orders can remain unfilled.</p><p>Grouped by next action, then alphabetically—not predicted returns or win probability. No trading/scanner scores changed. Multiple passing coins may share the same BTC exposure. Review portfolio concentration separately.</p><p><a href="https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/relative-strength-comparison" target="_blank" rel="noopener noreferrer">Fidelity: relative strength</a> · <a href="https://www.coinbase.com/learn/advanced-trading/what-is-an-order-book" target="_blank" rel="noopener noreferrer">Coinbase: book, spread and depth</a> · <a href="https://www.investor.gov/introduction-investing/general-resources/news-alerts/alerts-bulletins/investor-alerts/crypto-asset-securities" target="_blank" rel="noopener noreferrer">Investor.gov: crypto risks</a></p></details><div id="ss-results"></div><div class="ss-row"><button id="ss-prev" class="btn" onclick="SpotShortlist.movePage(-1)">Previous</button><span id="ss-page"></span><button id="ss-next" class="btn" onclick="SpotShortlist.movePage(1)">Next</button></div><p class="ss-note">No orders, automatic AI research, fills or profit guarantees · '+VERSION+'</p></div>';
     }
     paint();if(!state.timer)state.timer=setInterval(function(){if(visible())paint();},1000);
   }
-  return {version:VERSION,evaluate:evaluate,ranking:ranking,universe:universe,turnover:turnover,room:room,render:render,paint:paint,set:set,movePage:movePage,quotes:quotes,review:review};
+  return {version:VERSION,evaluate:evaluate,ranking:ranking,universe:universe,turnover:turnover,room:room,render:render,paint:paint,set:set,movePage:movePage,quotes:quotes,review:review,botWatchlist:botWatchlist,exportBotWatchlist:exportBotWatchlist};
 })();
 
 </script>
