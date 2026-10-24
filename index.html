@@ -17,6 +17,7 @@
 <meta name="chart-patterns-build" content="2026.10.18-patterns-r1">
 <meta name="clean-levels-build" content="2026.10.21-clean-levels-r1">
 <meta name="spot-shortlist-build" content="2026.10.23-spot-shortlist-bot-watchlist-r2">
+<meta name="new-listings-build" content="2026.10.25-discovery-r1">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -61,6 +62,24 @@ h1{font-size:17px;font-weight:800;letter-spacing:-.01em}
 .btn:hover,.tab:hover,.itab:hover{background:var(--card2);color:var(--text)}
 .btn.primary{background:var(--g);color:#fff;border-color:var(--g);font-weight:700}
 .btn.primary:hover{opacity:.88}
+/* Independent watch-only listings; no scanner score or order integration. */
+#new-listings-root{line-height:1.55;min-width:0}
+#new-listings-root p{margin:6px 0}
+#new-listings-root a{color:var(--bl);overflow-wrap:anywhere}
+.nl-heading,.nl-actions,.nl-card-top,.nl-filters{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.nl-heading{justify-content:space-between;margin-bottom:14px}.nl-heading h3{font-size:18px}.nl-heading p,.nl-meta{color:var(--t2);font-size:12px}
+.nl-tabs{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px}.nl-tabs .btn{padding:9px 12px}.nl-tabs .nl-selected{background:var(--blb);border-color:var(--bl);color:var(--text)}
+.nl-filters{align-items:flex-end}.nl-filters label{display:flex;flex-direction:column;gap:4px;font-size:12px}.nl-filters .nl-checkbox{flex-direction:row;align-items:center;min-height:38px}
+#new-listings-root input:not([type=checkbox]),#new-listings-root select{padding:9px;border:1px solid var(--bd2);border-radius:8px;background:var(--card);color:var(--text);font:inherit;max-width:100%;min-width:0}
+.nl-note{padding:12px;border-left:3px solid var(--am);background:var(--amb);border-radius:6px;margin:12px 0}
+.nl-health{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:14px 0}.nl-health article{padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--card2)}.nl-health span{display:block;font-weight:600}.nl-health small{display:block;color:var(--t2);margin-top:4px;overflow-wrap:anywhere}
+.nl-good{color:#087f5b}.nl-warning{color:#9b5900}.nl-results{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.nl-card{padding:15px;border:1px solid var(--bd2);border-radius:10px;min-width:0;background:var(--card)}.nl-card h4{font-size:15px;margin:10px 0}.nl-card p{overflow-wrap:anywhere;font-size:12px}.nl-card details{border-top:1px solid var(--bd);padding-top:10px;margin-top:12px;color:var(--t2)}
+.nl-venue{font-weight:700;font-size:11px;letter-spacing:.04em;text-transform:uppercase}.nl-state{margin-left:auto;border-radius:5px;padding:3px 7px;background:var(--card3);font-size:11px}.nl-state.nl-live{color:#087f5b;background:var(--gb)}.nl-state.nl-risk{color:#b93838;background:var(--rb)}.nl-countdown{font-weight:600}.nl-identity{color:var(--t2)}
+.nl-empty{padding:28px;border:1px dashed var(--bd2);border-radius:10px;grid-column:1/-1}.nl-empty p{color:var(--t2)}.nl-pagination{justify-content:center;margin:16px 0}.nl-settings{border-top:1px solid var(--bd);padding:12px 0}.nl-settings summary,.nl-card summary{cursor:pointer}.nl-settings input{width:min(100%,520px);display:block;margin:8px 0}.nl-settings .nl-actions{margin:10px 0}#new-listings-root button:disabled{opacity:.5;cursor:not-allowed}#new-listings-root :focus-visible{outline:2px solid var(--bl);outline-offset:3px}
+@media(max-width:800px){.nl-health{grid-template-columns:repeat(2,minmax(0,1fr))}.nl-results{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:450px){.nl-filters>label{width:100%}.nl-heading .nl-actions{width:100%}.nl-card-top{align-items:flex-start}.nl-state{margin-left:0}.nl-health{grid-template-columns:minmax(0,1fr)}}
+@media(prefers-color-scheme:dark){.nl-good,.nl-state.nl-live{color:#55d7ac}.nl-warning{color:#ffbd5a}.nl-state.nl-risk{color:#ff9898}}
 .lupd{font-size:11px;color:var(--t3);margin-left:auto}
 /* search */
 .sw{position:relative;margin-bottom:.625rem}
@@ -885,6 +904,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
     <button class="intel-tab active" id="it-macro" onclick="showIntel('macro')">🌍 Macro</button>
     <button class="intel-tab" id="it-charts" onclick="showIntel('charts')">📈 Market Charts</button>
     <button class="intel-tab" id="it-fvg" onclick="showIntel('fvg')">🟩 Bullish FVG</button>
+    <button class="intel-tab" id="it-listings" onclick="showIntel('listings')">🆕 New Listings</button>
     <button class="intel-tab" id="it-macrotape" onclick="showIntel('macrotape')">Macro tape</button>
     <button class="intel-tab" id="it-spotstrategy" onclick="showIntel('spotstrategy')">Spot strategy</button>
     <button class="intel-tab" id="it-marketread" onclick="showIntel('marketread')">🧭 Market Read</button>
@@ -909,6 +929,7 @@ footer{text-align:center;font-size:11px;color:var(--t3);padding:1.5rem 0 .5rem}
       <div id="btc-detail" style="margin-top:.8rem"></div>
     </div>
     <div class="intel-panel" id="ip-fvg"><div id="fvg-watch-root">Open Bullish FVG to track 1H, 4H and 1D closed-candle zones.</div></div>
+    <div class="intel-panel" id="ip-listings"><div id="new-listings-root">Open New Listings for independent spot-listing and pre-launch discovery.</div></div>
     <div class="intel-panel" id="ip-charts">
       <div class="market-chart-tools" role="group" aria-label="Crypto market chart">
         <button class="market-chart-btn" id="market-chart-btn-usdtd" data-market-chart="usdtd" aria-pressed="false" onclick="openMarketChart('usdtd')">₮ USDT.D</button>
@@ -18313,7 +18334,7 @@ function renderMarketChart(key,force){
   });
 }
 function showIntel(which){
-  var tabs = ['macro','charts','fvg','macrotape','spotstrategy','marketread','buyzone','regime','narr','sector','events','candle','moon','agent','beta'];
+  var tabs = ['macro','charts','fvg','listings','macrotape','spotstrategy','marketread','buyzone','regime','narr','sector','events','candle','moon','agent','beta'];
   tabs.forEach(function(t){
     var tab = document.getElementById('it-'+t);
     var panel = document.getElementById('ip-'+t);
@@ -18333,6 +18354,7 @@ function showIntel(which){
   if(which==='agent') renderAgent();
   if(which==='beta') renderBetaTab();
   if(which==='fvg'&&typeof fvgWatchStart==='function') fvgWatchStart();
+  if(which==='listings'&&typeof NewListings!=='undefined') NewListings.open();
   // Make sure body is expanded when a tab is clicked
   var body = document.getElementById('intel-body');
   var btn = document.getElementById('intel-collapse-btn');
@@ -29998,6 +30020,309 @@ var SpotShortlist=(function(){
     paint();if(!state.timer)state.timer=setInterval(function(){if(visible())paint();},1000);
   }
   return {version:VERSION,evaluate:evaluate,ranking:ranking,universe:universe,turnover:turnover,room:room,render:render,paint:paint,set:set,movePage:movePage,quotes:quotes,review:review,botWatchlist:botWatchlist,exportBotWatchlist:exportBotWatchlist};
+})();
+
+</script>
+<script data-bundled-source="new-listings-core.js">
+'use strict';
+// Shared deterministic discovery rules. No scores, order instructions or AI calls.
+(function(root,factory){
+  const api=factory();
+  if(typeof module==='object'&&module.exports)module.exports=api;
+  else root.ListingCore=api;
+})(typeof globalThis!=='undefined'?globalThis:this,function(){
+  const VERSION=1,DAY=86400000,FRESH=20*60000;
+  const SOURCES={
+    Bybit:'https://announcements.bybit.com/en-US/',
+    BingX:'https://bingx.com/en/support/notice-center/11257060005007',
+    Binance:'https://www.binance.com/en/support/announcement',
+    GeckoTerminal:'https://www.geckoterminal.com/explore/new-crypto-pools'
+  };
+  function text(v,max=600){return typeof v==='string'?v.replace(/[\u0000-\u001f]/g,' ').replace(/\s+/g,' ').trim().slice(0,max):'';}
+  function stamp(v){
+    if(v==null||v==='')return null;
+    if(typeof v==='number')return Number.isFinite(v)&&v>1e12&&v<1e14?v:null;
+    if(!/^\d{4}-\d\d-\d\dT.*(?:Z|[+-]\d\d:\d\d)$/i.test(v))return null;
+    const n=Date.parse(v);return Number.isFinite(n)?n:null;
+  }
+  function number(v){if(v==null||v==='')return null;const n=Number(v);return Number.isFinite(n)&&n>=0?n:null;}
+  function officialURL(value,venue){
+    try{
+      const u=new URL(value);if(u.protocol!=='https:'||u.username||u.password||u.port)return null;
+      const rules={
+        Bybit:[['announcements.bybit.com'],/^\/[a-z-]+\/article\//i],
+        BingX:[['bingx.com','www.bingx.com'],/^\/[a-z-]+\/support\/articles\//i],
+        Binance:[['binance.com','www.binance.com'],/^\/[a-z-]+\/support\/announcement\/(?!list(?:\/|$))(?:detail\/)?[^/]+\/?$/i],
+        GeckoTerminal:[['www.geckoterminal.com','geckoterminal.com'],/^\/[a-z0-9-]+\/pools\/[a-z0-9]+$/i]
+      },r=rules[venue];
+      if(!r||!r[0].includes(u.hostname)||!r[1].test(u.pathname))return null;
+      u.search='';u.hash='';return u.href.replace(/\/$/,'');
+    }catch(_){return null;}
+  }
+  function kind(title,tags=[],venue=''){
+    const t=text(title,1000).toLowerCase();
+    if(/\bpre[- ]?(?:market|launch)\b/.test(t))return /\b(futures|perpetual)\b/.test(t)?'pre_derivative':/\bspot\b/.test(t)?'pre_spot':'prelaunch';
+    if(/\b(futures|perpetual|margin|delist|delisting)\b/.test(t))return null;
+    if(/\b(launchpool|launchpad|token generation|tge|airdrop)\b/.test(t))return 'prelaunch';
+    if(!/\b(listing|listings|listed|lists|will list|to list|adds?|new spot trading pairs)\b/.test(t))return null;
+    return /\bspot\b/.test(t)||tags.some(v=>/^spot(?: listings)?$/i.test(v))||venue==='Binance'&&/\bwill list\b/.test(t)?'spot':null;
+  }
+  function schedule(body){
+    // Only explicit trading-opening text + full year + exact UTC time.
+    // Publication, deposits and reward-event timestamps must never become opening time.
+    // Explicit UTC+0 is equivalent to UTC. Nonzero offsets are deliberately unsupported.
+    const t=text(body,60000).replace(/UTC\s*\+\s*0(?:0(?::00)?)?(?=[\s).,;]|$)/gi,'UTC').replace(/UTC\s*([+-])\s*/gi,'UTC$1'),patterns=[
+      /\b(?:spot )?trading (?:starts?|opens?|commences?|available)(?:\s+(?:at|on|from))?\s*:?\s*(\d{4}-\d{2}-\d{2})[ T,]+(\d{1,2}:\d{2})(?::(\d{2}))?\s*\(?UTC\)?/ig,
+      /\b(?:open|start|commence) (?:spot )?trading(?: for [^.;]{0,160}?)?(?: at| on| from)?\s+(\d{4}-\d{2}-\d{2})[ T,]+(\d{1,2}:\d{2})(?::(\d{2}))?\s*\(?UTC\)?/ig,
+      /\b(?:spot )?(?:listing|trading)(?: time)?\s*:\s*(\d{4}-\d{2}-\d{2})[ T,]+(\d{1,2}:\d{2})(?::(\d{2}))?\s*\(?UTC\)?/ig
+    ],found=[];
+    for(const re of patterns)for(const m of t.matchAll(re)){
+      if(/[+\-\d:]/.test(t.slice(m.index+m[0].length,m.index+m[0].length+1)))continue;
+      const iso=m[1]+'T'+m[2].padStart(5,'0')+':'+(m[3]||'00')+'Z',at=Date.parse(iso);
+      if(Number.isFinite(at)&&new Date(at).toISOString().slice(0,10)===m[1])found.push(at);
+    }
+    const months=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+    const named=/\b(?:listing|trading)(?: time)?\s*:\s*(?:opens? on\s+)?([A-Za-z]{3,9})\s+(\d{1,2}),?\s+(\d{4}),?\s+(\d{1,2}):(\d{2})\s*(AM|PM)?\s*\(?UTC\)?(?![+\-\d:])/ig;
+    for(const m of t.matchAll(named)){
+      const month=months.indexOf(m[1].slice(0,3).toLowerCase()),day=+m[2],year=+m[3],hour=+m[4],minute=+m[5],ap=m[6]?.toUpperCase();
+      if(month<0||day<1||day>31||minute>59||hour>(ap?12:23)||ap&&hour<1)continue;
+      const h=ap?hour%12+(ap==='PM'?12:0):hour,at=Date.UTC(year,month,day,h,minute);
+      if(new Date(at).getUTCMonth()===month)found.push(at);
+    }
+    const unique=[...new Set(found)];return {at:unique.length===1?unique[0]:null,conflict:unique.length>1};
+  }
+  function symbols(title){
+    const t=text(title,1000),out=[];
+    for(const m of t.matchAll(/\b([A-Z0-9]{1,20})\s*[/_-]\s*USDT\b/g))out.push(m[1]);
+    if(!out.length)for(const m of t.matchAll(/\(([A-Z0-9]{1,20})\)/g))out.push(m[1]);
+    return [...new Set(out.filter(s=>!['USDT','UTC','TGE','APR','APY','VIP','NFT','USD'].includes(s)))].slice(0,12);
+  }
+  function announcement(raw,venue,now){
+    const url=officialURL(raw.url,venue),title=text(raw.title,500),type=kind(title,raw.tags||[],venue);
+    if(!url||!title||!type)return [];
+    const body=text(raw.body||raw.description,60000),s=type==='spot'?schedule(body):{at:null,conflict:false};
+    const cancelled=/\b(cancelled|canceled|cancellation)\b/i.test(title+' '+body);
+    const postponed=/\b(postponed|postponement|delayed|delay of)\b/i.test(title+' '+body);
+    const tickers=symbols(title),publishedAt=stamp(raw.publishTime)||stamp(raw.publishedAt);
+    return (tickers.length?tickers:['']).map(symbol=>({
+      id:venue+'|'+url+'|'+symbol,venue,title,type,symbol,pair:symbol&&(!raw.body||new RegExp('\\b'+symbol+'\\s*[/_-]\\s*USDT\\b','i').test(body))?symbol+'USDT':null,url,
+      publishedAt:publishedAt&&publishedAt<=now?publishedAt:null,publishedDate:/^\d{4}-\d\d-\d\d$/.test(raw.publishedDate||'')?raw.publishedDate:null,scheduledAt:s.at,
+      scheduleConflict:s.conflict,notice:cancelled?'cancelled':postponed?'postponed':'announced',
+      checkedAt:now,firstSeenAt:now,source:'Official exchange announcement',detailsChecked:!!raw.body,detailsCheckedAt:raw.body?now:null,
+      chain:null,contract:null,market:null
+    }));
+  }
+  function bybit(data,now){
+    if(!data||data.retCode!==0||!Array.isArray(data.result&&data.result.list))throw Error('Bybit announcement response unavailable');
+    return data.result.list.flatMap(r=>announcement(r,'Bybit',now));
+  }
+  function pools(data,now){
+    if(!data||!Array.isArray(data.data))throw Error('New-pool response unavailable');
+    const included=new Map((data.included||[]).map(x=>[x.id,x.attributes||{}]));
+    return data.data.slice(0,60).flatMap(p=>{
+      const a=p.attributes||{},r=p.relationships||{},chain=r.network&&r.network.data&&r.network.data.id,
+        baseId=r.base_token&&r.base_token.data&&r.base_token.data.id,token=included.get(baseId)||{},
+        address=text(a.address,150),createdAt=stamp(a.pool_created_at);
+      if(!/^[a-z0-9-]+$/i.test(chain||'')||!/^[a-z0-9]+$/i.test(address)||!createdAt||createdAt>now||now-createdAt>7*DAY)return [];
+      const url=officialURL('https://www.geckoterminal.com/'+chain+'/pools/'+address,'GeckoTerminal');
+      return [{id:'dex|'+chain+'|'+address,venue:'GeckoTerminal',title:text(a.name,200),type:'dex',
+        symbol:text(token.symbol,40),pair:null,url,chain,contract:text(token.address,150)||null,pool:address,
+        createdAt,scheduledAt:null,publishedAt:null,firstSeenAt:now,checkedAt:now,notice:'observed',
+        source:'Provider-indexed DEX pool; token identity not independently verified',
+        liquidityUSD:number(a.reserve_in_usd),volume24hUSD:number(a.volume_usd&&a.volume_usd.h24),
+        marketCapUSD:number(a.market_cap_usd),fdvUSD:number(a.fdv_usd),market:null}];
+    });
+  }
+  function fresh(at,now,ttl=FRESH){return Number.isFinite(at)&&at<=now&&now-at<ttl;}
+  function state(row,now){
+    if(row.type==='dex')return fresh(row.checkedAt,now)?'Pool observed':'Stale pool data';
+    if(row.notice==='cancelled')return 'Cancelled';
+    if(row.notice==='postponed')return 'Postponed';
+    if(row.type!=='spot')return row.type==='pre_derivative'?'Pre-market derivatives':row.type==='pre_spot'?'Pre-market spot':'Pre-launch / distribution';
+    if(!fresh(row.checkedAt,now))return 'Source stale';
+    if(row.scheduleConflict)return 'Conflicting schedule';
+    if(row.scheduledAt>now)return 'Scheduled';
+    const m=row.market;
+    if(m&&m.venue===row.venue&&m.pair===row.pair&&m.tradable===true&&fresh(row.detailsCheckedAt,now)&&fresh(m.checkedAt,now)&&fresh(m.tradeAt,now,5*60000))return 'Live spot verified';
+    return row.scheduledAt?'Opening passed — verify live':'Announced — time unknown';
+  }
+  function matches(row,tab,now){
+    const s=state(row,now),age=Number.isFinite(row.scheduledAt)?now-row.scheduledAt:null;
+    if(tab==='upcoming')return row.type==='spot'&&s==='Scheduled';
+    if(tab==='live24'||tab==='live7')return s==='Live spot verified'&&age!=null&&age>=0&&age<(tab==='live24'?DAY:7*DAY);
+    if(tab==='pre')return ['prelaunch','pre_spot','pre_derivative'].includes(row.type);
+    if(tab==='dex')return row.type==='dex'&&Number.isFinite(row.createdAt)&&row.createdAt<=now&&now-row.createdAt<7*DAY;
+    return true;
+  }
+  function revision(r){return JSON.stringify([r.title,r.scheduledAt,r.notice,r.scheduleConflict]);}
+  function merge(previous,incoming,now,baseline=false){
+    const map=new Map((previous.rows||[]).filter(r=>r&&r.id&&officialURL(r.url,r.venue)).map(r=>[r.id,r]));
+    const alerts=(previous.alerts||[]).slice(),seen=new Set(alerts.map(a=>a.id));
+    function alert(row,kind,detail,key){
+      const id=row.id+'|'+kind+'|'+key;
+      if(seen.has(id))return;seen.add(id);alerts.push({id,eventId:row.id,at:now,kind,title:row.title,url:row.url,venue:row.venue,detail});
+    }
+    for(const row of incoming){
+      const old=map.get(row.id),next=Object.assign({},row,{firstSeenAt:old?old.firstSeenAt:now});
+      next.baselineAt=old?.baselineAt||((baseline||row.baseline)?now:null);
+      if(old&&!row.market)next.market=old.market;
+      if(!baseline&&!row.baseline){
+        const recentDate=!row.publishedAt&&row.publishedDate&&row.publishedDate>=new Date(now-2*DAY).toISOString().slice(0,10)&&row.publishedDate<=new Date(now+DAY).toISOString().slice(0,10);
+        if(!old&&row.type!=='dex'&&(fresh(row.publishedAt,now,2*DAY)||recentDate))alert(next,'Announcement','Newly observed official announcement; publication may be date-only. Not a buy signal.',row.publishedAt||row.publishedDate);
+        if(old&&revision(old)!==revision(next)&&(old.title!==next.title||old.notice!==next.notice||old.detailsChecked&&next.detailsChecked))alert(next,'Schedule / notice changed','Re-read the official source. Dates, title or status changed.',revision(next));
+        if(state(next,now)==='Live spot verified'&&(!old||!old.liveAlerted)&&(!next.baselineAt||next.scheduledAt>next.baselineAt))alert(next,'Spot live','Recent same-venue trade and active spot instrument observed; not order permission.',next.scheduledAt||next.firstSeenAt);
+      }
+      next.liveAlerted=!!(old&&old.liveAlerted)||state(next,now)==='Live spot verified';
+      map.set(row.id,next);
+    }
+    return {schema:VERSION,rows:[...map.values()].filter(r=>now-(r.firstSeenAt||now)<90*DAY).sort((a,b)=>(b.publishedAt||b.createdAt||b.firstSeenAt)-(a.publishedAt||a.createdAt||a.firstSeenAt)).slice(0,700),
+      alerts:alerts.slice(-150),updatedAt:now};
+  }
+  return {VERSION,DAY,FRESH,SOURCES,text,stamp,number,officialURL,kind,schedule,symbols,announcement,bybit,pools,fresh,state,matches,merge};
+});
+
+</script>
+<script data-bundled-source="new-listings.js">
+'use strict';
+var NewListings=(function(){
+  const C=ListingCore,KEY='new_listings_v1',SETTINGS='new_listings_settings_v1';
+  let data={schema:1,rows:[],alerts:[],health:[],updatedAt:null},settings={endpoint:'',auto:false,notify:false};
+  let tab='upcoming',query='',venue='',page=0,busy=false,message='',storageWarning='',timer=null,lastAttempt=0;
+  const tabs={upcoming:'Upcoming spot',live24:'Live <24H',live7:'Live <7D',pre:'Pre-launch',dex:'New DEX pools',all:'All / verify'};
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  function read(k,fallback){try{return JSON.parse(localStorage.getItem(k))||fallback;}catch(_){return fallback;}}
+  function save(){try{localStorage.setItem(KEY,JSON.stringify(data));localStorage.setItem(SETTINGS,JSON.stringify(settings));storageWarning='';}catch(_){storageWarning='Browser storage unavailable/full. Results are memory-only; export before closing.';}}
+  function load(){
+    const v=read(KEY,null);if(v&&v.schema===1&&Array.isArray(v.rows)&&Array.isArray(v.alerts))data=Object.assign(data,v,{rows:v.rows.filter(r=>r&&C.officialURL(r.url,r.venue)).slice(0,700),alerts:v.alerts.filter(a=>a&&C.officialURL(a.url,a.venue)).slice(-150),health:Array.isArray(v.health)?v.health:[]});
+    const s=read(SETTINGS,{});settings={endpoint:typeof s.endpoint==='string'?s.endpoint:'',auto:s.auto===true,notify:s.notify===true};
+  }
+  function time(v){if(!C.stamp(v))return 'Unknown';return new Date(v).toISOString().slice(0,16).replace('T',' ')+' UTC · '+new Date(v).toLocaleString();}
+  function age(v){if(!Number.isFinite(v))return 'not checked';const d=Date.now()-v;if(d<0)return 'clock mismatch';return Math.floor(d/60000)+'m ago';}
+  function money(v){return v==null?'Unknown':'$'+Number(v).toLocaleString(undefined,{maximumFractionDigits:0});}
+  function countdown(r){
+    if(r.notice==='cancelled'||r.notice==='postponed'||!r.scheduledAt)return '';
+    const d=r.scheduledAt-Date.now();if(d<=0)return 'Scheduled time passed; market evidence decides status.';
+    return 'Opens in '+Math.floor(d/3600000)+'h '+Math.floor(d%3600000/60000)+'m (scheduled, may change)';
+  }
+  function endpoint(value){
+    if(!value.trim())return '';
+    const u=new URL(value);
+    if(u.username||u.password||u.search||u.hash)throw Error('Use a service base URL without keys, queries or credentials.');
+    const loop=['localhost','127.0.0.1','[::1]'].includes(u.hostname);
+    if(u.protocol!=='https:'&&!(u.protocol==='http:'&&loop))throw Error('Use HTTPS for a remote service; HTTP is allowed only on localhost.');
+    if(location.protocol==='https:'&&u.protocol==='http:')throw Error('An HTTPS screener needs an HTTPS tracker endpoint. For local testing, open the screener over local HTTP.');
+    return u.href.replace(/\/$/,'');
+  }
+  async function json(url){
+    const controller=new AbortController(),id=setTimeout(()=>controller.abort(),15000);
+    try{
+      const r=await fetch(url,{signal:controller.signal,credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer'});
+      if(!r.ok)throw Error('HTTP '+r.status+(r.status===429?' — rate limited':''));
+      const body=await r.text();if(body.length>4000000)throw Error('Response too large');return JSON.parse(body);
+    }finally{clearTimeout(id);}
+  }
+  function safeMessage(e){return /HTTP \d{3}/.exec(e&&e.message||'')?.[0]||'Network/CORS/response unavailable';}
+  function notifyNew(oldIds){
+    if(!settings.notify||typeof Notification==='undefined'||Notification.permission!=='granted')return;
+    const list=data.alerts.filter(a=>!oldIds.has(a.id)&&C.fresh(a.at,Date.now(),10*60000));
+    if(!list.length)return;
+    try{new Notification('Coinscreener: '+list.length+' listing update'+(list.length>1?'s':''),{body:list.slice(-3).map(a=>a.kind+': '+a.title).join('\n').slice(0,400),tag:'coinscreener-listings'});}catch(_){}
+  }
+  async function refresh(){
+    if(busy)return;
+    if(Date.now()-lastAttempt<60000){message='Please wait one minute between checks. Source limits still apply.';paint();return;}
+    busy=true;lastAttempt=Date.now();message='Checking discovery sources…';paint();
+    const oldIds=new Set(data.alerts.map(a=>a.id)),hadBaseline=!!data.updatedAt;
+    try{
+      const url=endpoint(settings.endpoint);
+      if(url){
+        const v=await json(url+'/api/listings/v1');
+        if(v.schema!==1||!Array.isArray(v.rows)||!Array.isArray(v.health)||!Array.isArray(v.alerts)||!C.fresh(v.generatedAt,Date.now(),10*60000))throw Error('Tracker response is invalid or the server clock differs.');
+        data={schema:1,rows:v.rows.filter(r=>r&&C.officialURL(r.url,r.venue)).slice(0,700),
+          alerts:v.alerts.filter(a=>a&&C.officialURL(a.url,a.venue)).slice(-150),health:v.health,updatedAt:v.updatedAt,
+          serviceAt:v.generatedAt,mode:'service',cycleRunning:!!v.cycleRunning};
+        message='Tracker connected. Source timestamps below show actual collection health; connection alone is not fresh evidence.';
+      }else{
+        const now=Date.now(),incoming=[],health=[],previousHealth=data.health||[];
+        const jobs=[
+          ['Bybit','https://api.bybit.com/v5/announcements/index?locale=en-US&type=new_crypto&tag=Spot&limit=20',C.bybit,'Latest 20 spot-tagged announcements; browser mode does not verify trading or fetch full articles.'],
+          ['GeckoTerminal','https://api.geckoterminal.com/api/v2/networks/new_pools?include=base_token,network&page=1',C.pools,'Latest 20 pools only; not every new token or a security review.']
+        ];
+        await Promise.all(jobs.map(async([name,url,parse,scope])=>{
+          try{
+            const rows=parse(await json(url),now);
+            rows.forEach(r=>{if(!previousHealth.some(h=>h.name===name&&h.lastSuccess))r.baseline=true;});
+            incoming.push(...rows);health.push({name,status:'OK',checkedAt:now,lastSuccess:now,count:rows.length,scope});
+          }catch(e){const old=previousHealth.find(h=>h.name===name);health.push({name,status:'Unavailable',checkedAt:now,lastSuccess:old&&old.lastSuccess||null,scope,error:safeMessage(e)});}
+        }));
+        ['BingX','Binance'].forEach(name=>health.push({name,status:'Service required',checkedAt:null,lastSuccess:null,scope:'Official web announcements require the companion service. No public proxy is used.'}));
+        data=Object.assign(C.merge(data,incoming,now,!data.updatedAt),{health,mode:'browser'});
+        data.rows.forEach(r=>{r.market=null;});
+        message='Browser check finished. Missing sources are shown below; no live-spot verification is claimed in browser mode.';
+      }
+      save();if(hadBaseline)notifyNew(oldIds);
+    }catch(e){message='Refresh failed: '+(e.message&&/^(Use |An HTTPS|Tracker response)/.test(e.message)?e.message:safeMessage(e))+'. Previous observations kept; stale evidence is not current.';}
+    finally{busy=false;paint();}
+  }
+  function cards(rows){
+    if(!rows.length)return '<div class="nl-empty"><strong>No matching observations</strong><p>This is not proof that no listings exist. Check source coverage, refresh, or use All / verify for unknown dates and stale observations.</p></div>';
+    return rows.map(r=>{
+      const s=C.state(r,Date.now()),live=s==='Live spot verified',risk=/Cancelled|Postponed|derivatives|stale|Conflicting/i.test(s);
+      return '<article class="nl-card"><div class="nl-card-top"><span class="nl-venue">'+esc(r.venue)+'</span><span class="nl-state '+(live?'nl-live':risk?'nl-risk':'')+'">'+esc(s)+'</span></div>'+
+        '<h4><a target="_blank" rel="noopener noreferrer" href="'+esc(r.url)+'">'+esc(r.title)+'</a></h4>'+
+        '<p class="nl-identity">'+esc(r.type==='spot'&&r.pair?r.pair+' · spot candidate pair, verify source':r.symbol||'Ticker not resolved')+'</p>'+
+        (r.type==='dex'?'<p>Pool created: '+esc(time(r.createdAt))+'</p><p>'+esc(r.chain)+' · Token contract: '+esc(r.contract||'Unknown')+'</p><p>Pool: '+esc(r.pool)+'</p><p>Liquidity '+money(r.liquidityUSD)+' · Reported 24H volume '+money(r.volume24hUSD)+'</p><p>Market cap '+money(r.marketCapUSD)+' · FDV '+money(r.fdvUSD)+'</p>':
+          '<p>Published: '+esc(r.publishedAt?time(r.publishedAt):r.publishedDate?r.publishedDate+' · date only; timezone unknown':'Unknown')+'</p><p>Spot opening: '+esc(r.type==='spot'?time(r.scheduledAt):'Not established by this pre-launch notice')+'</p><p class="nl-countdown">'+esc(countdown(r))+'</p>')+
+        '<details data-nl-details="'+esc(r.id)+'"><summary>Evidence & limitations</summary><p>'+esc(r.source||'Provider observation')+'</p><p>First seen by tracker: '+esc(time(r.firstSeenAt))+'</p><p>Source checked: '+esc(time(r.checkedAt))+'</p>'+
+        (r.market?'<p>Market check: '+esc(r.market.reason||'')+' · '+esc(time(r.market.checkedAt))+'</p>':'<p>No same-venue trading verification yet.</p>')+'<p>Full article checked: '+esc(time(r.detailsCheckedAt))+'</p>'+
+        (r.type==='dex'?'<p>New pool does not mean new token. Contract identity, sellability, holder concentration and liquidity locks are not independently verified.</p>':
+          '<p>Exact opening time requires explicit UTC trading text; unsupported date formats stay Unknown. New to this exchange does not mean newly launched.</p>')+
+        '<p>Watch-only. No scanner score bonus, bot export or trade permission. Candle history and execution risk must be checked separately.</p></details></article>';
+    }).join('');
+  }
+  function paint(){
+    const root=document.getElementById('new-listings-root');if(!root)return;
+    const expanded=new Set([...root.querySelectorAll('details[open][data-nl-details]')].map(e=>e.dataset.nlDetails));
+    const now=Date.now(),filtered=data.rows.filter(r=>C.matches(r,tab,now)&&(!venue||r.venue===venue)&&(!query||(r.title+' '+r.symbol+' '+r.chain+' '+r.contract).toLowerCase().includes(query.toLowerCase())));
+    const maxPage=Math.max(0,Math.ceil(filtered.length/12)-1);page=Math.min(page,maxPage);
+    const counts=Object.fromEntries(Object.keys(tabs).map(k=>[k,data.rows.filter(r=>C.matches(r,k,now)).length]));
+    const health=(data.health||[]).map(h=>'<article><b>'+esc(h.name)+'</b><span class="'+(h.status==='OK'&&C.fresh(h.lastSuccess,now)?'nl-good':'nl-warning')+'">'+esc(['OK','Partial'].includes(h.status)&&!C.fresh(h.lastSuccess,now)?'Stale':h.status)+'</span><small>'+esc(h.scope||'')+'</small><small>Last success: '+esc(age(h.lastSuccess))+(h.error?' · '+esc(h.error):'')+'</small></article>').join('');
+    root.innerHTML='<header class="nl-heading"><div><h3>New Listings & Pre-Launch</h3><p>Independent discovery · outside Top-200 and row filters · watch-only</p></div><div class="nl-actions"><button class="btn" id="nl-refresh" '+(busy?'disabled':'')+'>'+(busy?'Checking…':'Check sources')+'</button><button class="btn" id="nl-export">Export observations</button></div></header>'+
+      '<nav class="nl-tabs" aria-label="Listing categories">'+Object.keys(tabs).map(k=>'<button class="btn '+(tab===k?'nl-selected':'')+'" data-nl-tab="'+k+'" aria-pressed="'+(tab===k)+'">'+tabs[k]+' <b>'+counts[k]+'</b></button>').join('')+'</nav>'+
+      '<div class="nl-filters"><label>Search coin / contract<input id="nl-search" value="'+esc(query)+'" placeholder="Name, ticker, address…"></label><label>Source<select id="nl-venue"><option value="">All sources</option>'+Object.keys(C.SOURCES).map(k=>'<option '+(venue===k?'selected':'')+'>'+k+'</option>').join('')+'</select></label><label class="nl-checkbox"><input type="checkbox" id="nl-auto" '+(settings.auto?'checked':'')+'> Auto-check while this tab is visible</label></div>'+
+      '<p id="nl-message" role="status">'+esc(message||'Click Check sources. Opening this panel does not call AI or use trading credentials.')+'</p>'+
+      (storageWarning?'<p class="nl-warning">'+esc(storageWarning)+'</p>':'')+
+      '<div class="nl-note">A new listing is not a buy signal. Pre-market derivatives are not spot coins. Live filters require a fresh same-venue trade and a known official opening time; age uses that scheduled opening, not a measured first trade. Unknown times remain in All / verify.</div>'+
+      '<div class="nl-health">'+(health||'<p>No source checks yet. No sample or invented listings are shown.</p>')+'</div>'+
+      '<p class="nl-meta">'+filtered.length+' matching observations · '+(data.mode==='service'?'Companion service':'Browser-only mode')+' · '+(data.updatedAt?'last cycle '+esc(age(data.updatedAt)):'not refreshed')+'</p>'+
+      '<div class="nl-results" id="nl-results">'+cards(filtered.slice(page*12,page*12+12))+'</div>'+
+      '<div class="nl-actions nl-pagination"><button class="btn" id="nl-prev" '+(!page?'disabled':'')+'>Previous</button><span>Page '+(page+1)+' / '+(maxPage+1)+'</span><button class="btn" id="nl-next" '+(page>=maxPage?'disabled':'')+'>Next</button></div>'+
+      '<details class="nl-settings" data-nl-details="settings"><summary>24/7 service, alerts & official sources</summary><p>Browser mode checks Bybit and a limited new-pool feed. BingX/Binance web parsing and live-spot checks use the companion service. This page cannot monitor while closed. No paid API or AI calls are automatic.</p>'+
+      '<label>Companion service base URL<input id="nl-endpoint" type="url" value="'+esc(settings.endpoint)+'" placeholder="https://your-tracker.example"></label><div class="nl-actions"><button class="btn" id="nl-connect">Save service URL</button><button class="btn" id="nl-notify">'+(settings.notify?'Disable desktop alerts':'Enable desktop alerts')+'</button></div>'+
+      '<p>Alerts are opt-in and delivered only while this page runs. The service saves an alert log while the page is closed; remote push delivery is not included. Initial results establish a baseline without old-alert flooding. Service must be deployed separately; see the included README.</p>'+
+      '<div class="nl-actions">'+Object.entries(C.SOURCES).map(([k,v])=>'<a href="'+esc(v)+'" target="_blank" rel="noopener noreferrer">'+esc(k)+' official source ↗</a>').join('')+'</div></details>'+
+      '<details class="nl-settings" data-nl-details="alerts"><summary>Listing change log ('+data.alerts.length+')</summary>'+
+      (data.alerts.slice(-25).reverse().map(a=>'<p><b>'+esc(a.kind)+'</b> · '+esc(time(a.at))+'<br><a target="_blank" rel="noopener noreferrer" href="'+esc(a.url)+'">'+esc(a.title)+'</a><br>'+esc(a.detail)+'</p>').join('')||'<p>No new changes recorded after the initial baseline.</p>')+'</details>';
+    root.querySelectorAll('[data-nl-details]').forEach(e=>{e.open=expanded.has(e.dataset.nlDetails);});
+    root.querySelectorAll('[data-nl-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.nlTab;page=0;paint();});
+    root.querySelector('#nl-refresh').onclick=refresh;
+    root.querySelector('#nl-search').oninput=e=>{const pos=e.target.selectionStart;query=e.target.value;page=0;paint();const input=root.querySelector('#nl-search');input.focus();input.setSelectionRange(pos,pos);};
+    root.querySelector('#nl-venue').onchange=e=>{venue=e.target.value;page=0;paint();};
+    root.querySelector('#nl-auto').onchange=e=>{settings.auto=e.target.checked;save();};
+    root.querySelector('#nl-prev').onclick=()=>{page--;paint();};root.querySelector('#nl-next').onclick=()=>{page++;paint();};
+    root.querySelector('#nl-connect').onclick=()=>{try{settings.endpoint=endpoint(root.querySelector('#nl-endpoint').value);save();message='Service URL saved. Click Check sources to connect.';}catch(e){message=e.message;}paint();};
+    root.querySelector('#nl-notify').onclick=async()=>{
+      if(settings.notify)settings.notify=false;
+      else if(typeof Notification!=='undefined')settings.notify=(await Notification.requestPermission())==='granted';
+      message=settings.notify?'Desktop alerts enabled while the page is running.':'Desktop alerts off or permission unavailable.';save();paint();
+    };
+    root.querySelector('#nl-export').onclick=()=>{
+      const blob=new Blob([JSON.stringify({purpose:'listing-observations-not-orders',exportedAt:Date.now(),...data},null,2)],{type:'application/json'});
+      const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='listing-observations-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    };
+  }
+  function open(){paint();if(!timer)timer=setInterval(()=>{if(document.hidden||!document.getElementById('ip-listings')?.classList.contains('active'))return;if(settings.auto&&Date.now()-lastAttempt>=180000)refresh();else if(!busy&&!document.activeElement?.matches('#new-listings-root input,#new-listings-root select'))paint();},30000);}
+  load();return {open,refresh,paint,endpoint};
 })();
 
 </script>
